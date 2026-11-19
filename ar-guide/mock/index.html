@@ -83,6 +83,15 @@
   .row .m { margin-left: auto; flex: none; font: 600 12px var(--en); color: var(--sub); }
   .empty { padding: 16px; font-size: 13px; color: var(--sub); }
 
+  /* ---------- 絞り込み（Labeling.filtering） ---------- */
+  .chips { display: flex; gap: 8px; margin-top: 8px; }
+  .chip {
+    height: 32px; padding: 0 14px; border-radius: 16px; font-size: 13px; font-weight: 700;
+    background: var(--panel); border: 1px solid var(--line); color: var(--sub);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  }
+  .chip[aria-pressed="true"] { background: var(--lilac); border-color: var(--lilac); color: var(--ink); }
+
   /* ---------- 地図の操作ボタン ---------- */
   .ctrl { position: absolute; right: 16px; z-index: 4; display: flex; flex-direction: column; gap: 8px; transition: bottom 0.25s; }
   .ctrl button {
@@ -114,7 +123,31 @@
     flex: 1; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px;
     background: var(--yel); color: var(--ink); font-size: 15px; font-weight: 800; text-decoration: none;
   }
+  .card .tags { display: flex; gap: 8px; margin-top: 10px; }
+  .tagbtn { height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 13px; font-weight: 700; color: var(--sub); }
+  .tagbtn[aria-pressed="true"] { background: rgba(167,139,250,.22); border-color: var(--lilac); color: var(--text); }
   .card .close { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; border: 1px solid var(--line); color: var(--sub); }
+
+  /* ---------- スタンプ ---------- */
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; max-height: 72%; overflow-y: auto;
+    padding: 16px 16px 20px; background: var(--panel-solid); border-top: 1px solid var(--line); border-radius: 18px 18px 0 0;
+  }
+  .sheet[hidden] { display: none; }
+  .sheet h3 { font-size: 15px; font-weight: 800; }
+  .sheet .note { margin-top: 4px; font-size: 12px; color: var(--sub); line-height: 1.45; }
+  .kinds { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+  .kind { height: 44px; border-radius: 10px; border: 1px solid var(--line); font-size: 13px; font-weight: 700; }
+  .kind:active { background: rgba(167,139,250,.2); }
+  .sheet h4 { margin: 16px 0 6px; font-size: 12px; font-weight: 700; color: var(--sub); }
+  .stl { list-style: none; border: 1px solid var(--line); border-radius: 12px; }
+  .stl li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-size: 13px; }
+  .stl li + li { border-top: 1px solid var(--line); }
+  .stl .k { font-weight: 800; }
+  .stl .a { margin-left: auto; color: var(--sub); font: 600 12px var(--en); }
+  .stl button { height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); font-size: 12px; color: var(--sub); }
+  .toast { position: absolute; left: 50%; top: 130px; z-index: 9; transform: translateX(-50%); padding: 8px 14px; border-radius: 10px; background: var(--panel-solid); border: 1px solid var(--line); font-size: 13px; font-weight: 700; }
+  .toast[hidden] { display: none; }
 
   /* ---------- 企画一覧（左タブ） ---------- */
   .list {
@@ -158,10 +191,17 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
         </button>
       </label>
+      <div class="chips" id="chips" role="group" aria-label="絞り込み">
+        <button class="chip" type="button" data-f="fav" aria-pressed="false">お気に入り</button>
+        <button class="chip" type="button" data-f="want" aria-pressed="false">行きたい</button>
+      </div>
       <ul class="results" id="results" hidden></ul>
     </header>
 
     <div class="ctrl" id="ctrl">
+      <button id="stampBtn" type="button" aria-label="スタンプ">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f4f0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6v6l3 3v2H6v-2l3-3z"/><path d="M5 20h14"/></svg>
+      </button>
       <button id="compass" type="button" aria-label="向きを戻す">
         <svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 3 15 12H9z" fill="#ff6b6b"/><path d="M12 21 9 12h6z" fill="#b4a9cf"/></svg>
       </button>
@@ -179,6 +219,10 @@
         </div>
         <div class="dist"><b id="cDist"></b><span id="cTime"></span></div>
       </div>
+      <div class="tags">
+        <button class="tagbtn" id="tFav" type="button" aria-pressed="false">お気に入り</button>
+        <button class="tagbtn" id="tWant" type="button" aria-pressed="false">行きたい</button>
+      </div>
       <div class="act">
         <a class="go" id="cGo" href="../index.html">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>
@@ -191,6 +235,15 @@
     </section>
 
     <section class="list" id="list" hidden></section>
+
+    <section class="sheet" id="sheet" hidden aria-label="スタンプ">
+      <h3>足元にスタンプを押す</h3>
+      <p class="note" id="sNote"></p>
+      <div class="kinds" id="kinds"></div>
+      <h4>見えているスタンプ</h4>
+      <ul class="stl" id="stl"></ul>
+    </section>
+    <p class="toast" id="toast" hidden></p>
   </main>
 
   <nav class="tabs" aria-label="画面の切り替え">
@@ -238,6 +291,35 @@ const pois = eData.pois.map((p) => {
   return o;
 });
 const items = pois.flatMap((poi) => poi.events.map((ev) => ({ poi, ev })));
+
+// ---------- 自分用タグと絞り込み（Labeling）。保存先は端末内（来場者の識別方法は OQ-12） ----------
+const store = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+const TAGS = { fav: 'お気に入り', want: '行きたい' };
+const tags = store.get('nasvi.tags', { fav: [], want: [] });   // 値は「場所 id:企画の番号」の配列
+const itemKey = (poi, ev) => `${poi.id}:${poi.events.indexOf(ev)}`;
+const hasTag = (t, poi, ev) => tags[t].includes(itemKey(poi, ev));
+let filtering = null;   // null(絞り込みなし) | 'fav' | 'want'
+const itemShown = (poi, ev) => !filtering || hasTag(filtering, poi, ev);
+const poiShown = (poi) => poi.events.some((ev) => itemShown(poi, ev));
+
+// ---------- スタンプ（Stamp）。他の来場者の分は模擬データ。共有の保存先は未決(OQ-12) ----------
+const KINDS = ['混雑1', '混雑2', '混雑3', '混雑4', '混雑5', '面白い', '美味しい', 'よさ'];   // 種類は OQ-4
+const STALE_MIN = 30;   // 混雑スタンプを古いとみなす時間(仮置き。OQ-4)
+const isCong = (k) => k.startsWith('混雑');
+const now = () => Date.now();
+const stamps = [
+  { id: 's1', kind: '混雑4', xy: [-30, 20], at: now() - 6 * 60e3, mine: false },
+  { id: 's2', kind: '美味しい', xy: [40, -10], at: now() - 14 * 60e3, mine: false },
+  { id: 's3', kind: '混雑2', xy: [10, 60], at: now() - 50 * 60e3, mine: false },   // 古い混雑スタンプ(表示しない)
+  { id: 's4', kind: '面白い', xy: [-60, -40], at: now() - 50 * 60e3, mine: false },
+  ...store.get('nasvi.stamps', []).map((x) => ({ ...x, mine: true })),
+];
+const stampVisible = (st) => !isCong(st.kind) || now() - st.at <= STALE_MIN * 60e3;
+const ago = (t) => { const m = Math.max(0, Math.round((now() - t) / 60e3)); return m < 1 ? 'たった今' : `${m} 分前`; };
+const saveStamps = () => store.set('nasvi.stamps', stamps.filter((x) => x.mine).map(({ id, kind, xy, at }) => ({ id, kind, xy, at })));
 
 // ---------- 経路探索（3m 格子の A*。pv.js と同一の方式） ----------
 const inPoly = (x, y, pts) => {
@@ -384,7 +466,7 @@ function draw(t) {
   const list = blds.map((b) => ({ b, d: project(b.c[0], b.c[1])[2] })).sort((a, b) => b.d - a.d);
   const lw = clamp(view.k * 0.45, 0.6, 1.3);
   for (const { b } of list) {
-    const isDest = b === destB, isP = !!b.poi;
+    const isDest = b === destB, isP = !!b.poi && poiShown(b.poi);
     const base = b.pts.map(([x, y]) => project(x, y)), top = b.pts.map(([x, y]) => project(x, y, b.hgt));
     b.top = top;
     ctx.lineWidth = lw;
@@ -403,7 +485,7 @@ function draw(t) {
 
   // 屋外の企画（地面の円）
   for (const p of pois) {
-    if (p.b) continue;
+    if (p.b || !poiShown(p)) continue;
     const [x, y] = project(p.xy[0], p.xy[1]), r = Math.max(4, view.k * 4);
     const on = state.dest?.poi === p;
     ctx.beginPath(); ctx.ellipse(x, y, r * 1.8, r * 1.8 * TILT, 0, 0, 7);
@@ -420,6 +502,7 @@ function draw(t) {
     ctx.beginPath(); ctx.ellipse(x, y, r, r * TILT, 0, 0, 7); ctx.stroke();
   }
 
+  drawStamps();
   drawLabels();
   drawMe(t);
   updateCompass();
@@ -434,9 +517,11 @@ function drawLabels() {
   ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
   for (const p of order) {
     const isDest = p === state.dest?.poi;
+    if (!isDest && !poiShown(p)) continue;
     if (!isDest && view.k < 1.25) continue;
-    const ev = isDest ? state.dest.ev : p.events[0];
-    const more = !isDest && p.events.length > 1 ? ` +${p.events.length - 1}` : '';
+    const shown = p.events.filter((e) => itemShown(p, e));
+    const ev = isDest ? state.dest.ev : shown[0];
+    const more = !isDest && shown.length > 1 ? ` +${shown.length - 1}` : '';
     const label = ev.title + more;
     ctx.font = `700 ${isDest ? 13 : 11}px ${JP}`;
     const tw = ctx.measureText(label).width + (isDest ? 20 : 14), th = isDest ? 26 : 22;
@@ -450,6 +535,22 @@ function drawLabels() {
     ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 6);
     ctx.fillStyle = isDest ? C.yel : 'rgba(244,240,255,.94)'; ctx.fill();
     ctx.fillStyle = C.ink; ctx.fillText(label, x, r.y + r.h / 2 + 0.5);
+  }
+  ctx.restore();
+}
+
+// 足元のスタンプ（見えるものだけ。混雑は色の濃さで段階を示す）
+function drawStamps() {
+  ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.font = `800 11px ${JP}`;
+  for (const st of stamps) {
+    if (!stampVisible(st)) continue;
+    const [x, y] = project(st.xy[0], st.xy[1]);
+    const label = isCong(st.kind) ? `混${st.kind.slice(2)}` : st.kind;
+    const w = ctx.measureText(label).width + 12;
+    ctx.beginPath(); ctx.ellipse(x, y, 7, 7 * TILT, 0, 0, 7); ctx.fillStyle = st.mine ? C.yel : C.lilac; ctx.fill();
+    ctx.beginPath(); ctx.roundRect(x - w / 2, y - 30, w, 18, 9);
+    ctx.fillStyle = st.mine ? C.yel : 'rgba(167,139,250,.95)'; ctx.fill();
+    ctx.fillStyle = C.ink; ctx.fillText(label, x, y - 20.5);
   }
   ctx.restore();
 }
@@ -486,6 +587,7 @@ function select(poi, ev) {
   const m = Math.round(state.route.len / 5) * 5;
   $('cDist').innerHTML = `${m}<small>m</small>`;
   $('cTime').textContent = `徒歩 ${Math.max(1, Math.round(state.route.len / 75))} 分`;
+  syncTagButtons();
   $('card').classList.remove('off');
   setArLinks();
   showTab('map');
@@ -528,7 +630,7 @@ function rowHTML({ poi, ev }, i, inList = false) {
 function renderResults() {
   const q = norm($('q').value.trim());
   $('clear').hidden = !$('q').value;
-  const hits = items.map((it, i) => ({ it, i })).filter(({ it }) => !q || norm(`${it.ev.title} ${it.poi.name} ${it.ev.desc || ''}`).includes(q));
+  const hits = items.map((it, i) => ({ it, i })).filter(({ it }) => itemShown(it.poi, it.ev)).filter(({ it }) => !q || norm(`${it.ev.title} ${it.poi.name} ${it.ev.desc || ''}`).includes(q));
   $('results').innerHTML = hits.length ? hits.slice(0, 30).map(({ it, i }) => rowHTML(it, i)).join('') : '<li class="empty">該当する企画がありません</li>';
   $('results').hidden = false;
 }
@@ -543,7 +645,11 @@ document.addEventListener('click', (e) => {
 $('cClose').addEventListener('click', clearDest);
 
 // ---------- 企画一覧（左タブ） ----------
-$('list').innerHTML = pois.map((poi) => `<h3>${poi.name}</h3><ul>${poi.events.map((ev) => rowHTML({ poi, ev }, items.findIndex((x) => x.ev === ev), true)).join('')}</ul>`).join('');
+function renderList() {
+  const html = pois.filter(poiShown).map((poi) => `<h3>${poi.name}</h3><ul>${poi.events.filter((ev) => itemShown(poi, ev)).map((ev) => rowHTML({ poi, ev }, items.findIndex((x) => x.ev === ev), true)).join('')}</ul>`).join('');
+  $('list').innerHTML = html || '<p class="empty">該当する企画がありません</p>';
+}
+renderList();
 function showTab(name) {
   $('list').hidden = name !== 'list';
   $('tabList').toggleAttribute('aria-current', name === 'list');
@@ -611,18 +717,64 @@ cv.addEventListener('wheel', (e) => { e.preventDefault(); zoomAt(e.offsetX, e.of
 // タップした企画（吹き出し → 建物の屋上 → 屋外の円の順に判定）
 function tap(x, y) {
   const lab = labelHits.find(({ r }) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
-  if (lab) return select(lab.p, lab.p.events[0]);
+  if (lab) return select(lab.p, lab.p.events.find((e) => itemShown(lab.p, e)) || lab.p.events[0]);
   const front = blds.filter((b) => b.top).map((b) => ({ b, d: project(b.c[0], b.c[1])[2] })).sort((a, b) => a.d - b.d);
   for (const { b } of front) {
     const path = new Path2D(); b.top.forEach(([px, py], i) => (i ? path.lineTo(px, py) : path.moveTo(px, py))); path.closePath();
-    if (ctx.isPointInPath(path, x * dpr, y * dpr)) { if (b.poi) select(b.poi, b.poi.events[0]); return; }
+    if (ctx.isPointInPath(path, x * dpr, y * dpr)) { if (b.poi && poiShown(b.poi)) select(b.poi, b.poi.events.find((e) => itemShown(b.poi, e))); return; }
   }
   for (const p of pois) {
-    if (p.b) continue;
+    if (p.b || !poiShown(p)) continue;
     const [px, py] = project(p.xy[0], p.xy[1]);
-    if (Math.hypot(px - x, (py - y) / TILT) < 22) return select(p, p.events[0]);
+    if (Math.hypot(px - x, (py - y) / TILT) < 22) return select(p, p.events.find((e) => itemShown(p, e)));
   }
 }
+
+// ---------- 絞り込みとタグの操作 ----------
+function syncTagButtons() {
+  const d = state.dest;
+  $('tFav').setAttribute('aria-pressed', String(!!d && hasTag('fav', d.poi, d.ev)));
+  $('tWant').setAttribute('aria-pressed', String(!!d && hasTag('want', d.poi, d.ev)));
+}
+function toggleTag(t) {
+  const d = state.dest; if (!d) return;
+  const k = itemKey(d.poi, d.ev), i = tags[t].indexOf(k);
+  if (i < 0) tags[t].push(k); else tags[t].splice(i, 1);
+  store.set('nasvi.tags', tags); syncTagButtons(); renderList();
+}
+$('tFav').addEventListener('click', () => toggleTag('fav'));
+$('tWant').addEventListener('click', () => toggleTag('want'));
+$('chips').addEventListener('click', (e) => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  filtering = filtering === b.dataset.f ? null : b.dataset.f;   // Labeling.filter / clearFilter
+  for (const c of $('chips').children) c.setAttribute('aria-pressed', String(c.dataset.f === filtering));
+  if (state.dest && !itemShown(state.dest.poi, state.dest.ev)) clearDest();
+  renderList(); if (!$('results').hidden) renderResults();
+});
+
+// ---------- スタンプの操作 ----------
+let toastT = 0;
+function toast(msg) { $('toast').textContent = msg; $('toast').hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { $('toast').hidden = true; }, 2200); }
+const POS_OK = true;   // 現在地が取れている想定(模擬)。取れない場合の見せ方は OQ-2
+function renderSheet() {
+  $('sNote').textContent = POS_OK ? 'いまいる地点に押されます。混雑は 30 分たつと他の人には見えなくなります。' : '現在地が取れていないため押せません。位置の利用を許可してください。';
+  $('kinds').innerHTML = KINDS.map((k) => `<button class="kind" type="button" data-k="${k}" ${POS_OK ? '' : 'disabled'}>${k}</button>`).join('');
+  const vis = stamps.filter(stampVisible).sort((a, b) => b.at - a.at);
+  $('stl').innerHTML = vis.map((st) => `<li><span class="k">${st.kind}</span><span class="a">${ago(st.at)}${st.mine ? ' ・ 自分' : ''}</span>${st.mine ? `<button type="button" data-r="${st.id}">取り消す</button>` : ''}</li>`).join('') || '<li>見えるスタンプはありません</li>';
+}
+$('stampBtn').addEventListener('click', () => { renderSheet(); $('sheet').hidden = !$('sheet').hidden; });
+$('sheet').addEventListener('click', (e) => {
+  const k = e.target.closest('.kind'), r = e.target.closest('[data-r]');
+  if (k && POS_OK) {   // Stamp.press（現在地は模擬の (0,0)）
+    stamps.push({ id: `m${now()}`, kind: k.dataset.k, xy: [0, 0], at: now(), mine: true });
+    saveStamps(); renderSheet(); toast(`${k.dataset.k} を押しました`);
+  }
+  if (r) {   // Stamp.retract（押した本人だけ）
+    const i = stamps.findIndex((x) => x.id === r.dataset.r && x.mine);
+    if (i >= 0) { stamps.splice(i, 1); saveStamps(); renderSheet(); }
+  }
+});
+cv.addEventListener('pointerdown', () => { $('sheet').hidden = true; });
 
 $('compass').addEventListener('click', () => { goal.th = TH0; });
 $('locate').addEventListener('click', () => { goal.fx = 0; goal.fy = 0; goal.k = W / 180; goal.th = TH0; goal.cy = defaultCy(); });
