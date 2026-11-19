@@ -2,6 +2,8 @@
 # 規則: 概念の仕様(purpose / principle / state / actions)に、他の概念の名前・UI の語・技術の名前を書かない。
 #       概念どうしのつながりは、すべて syncs に書く。notes は検査の対象外。
 # 「OQ-n」は open-questions.yaml の未決事項への参照。
+# 2026-11-19: Notion「NAsVI の概念設計」の最新版(r1〜r4)を反映した。前の案からの変更は decisions.yaml の D-005〜D-011 と、
+#             doc/concept-design.md の 7 章を参照。
 status: draft   # 案 A のみ。分割・統合の別案は decisions.yaml に論点として残す
 
 concepts:
@@ -9,16 +11,17 @@ concepts:
     params: []
     purpose: 運営が登録した場所(企画、駐車場)を、来場者がどんな場所があるかとして知れる
     principle: >-
-      運営が場所の名前・種別・位置・説明を登録しておくと、来場者はその場所の一覧と個々の情報を見られる。
+      運営が場所の名前・種別・位置・説明を登録すると、来場者は登録された場所の一覧を見られ、
+      1 つを選ぶと、その名前・位置・説明が分かる。運営が場所を取り除くと、一覧から消える。
     state: |
       places: set Place
-      name: Place -> String
-      kind: Place -> {企画, 駐車場}
-      location: Place -> Point
-      description: Place -> String
+      name: Place -> one String
+      kind: Place -> one Kind          // Kind = {企画, 駐車場}
+      location: Place -> one Point
+      description: Place -> one String
     actions:
       - name: register
-        requires: location が与えられている
+        requires: なし
         effects: 新しい Place を作り、name・kind・location・description を設定して返す
       - name: update
         requires: place が places に含まれる
@@ -26,201 +29,223 @@ concepts:
       - name: remove
         requires: place が places に含まれる
         effects: place を places から取り除く
-      - name: get
-        requires: place が places に含まれる
-        effects: その place の属性を返す
-      - name: list
-        requires: なし
-        effects: places 全体を返す
     notes: >-
+      一覧と個々の情報を見るのは状態の読み取りで、同期の where が行う(getter は持たない)。
       kind は場所の性質の違い(企画と駐車場)で、Labeling の種類(飲食、展示)とは別(OQ-3)。
-      Place は汎化の余地がある(Directory [Item] など)。P1 では汎化しない。
+      Point と列挙(Kind)は基本の型として扱う(推論)。
 
   - name: Search
     params: [Item]
     purpose: 来場者が、名前の一部から目当ての項目を見つける
     principle: >-
-      項目に検索用の文字列を登録しておくと、来場者がキーワードで問い合わせたとき、
-      文字列にキーワードを含む項目が返る。
+      項目と、その検索用の文字列を登録する。来場者がキーワードで探すと、文字列にキーワードを含む項目が見つかり、
+      含まない項目は見つからない。登録を外した項目は、見つからなくなる。
     state: |
-      text: Item -> String
+      indexed: set Item
+      text: Item -> one String
     actions:
       - name: index
         requires: なし
-        effects: item の検索用文字列を text に設定する(既にあれば置き換える)
+        effects: item を indexed に加え、検索用文字列を text に設定する(既にあれば置き換える)
       - name: unindex
-        requires: item が text に含まれる
-        effects: item を text から取り除く
-      - name: query
-        requires: keyword が空でない
-        effects: text にキーワードを含む item の集合を返す。一致が無ければ空集合を返す
-    notes: 検索対象を名前だけにするか、説明や種別も含めるかは同期(index に渡す文字列)で決まる。概念は変えない。
+        requires: item が indexed に含まれる
+        effects: item を indexed と text から取り除く
+    notes: >-
+      「文字列にキーワードを含む項目」を求める計算は、同期の where が行う。
+      最低要件は、店舗名の部分一致検索のみ。検索に使う文字列(名前だけか、説明やタグも含むか)は、index に渡す値で決まる。
+      Laya(自然言語から曖昧検索できる小規模言語モデル)は拡張で、外部の計算として同期の where から呼ぶ。概念は変えない(OQ-8)。
 
   - name: Labeling
-    params: [Item, Label]
-    purpose: 来場者が、項目を種類で絞って選べる
+    params: [User, Item]
+    purpose: 来場者が、項目を種類や自分用のタグで絞って選べる
     principle: >-
-      運営が種類を定め、項目に種類を付けておくと、来場者が種類を選んだとき、その種類の項目が返る。
+      運営が種類「飲食」を定めて項目に付ける。来場者が種類「飲食」で絞ると、その種類が付いた項目だけが見える。
+      来場者は、自分用のタグ「お気に入り」「行きたい」を作って項目に付けられ、そのタグで絞ると、自分が付けた項目だけが見える。
+      他の来場者のタグは見えない。タグを外すか、絞り込みを解除すると、元の見え方に戻る。
     state: |
       labels: set Label
+      title: Label -> one String
+      owner: Label -> lone User         // 自分用タグの持ち主。無ければ、運営の種類
       labeled: Item -> set Label
+      filtering: User -> set Label      // 絞り込みステータス(来場者ごとの、いまの絞り込み)
     actions:
       - name: define
-        requires: label が labels に含まれない
-        effects: label を labels に加える
+        requires: なし
+        effects: 新しい Label を作り、title を設定して labels に加えて返す(owner は無い)
+      - name: defineFor
+        requires: なし
+        effects: 新しい Label を作り、title と owner(u)を設定して labels に加えて返す
+      - name: undefine
+        requires: label が labels に含まれ、どの item にも label が付いていない
+        effects: label を labels から取り除く
       - name: attach
-        requires: label が labels に含まれる
+        requires: label が labels に含まれ、label に owner が無いか、owner が u である
         effects: item に label を付ける
       - name: detach
-        requires: item に label が付いている
+        requires: item に label が付いていて、label に owner が無いか、owner が u である
         effects: item から label を外す
       - name: release
         requires: なし
         effects: item に付いている label をすべて外す
-      - name: itemsWith
-        requires: label が labels に含まれる
-        effects: label が付いた item の集合を返す
-    notes: F4(optional)専用。F4 を外せばこの概念ごと要らなくなる(decisions D-001)。
+      - name: applyFilter
+        requires: label が labels に含まれ、label に owner が無いか、owner が u である
+        effects: u の filtering に label を加える
+      - name: clearFilter
+        requires: なし
+        effects: u の filtering を空にする
+    notes: >-
+      F4(optional)用。F4 を外せばこの概念ごと要らなくなる(decisions D-001)。
+      来場者の自分用タグと絞り込みステータスは、目的が同じ(項目をタグで絞って選ぶ)ので、この概念に含めた(decisions D-007)。
+      絞り込みに合う場所だけを返す計算は、同期 show-places の where が行う。undefine した Label が filtering に残る場合の扱いは未確認。
 
   - name: Position
-    params: []
+    params: [User]
     purpose: 来場者が、自分がいま会場のどこにいるかを知る
     principle: >-
-      来場者が位置の利用を許可すると、端末から得た位置が現在地として保たれ、更新される。
+      来場者が位置の利用を許可すると、端末の報告に合わせて、自分の現在地だけが見える。他の来場者の現在地は見えない。
+      現在地には報告の時刻と精度が付く。新しい報告は前の現在地を置き換える。消すと、現在地は見えなくなる。
     state: |
-      permission: {未確認, 許可, 拒否}
-      current: Point?
-      accuracy: Number?
-      takenAt: Time?
+      allowed: set User
+      refused: set User
+      at: User -> lone Point
+      accuracy: User -> lone Number
+      takenAt: User -> lone Time
     actions:
-      - name: request
-        requires: permission が 拒否 でない
-        effects: 位置の利用を求める。許可されれば permission を 許可 にする。拒否されれば 拒否 にする
+      - name: allow
+        requires: u が refused に含まれない
+        effects: u を allowed に加える
+      - name: refuse
+        requires: なし
+        effects: u を refused に加え、allowed から取り除く
       - name: update
-        system: true
-        requires: permission が 許可
-        effects: 端末から得た位置・精度・時刻で current・accuracy・takenAt を更新する
+        requires: u が allowed に含まれる
+        effects: u の at・accuracy・takenAt を、与えられた位置・精度・時刻に更新する
       - name: setManually
-        requires: point が与えられている
-        effects: current を point にし、accuracy を空にする(OQ-2)
+        requires: なし
+        effects: u の at を与えられた位置にし、accuracy を空にする(OQ-2)
       - name: clear
         requires: なし
-        effects: current・accuracy・takenAt を空にする
-    notes: 利用者ごとの状態で、他の利用者と共有しない。
+        effects: u の at・accuracy・takenAt を空にする
+    notes: >-
+      端末に位置を求める出来事は、状態を変えない概念の外の出来事なので、アクションにしない。許可と拒否の結果が allow と refuse になる。
+      端末が位置を報告する出来事は、外からの要求のアクションとして、同期が update につなぐ。
 
   - name: Destination
-    params: [Item]
-    purpose: 来場者が、向かう先を 1 つ決めて保つ
+    params: [User, Item]
+    purpose: 来場者が、向かう先を 1 つ決めて、そこへの道案内を受けられる
     principle: >-
-      来場者が項目を 1 つ選ぶと、それが行き先として保たれ、選び直すか解除するまで変わらない。
+      来場者が項目を 1 つ選ぶと、それが行き先として保たれる。現在地が変わるたびに、行き先への方角と距離が更新され、
+      来場者はそれを見て向かえる。選び直すか解除するまで行き先は変わらず、解除すると道案内も無くなる。
     state: |
-      chosen: Item?
+      chosen: User -> lone Item
+      heading: User -> lone Number     // 行き先への方角
+      remaining: User -> lone Number   // 行き先までの距離
+      guidedAt: User -> lone Time      // 道案内を更新した時刻
     actions:
       - name: choose
         requires: なし
-        effects: chosen を item にする(既にあれば置き換える)
+        effects: u の chosen を item にする(既にあれば置き換える)。道案内(heading・remaining・guidedAt)は空になる
+      - name: updateGuide
+        requires: u に chosen がある
+        effects: u の heading・remaining・guidedAt を、与えられた方角・距離・時刻に更新する
       - name: clear
-        requires: chosen が空でない
-        effects: chosen を空にする
-      - name: current
-        requires: なし
-        effects: chosen を返す(空なら空を返す)
+        requires: u に chosen がある
+        effects: u の chosen・heading・remaining・guidedAt を空にする
     notes: >-
-      経路(現在地と行き先を結ぶ直線)は状態を持たない計算なので、概念にしない(decisions D-003)。
-      Position.current と Destination.chosen の Place.location から、画面が方向と距離を導く。
+      道案内を含めた(decisions D-005)。方角と距離の計算は状態を必要としないので、同期が行い、結果をこの概念が保つ。
+      現在地を概念の中で参照しない(独立性)ので、現在地は同期が渡す。道なりの経路は扱わない(decisions D-003)。
 
-  - name: Congestion
-    params: [Item]
-    purpose: 来場者が、混んでいる場所を避けられる
+  - name: Stamp
+    params: [User]
+    purpose: 来場者が、足元にスタンプを押して、混雑や場所の良さを共有し、他の来場者が見て場所を選べる
     principle: >-
-      誰かが項目の混み具合を報告すると、来場者はその項目の最新の混雑と、報告からの経過を見られる。
-      古くなった報告は、混雑が不明に戻る。
+      来場者が自分のいる地点にスタンプ(混雑 1〜5、面白い、美味しい、よさ など)を押すと、そのスタンプが地点と時刻つきで残る。
+      他の来場者が見ると、その地点にスタンプが見える。押した本人が取り消すと、スタンプは見えなくなる。
     state: |
-      level: Item -> {空き, やや混雑, 混雑}
-      reportedAt: Item -> Time
+      stamps: set Stamp
+      kind: Stamp -> one StampKind    // StampKind = {混雑1, 混雑2, 混雑3, 混雑4, 混雑5, 面白い, 美味しい, よさ}(OQ-4)
+      at: Stamp -> one Point
+      by: Stamp -> one User
+      pressedAt: Stamp -> one Time
     actions:
-      - name: report
-        requires: level が 空き・やや混雑・混雑 のいずれか
-        effects: item の level を設定し、reportedAt を現在時刻にする(OQ-4)
-      - name: read
+      - name: press
         requires: なし
-        effects: item の level と reportedAt を返す。報告が無ければ「不明」を返す
-      - name: readAll
+        effects: 新しい Stamp を作り、kind・at・by(u)・pressedAt を設定して stamps に加えて返す
+      - name: retract
+        requires: stamp が stamps に含まれ、stamp の by が u である
+        effects: stamp を stamps から取り除く
+    notes: >-
+      旧 Congestion を完全に差し替えた(decisions D-006)。混雑は、スタンプの種類(混雑 1〜5)の 1 つとして扱う。
+      スタンプは場所(Place)ではなく、押した人の現在地(Point)に付く(decisions D-009)。そのため Place の削除には連動しない。
+      古い混雑スタンプを答えに出さない判定は、同期 show-stamps の where が行う(時間の経過で起きるアクションを書く方法が未確認のため)。
+
+  - name: Landmark
+    params: []
+    purpose: 来場者が、いま見ている建物がどれかを知って、迷いを解く
+    principle: >-
+      運営が建物の名前・位置・基準画像を登録する。来場者が建物の映像を向けると、基準画像に一致する建物の名前と位置が分かる。
+      一致する建物が無ければ、分からない。運営が建物を取り除くと、その建物は分からなくなる。
+    state: |
+      landmarks: set Landmark
+      name: Landmark -> one String
+      location: Landmark -> one Point
+      image: Landmark -> one Image        // 基準画像
+    actions:
+      - name: register
         requires: なし
-        effects: level を持つ全項目の level と reportedAt を返す
-      - name: expire
-        system: true
-        requires: 現在時刻 - reportedAt が許容時間を超える(OQ-4)
-        effects: item を level・reportedAt から取り除く(不明に戻る)
-      - name: forget
-        requires: なし
-        effects: item を level・reportedAt から取り除く
-    notes: 段階数と許容時間は OQ-4。報告者を持たせるかは OQ-1 の結果で決める。
+        effects: 新しい Landmark を作り、name・location・image を設定して landmarks に加えて返す
+      - name: update
+        requires: landmark が landmarks に含まれる
+        effects: 指定された属性を更新する
+      - name: remove
+        requires: landmark が landmarks に含まれる
+        effects: landmark を landmarks から取り除く
+    notes: >-
+      画像の一致は状態を必要としない計算なので、概念にせず、外部の計算(Vision.matches)として同期の where に置く(推論)。
+      来場者の映像は端末の中で処理し、保存も送信しない。映像から一致の判定までを端末内で通し、結果だけを来場者に見せる(Slack の要件。実装の制約)。
+      基本の型として Image を扱う(推論)。Place と重なる疑い(どちらも位置を持つ)は、基準画像を持つので分けた(decisions D-008)。実装は OQ-11。
 
 syncs:
-  # ---- 要求を概念のアクションにつなぐ(Request は擬似的な概念。呼び出し元の権限は where に書く) ----
-  - name: list-places
-    when: Request.listPlaces
-    where: ""
-    then: Place.list
-
-  - name: show-place
-    when: Request.showPlace
-    where: ""
-    then: Place.get
-
+  # ---- 場所(F1) ----
   - name: register-place
     when: Request.registerPlace
-    where: 実行者が場所を管理できる   # OQ-1, OQ-5
+    where: 実行者が場所を管理できる   # OQ-1。運営者用のイベント登録ページからの要求(OQ-5 で確定)
     then: Place.register
+
+  - name: update-place
+    when: Request.updatePlace
+    where: 実行者が場所を管理できる   # OQ-1
+    then: Place.update
+
+  - name: remove-place
+    when: Request.removePlace
+    where: 実行者が場所を管理できる   # OQ-1
+    then: Place.remove
+
+  - name: show-places
+    when: Request.showPlaces
+    where: >-
+      p が Place.places に含まれ、Place の name・kind・location・description を返す。
+      利用者に絞り込みが無いか、p に Labeling.filtering の種類のどれかが付いている(絞り込みステータス)
+    then: Request.respond(場所の一覧と、いまの絞り込み)
 
   - name: search-places
     when: Request.search
-    where: ""
-    then: Search.query
+    where: p が Search.indexed に含まれ、Search.text of p が keyword を含む
+    then: Request.respond(一致した場所の名前と位置。一致が無ければ空)
 
-  - name: browse-by-kind
-    when: Request.browseKind
-    where: ""
-    then: Labeling.itemsWith
+  - name: search-places-laya
+    when: Request.searchNatural
+    where: p が Search.indexed に含まれ、Laya.matches(sentence, Search.text of p)   # 外部の計算(推論)。OQ-8
+    then: Request.respond(一致した場所の名前と位置)
 
-  - name: assign-label
-    when: Request.assignLabel
-    where: place が Place.places に含まれ、実行者が場所を管理できる   # OQ-1
-    then: Labeling.attach
-
-  - name: locate
-    when: Request.locate
-    where: ""
-    then: Position.request
-
-  - name: set-position
-    when: Request.setPosition
-    where: ""   # OQ-2
-    then: Position.setManually
-
-  - name: choose-destination
-    when: Request.chooseDestination
-    where: place が Place.places に含まれる
-    then: Destination.choose
-
-  - name: report-congestion
-    when: Request.reportCongestion
-    where: place が Place.places に含まれ、実行者が報告できる   # OQ-1
-    then: Congestion.report
-
-  - name: read-congestion
-    when: Request.readCongestion
-    where: ""
-    then: Congestion.read
-
-  # ---- 概念どうしの連動 ----
-  - name: register-indexes
+  # ---- 場所の変化に、他の概念を連動させる ----
+  - name: index-on-register
     when: Place.register
     where: ""
     then: Search.index
 
-  - name: update-reindexes
+  - name: reindex-on-update
     when: Place.update
     where: name が更新された
     then: Search.index
@@ -235,27 +260,155 @@ syncs:
     where: ""
     then: Labeling.release
 
-  - name: remove-forgets-congestion
-    when: Place.remove
-    where: ""
-    then: Congestion.forget
-
   - name: remove-clears-destination
     when: Place.remove
     where: Destination.chosen が、取り除かれた place である
     then: Destination.clear
 
+  # ---- 種類と自分用タグ・絞り込み(F4) ----
+  - name: define-label
+    when: Request.defineLabel
+    where: 実行者が場所を管理できる   # OQ-1
+    then: Labeling.define
+
+  - name: assign-label
+    when: Request.assignLabel
+    where: place が Place.places に含まれ、実行者が場所を管理できる   # OQ-1
+    then: Labeling.attach
+
+  - name: define-my-tag
+    when: Request.defineMyTag
+    where: ""
+    then: Labeling.defineFor
+
+  - name: mark-place
+    when: Request.markPlace
+    where: place が Place.places に含まれる
+    then: Labeling.attach
+
+  - name: unmark-place
+    when: Request.unmarkPlace
+    where: ""
+    then: Labeling.detach
+
+  - name: apply-filter
+    when: Request.applyFilter
+    where: ""
+    then: Labeling.applyFilter
+
+  - name: clear-filter
+    when: Request.clearFilter
+    where: ""
+    then: Labeling.clearFilter
+
+  - name: browse-by-label
+    when: Request.browse
+    where: p が、label の付いた項目(Labeling.labeled)である
+    then: Request.respond(その種類の場所の名前と位置)
+
+  # ---- 現在地・行き先(F2) ----
+  - name: allow-location
+    when: Request.allowLocation
+    where: ""
+    then: Position.allow
+
+  - name: refuse-location
+    when: Request.refuseLocation
+    where: ""
+    then: Position.refuse
+
+  - name: report-position
+    when: Request.reportPosition
+    where: ""
+    then: Position.update
+
+  - name: set-position
+    when: Request.setPosition
+    where: ""   # OQ-2
+    then: Position.setManually
+
+  - name: choose-destination
+    when: Request.chooseDestination
+    where: place が Place.places に含まれる
+    then: Destination.choose
+
+  - name: guide-on-choose
+    when: Destination.choose
+    where: Position.at of u が a で、Place.location of 行き先 が b である
+    then: Destination.updateGuide   # direction(a, b)、distance(a, b)、Position.takenAt of u を渡す
+
+  - name: guide-on-move
+    when: Position.update
+    where: Destination.chosen of u が d で、Place.location of d が b である
+    then: Destination.updateGuide   # direction(a, b)、distance(a, b) を渡す
+
+  - name: show-route
+    when: Request.showRoute
+    where: Destination.chosen of u が d で、Destination.heading・remaining・guidedAt of u がある
+    then: Request.respond(行き先の名前、方角、距離、更新時刻)
+
+  # ---- スタンプ(F3) ----
+  - name: press-stamp
+    when: Request.pressStamp
+    where: Position.at of u が p である   # 足元 = 押す人の現在地
+    then: Stamp.press
+
+  - name: retract-stamp
+    when: Request.retractStamp
+    where: ""
+    then: Stamp.retract
+
+  - name: show-stamps
+    when: Request.showStamps
+    where: >-
+      s が Stamp.stamps に含まれ、混雑スタンプでないか、(now - Stamp.pressedAt of s)が許容時間以内である   # OQ-4
+    then: Request.respond(スタンプの種類、地点、押された時刻)
+
+  # ---- 建物の認識と、迷いの解消(F5) ----
+  - name: register-landmark
+    when: Request.registerLandmark
+    where: 実行者が場所を管理できる   # OQ-1
+    then: Landmark.register
+
+  - name: update-landmark
+    when: Request.updateLandmark
+    where: 実行者が場所を管理できる   # OQ-1
+    then: Landmark.update
+
+  - name: remove-landmark
+    when: Request.removeLandmark
+    where: 実行者が場所を管理できる   # OQ-1
+    then: Landmark.remove
+
+  - name: recognize-building
+    when: Request.recognizeBuilding
+    where: l が Landmark.landmarks に含まれ、Vision.matches(frame, Landmark.image of l)   # 外部の計算(推論)。frame は端末内で処理し、保存も送信もしない。OQ-11
+    then: Request.respond(一致した建物の名前と位置)
+
+  - name: show-building-events
+    when: Request.showBuildingEvents
+    where: 一致した建物 l の近く(Landmark.location of l)に、Place.places に含まれる p がある   # near の範囲は OQ-10
+    then: Request.respond(建物と、近くの場所の一覧)
+
+  - name: show-no-events
+    when: Request.showBuildingEvents
+    where: 一致した建物 l の近くに、Place.places に含まれる p が無い   # near の範囲は OQ-10
+    then: Request.respond(建物と、「この棟には企画がない」)
+
 # 機能 × 概念・同期の対応表(定義 6.4)。空の行は実現されていない機能、空の列は使われない概念。
 trace:
   - feature: F1
     concepts: [Place, Search]
-    syncs: [list-places, show-place, register-place, search-places, register-indexes, update-reindexes, remove-unindexes]
+    syncs: [register-place, update-place, remove-place, show-places, search-places, search-places-laya, index-on-register, reindex-on-update, remove-unindexes]
   - feature: F2
     concepts: [Place, Position, Destination]
-    syncs: [locate, set-position, choose-destination, remove-clears-destination]
+    syncs: [allow-location, refuse-location, report-position, set-position, choose-destination, guide-on-choose, guide-on-move, show-route, remove-clears-destination]
   - feature: F3
-    concepts: [Place, Congestion]
-    syncs: [report-congestion, read-congestion, remove-forgets-congestion]
+    concepts: [Position, Stamp]
+    syncs: [press-stamp, retract-stamp, show-stamps]
   - feature: F4
     concepts: [Place, Labeling]
-    syncs: [browse-by-kind, assign-label, remove-releases-labels]
+    syncs: [define-label, assign-label, define-my-tag, mark-place, unmark-place, apply-filter, clear-filter, browse-by-label, remove-releases-labels]
+  - feature: F5
+    concepts: [Place, Landmark]
+    syncs: [register-landmark, update-landmark, remove-landmark, recognize-building, show-building-events, show-no-events]

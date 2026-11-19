@@ -2,8 +2,8 @@
 # 決まったら status を resolved にし、answer と決めた日を書く。他のファイルの「OQ-n」参照は検査が突き合わせる。
 questions:
   - id: OQ-1
-    question: 混雑の報告と場所の登録を、誰が、どの端末で、いつ行うか(運営のみか、出展者か、来場者の通報も含めるか)
-    blocks: [concepts.syncs, journey.F3, api.権限]
+    question: 場所の登録を行う運営を、どう識別するか(運営者用の登録ページの認証。運営のみか、出展者も含めるか)。スタンプは来場者が押すので、報告者の権限は要らない
+    blocks: [concepts.syncs, journey.F1, journey.F5, api.権限]
     owner: チーム
     status: open
     answer: null
@@ -23,8 +23,8 @@ questions:
     answer: null
 
   - id: OQ-4
-    question: 混雑の段階数(3 段階でよいか)と、報告が古いとみなす時間
-    blocks: [concepts.Congestion, journey.F3]
+    question: スタンプの種類(混雑 1〜5、面白い、美味しい、よさ など)と、混雑スタンプを古いとみなす時間。感想のスタンプに期限を付けるか
+    blocks: [concepts.Stamp, journey.F3]
     owner: チーム
     status: open
     answer: null
@@ -33,8 +33,8 @@ questions:
     question: 場所のデータをどう入れるか(運営が操作して登録するか、スプレッドシートから取り込むか)
     blocks: [concepts.Place, api.登録系]
     owner: チーム
-    status: open
-    answer: null
+    status: resolved
+    answer: 運営者用のイベント登録ページから登録する(2026-11-19、Slack の発言)。スプレッドシートの取り込みは、使う場合だけ。チームの確認待ち
 
   - id: OQ-6
     question: ハッカソンの審査基準、デモの場面、チーム人数、想定来場者数
@@ -44,8 +44,43 @@ questions:
     answer: null
 
   - id: OQ-7
-    question: input.yaml の課題・機能 F1〜F4 は、ボードの P1 案と合っているか(画像から推測した下書き)
+    question: input.yaml の課題・機能 F1〜F5 は、ボードの P1 案と合っているか(F1〜F4 は画像から推測した下書き。F3・F4 の広げ方と F5 は Slack の発言から)
     blocks: [input, concepts, journey, api]
     owner: 作成者
+    status: open
+    answer: null
+
+  - id: OQ-8
+    question: タグ検索を入れるか。Laya(自然言語から曖昧検索できる小規模言語モデル)の入出力形式と、動かす場所(端末かサーバか)
+    blocks: [concepts.Search, journey.F1]
+    owner: チーム
+    status: open
+    answer: null
+
+  - id: OQ-9
+    question: 待ち合わせ(周囲のオンライン者に合言葉を共有する案)を入れるか。入れる場合、位置の共有を許可した相手にだけ見せる形にするか(現在地は自分のみ、という原理と衝突する)
+    blocks: [input, concepts.Position]
+    owner: チーム
+    status: open
+    answer: null
+
+  - id: OQ-10
+    question: 「迷っている」をどう判定するか(行き先から遠ざかる、同じ所に長く留まる、など)。建物の近くとみなす範囲(near)
+    blocks: [concepts.syncs, journey.F5]
+    owner: チーム
+    status: open
+    answer: null
+
+  - id: OQ-11
+    question: 建物の認識の実装(ブラウザ内で動く小型の視覚モデルか、既存の MindAR か)。映像から判定までを端末内で通し、画像を保存・送信せず結果だけ見せる条件を満たせるか
+    blocks: [concepts.Landmark, api]
+    owner: チーム
+    status: open
+    answer: null
+
+  - id: OQ-12
+    question: 来場者(User)を誰が供給するか。識別しない場合、現在地・行き先・自分用タグ・絞り込みは端末内に置く形になる。その場合、これらを概念として残すかも決める
+    blocks: [concepts.Position, concepts.Destination, concepts.Labeling, concepts.Stamp, api.権限]
+    owner: チーム
     status: open
     answer: null
