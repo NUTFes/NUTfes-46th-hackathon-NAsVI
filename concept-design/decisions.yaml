@@ -46,3 +46,84 @@ decisions:
     reason: 地図は表現(UI)で、Place・Position・Congestion の状態を重ねて描く。表現に依存しない(定義 4 章)。
     status: resolved
     derived_from: 定義 4 章「UI に依存しない」
+
+  - id: D-005
+    problem: 道案内(行き先への方角と距離)を、概念に含めるか、画面が毎回計算するか
+    options:
+      - Destination に道案内の状態(heading・remaining・guidedAt)を含める
+      - 含めず、画面が現在地と行き先から毎回計算する
+    adopted: Destination に含める(案 A)
+    reason: >-
+      Slack のコメント「道案内までこの概念に含めていいのでは」に従った。目的が「向かう先を決めて、そこへ向かう」で同じ。
+      計算は状態を必要としないので同期が行い、結果を Destination が保つ。現在地を Destination の中で参照すると独立性を崩すため、現在地は同期が渡す。
+      道なりの経路を扱う場合は、経路の状態を Destination に足すか別の概念にする(D-003 の続き)。
+    status: open   # チームの合意前
+    derived_from: Notion r1(2026-11-19)
+
+  - id: D-006
+    problem: 混雑の報告(Congestion)を、スタンプに差し替えるか
+    options:
+      - 差し替える。足元に押すスタンプ Stamp(混雑 1〜5、面白い、美味しい、よさ など)にする
+      - 混雑の報告を残し、感想のスタンプを別の概念として足す
+    adopted: 差し替える(案 A)
+    reason: >-
+      Slack の発言「足元にスタンプを押す。混雑状況 1〜5、面白い、美味しい、よさ」に従った。混雑も感想も「足元に押して共有する」で目的が同じ。
+      報告者の権限(OQ-1)は不要になり、スタンプは来場者が押す。
+    status: open   # スタンプの種類と期限は OQ-4
+    derived_from: Notion r1(2026-11-19)
+
+  - id: D-007
+    problem: 来場者の自分用タグ(お気に入り、行きたい)と絞り込みステータスを、Labeling に含めるか、別の概念にするか
+    options:
+      - Labeling [User, Item] に含める(owner を持つ Label が自分用タグ)
+      - 運営の種類は Labeling、自分用タグは別の概念(Bookmark など)にする
+    adopted: Labeling に含める(案 A)
+    reason: >-
+      目的が同じ(項目をタグで絞って選ぶ)。Slack のコメントも Labeling への追記だった。絞り込みステータス(filtering)も、同じ概念で保つ。
+      運営の種類と自分用タグを分ける案は、確認できていない点として doc/concept-design.md の 8 章に残した。
+    status: open
+    derived_from: Notion r1(2026-11-19)
+
+  - id: D-008
+    problem: 建物の認識(基準画像と位置)を、Place に含めるか、独立した概念にするか
+    options:
+      - 独立した概念 Landmark
+      - Place に画像を持たせ、kind に「建物」を足す
+    adopted: 独立した概念(案 A)
+    reason: >-
+      目的が「いま見ている建物がどれかを知る」で、場所を知る目的(Place)と別。基準画像という状態を持つ。
+      画像の一致は状態を必要としない計算なので、外部の計算(Vision.matches)として同期に置く。
+    status: open   # 実装は OQ-11、「迷い」の判定は OQ-10
+    derived_from: Notion r3(2026-11-19)
+
+  - id: D-009
+    problem: スタンプを、場所(Place)に付けるか、地点(Point)に付けるか
+    options:
+      - 地点(Point)に付ける。押した人の現在地(足元)
+      - 場所(Place)に付ける
+    adopted: 地点(Point)に付ける
+    reason: Slack の発言「足元にスタンプを押す」と、利用者による確認(2026-11-19)に従った。Place の削除には連動しない。
+    status: resolved
+    derived_from: Notion r2(2026-11-19)
+
+  - id: D-010
+    problem: 状態を読むだけのアクション(get・list・query・read など)と、system 印のアクションを、概念に持つか
+    options:
+      - 持たない。読み取りは同期の where、時間の経過で起きる出来事は where の判定にする
+      - 前の案のまま持つ
+    adopted: 持たない(案 A)
+    reason: >-
+      概念は getter を持たない(演繹文書 10 章)。時間の経過で起きるアクションの書き方が未確認(10 章)のため、expire は where の判定にした。
+      詳細は doc/concept-design.md の 7 章。
+    status: open
+    derived_from: Notion r0(2026-11-17)
+
+  - id: D-011
+    problem: 事前条件が無いアクションに「なし」と書くか
+    options:
+      - 書く(lint.py の規則。書き忘れと区別する)
+      - 書かない(演繹文書の書式に欄が無い。doc/concept-design.md の 7 章 #9)
+    adopted: concepts.yaml では「なし」と書く。doc/concept-design.md では書かない
+    reason: lint.py が空の requires を ERROR とするため、YAML は規則に合わせた。食い違いは、チームで揃え方を決める。
+    status: open
+    derived_from: 食い違いの報告

@@ -21,10 +21,10 @@ Claude Code でこのリポジトリを開き、「概念を検査して」「�
 
 | 見たいもの | 場所(`concept-design/`) |
 |---|---|
-| 機能(F1〜F4) | `input.yaml` |
+| 機能(F1〜F5) | `input.yaml` |
 | 概念と同期 | `concepts.yaml` |
 | 評価基準 | `criteria.yaml` |
-| 未決事項(OQ-1〜7) | `open-questions.yaml` |
+| 未決事項(OQ-1〜12) | `open-questions.yaml` |
 | 設計上の判断の記録 | `decisions.yaml` |
 | ジャーニーの雛形 | `journey/` |
 | 概念設計の説明(ジャクソンの著作にもとづく) | 道具のリポジトリの `docs/concept-design-deductive.md` |
