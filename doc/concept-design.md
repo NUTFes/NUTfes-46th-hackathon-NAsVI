@@ -4,7 +4,7 @@
 
 ## 0. この文書について
 
-**やったこと。** `concept-design/docs/concept-design-deductive.md`(以下「演繹文書」)の規則に従って、ハッカソンの内容から概念設計を組み直した。
+**やったこと。** `concept-design-deductive.md`(道具のリポジトリ naoto-anzai/concept-design の docs/)(以下「演繹文書」)の規則に従って、ハッカソンの内容から概念設計を組み直した。
 
 **材料。** `concept-design/examples/hackathon/` の `input.yaml`(機能 F1〜F4)、`concepts.yaml`(前の案)、`decisions.yaml`、`open-questions.yaml`、`criteria.yaml`、`docs/board-p1.webp`(概念設計ボード)。
 これらは材料であり、規則の根拠ではない。規則は演繹文書だけに拠る(章番号は演繹文書の章)。

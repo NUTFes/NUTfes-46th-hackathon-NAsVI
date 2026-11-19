@@ -5,14 +5,14 @@ description: ダニエル・ジャクソンの概念設計(概念・運用規則
 
 # concept-design の使い方(AI 向け)
 
-リポジトリ: https://github.com/naoto-anzai/concept-design (公開)。このプロジェクト(NAsVI)の概念設計の現状は `doc/concept-design.md`。
+リポジトリ: https://github.com/naoto-anzai/concept-design (公開)。このプロジェクト(NAsVI)の概念設計は、このリポジトリの `concept-design/`(直す場所)と、読みやすい版 `doc/concept-design.md`。以下の `examples/hackathon/` は、このリポジトリでは `concept-design/` のこと。道具の clone は不要。
 
 機能の集合から、ジャクソンの形の概念設計を作り、機械で検査し、画面ごとの機能(ジャーニー)と API の元表を導出する。
 動く実例は `examples/hackathon/`(NAsVI: 技大祭アプリ)。別のプロジェクトで使うときは、この実例を複製して中身を差し替える。
 
 ## 手に入れる
 
-別のリポジトリから使うとき、このリポジトリを隣に clone する(コピーしない。更新を取り込めるように)。
+NAsVI のこのリポジトリでは不要(`concept-design/` に入っている)。別のリポジトリから使うとき、このリポジトリを隣に clone する(コピーしない。更新を取り込めるように)。
 
 ```
 git clone https://github.com/naoto-anzai/concept-design.git ~/concept-design
