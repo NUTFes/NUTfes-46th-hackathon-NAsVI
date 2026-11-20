@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="880" viewBox="0 0 1320 880" role="img" aria-label="NAsVI 画面遷移図" font-family="'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', sans-serif">
+  <title>NAsVI 画面遷移図</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#5b5274"></path>
+    </marker>
+    <style>
+      .box { fill: #ede9fe; stroke: #6d28d9; stroke-width: 1.5; }
+      .hub { fill: #6d28d9; stroke: #4c1d95; stroke-width: 1.5; }
+      .op { fill: #ffffff; stroke: #6d28d9; stroke-width: 1.5; }
+      .t { font-size: 14px; font-weight: 700; fill: #1e0b3a; text-anchor: middle; dominant-baseline: central; }
+      .th { font-size: 15px; font-weight: 800; fill: #ffffff; text-anchor: middle; dominant-baseline: central; }
+      .e { fill: none; stroke: #5b5274; stroke-width: 1.6; }
+      .d { stroke-dasharray: 5 4; }
+      .l { font-size: 12.5px; fill: #3b2f5c; paint-order: stroke; stroke: #ffffff; stroke-width: 4px; stroke-linejoin: round; }
+      .lc { text-anchor: middle; }
+      .frame { fill: #f6f4fa; stroke: #c4b5fd; stroke-width: 1.2; stroke-dasharray: 6 4; }
+      .fl { font-size: 12.5px; font-weight: 700; fill: #6d28d9; }
+      .note { font-size: 12.5px; fill: #3b2f5c; }
+    </style>
+  </defs>
+  <rect width="1320" height="880" fill="#ffffff"></rect>
+
+  <!-- 枠 -->
+  <rect class="frame" x="286" y="30" width="1014" height="640" rx="14"></rect>
+  <text class="fl" x="1290" y="660" text-anchor="end">V1 マップ(地図の上に重ねて出す)</text>
+  <rect class="frame" x="34" y="380" width="232" height="250" rx="14"></rect>
+  <text class="fl" x="46" y="398">V3 カメラ(認識の結果で切り替わる)</text>
+  <rect class="frame" x="34" y="690" width="232" height="166" rx="14"></rect>
+  <text class="fl" x="46" y="708">運営(別の URL)</text>
+
+  <!-- 矢印 -->
+  <path class="e" d="M250 253H380" marker-start="url(#a)" marker-end="url(#a)"></path>
+  <text class="l lc" x="315" y="245">下部タブ</text>
+
+  <path class="e" d="M410 230V86" marker-start="url(#a)" marker-end="url(#a)"></path>
+  <text class="l" x="417" y="165">+ / −</text>
+  <path class="e" d="M470 230V150H575V86" marker-end="url(#a)"></path>
+  <text class="l" x="582" y="123">表示ボタン</text>
+  <path class="e" d="M520 230V170H765V86" marker-end="url(#a)"></path>
+  <text class="l" x="772" y="133">スタンプボタン</text>
+  <path class="e d" d="M565 230V195H955V86" marker-end="url(#a)"></path>
+  <text class="l" x="962" y="146">位置を拒否</text>
+
+  <path class="e" d="M600 248H760" marker-end="url(#a)"></path>
+  <text class="l lc" x="680" y="240">検索窓に入力</text>
+  <path class="e d" d="M960 253H1060" marker-end="url(#a)"></path>
+  <text class="l lc" x="1010" y="245">一致なし</text>
+  <path class="e" d="M1160 230V20H150V230" marker-end="url(#a)"></path>
+  <text class="l lc" x="655" y="15">一覧から探す</text>
+
+  <path class="e" d="M860 276V443H600" marker-end="url(#a)"></path>
+  <text class="l" x="867" y="362">結果を押す</text>
+  <path class="e" d="M600 272H700V433A10 10 0 0 1 700 453V583H760" marker-end="url(#a)"></path>
+  <text class="l" x="707" y="524">建物の旗を押す</text>
+  <path class="e" d="M960 583H1060" marker-start="url(#a)" marker-end="url(#a)"></path>
+  <text class="l lc" x="1010" y="575">階のボタン</text>
+  <path class="e" d="M1160 606V645H640V458H600" marker-end="url(#a)"></path>
+  <text class="l lc" x="900" y="638">企画を押す</text>
+
+  <path class="e" d="M490 466V600" marker-end="url(#a)"></path>
+  <text class="l" x="497" y="538">ここへ向かう</text>
+  <path class="e" d="M380 615H266" marker-end="url(#a)"></path>
+  <text class="l lc" x="323" y="607">カメラで見る</text>
+
+  <path class="e" d="M250 433H380" marker-end="url(#a)"></path>
+  <text class="l lc" x="315" y="425">棟の企画を押す</text>
+  <path class="e" d="M250 499H340V458H380" marker-end="url(#a)"></path>
+  <text class="l lc" x="302" y="518">近くの企画を押す</text>
+  <path class="e" d="M50 565H16V253H50" marker-end="url(#a)"></path>
+  <path class="e" d="M50 499H16"></path>
+  <text class="l lc" x="12" y="400" transform="rotate(-90 12 400)">一覧から探す</text>
+  <path class="e" d="M200 380V330H330V280H380" marker-start="url(#a)" marker-end="url(#a)"></path>
+  <text class="l lc" x="262" y="322">下部タブ</text>
+
+  <path class="e" d="M150 768V796" marker-start="url(#a)" marker-end="url(#a)"></path>
+  <text class="l" x="160" y="786">上部タブ</text>
+
+  <!-- 箱 -->
+  <rect class="box" x="300" y="40" width="170" height="46" rx="10"></rect><text class="t" x="385" y="63">V1-i マップ・拡大</text>
+  <rect class="box" x="490" y="40" width="170" height="46" rx="10"></rect><text class="t" x="575" y="63">V1-h 表示する印</text>
+  <rect class="box" x="680" y="40" width="170" height="46" rx="10"></rect><text class="t" x="765" y="63">V1-f スタンプを押す</text>
+  <rect class="box" x="870" y="40" width="170" height="46" rx="10"></rect><text class="t" x="955" y="63">V1-g 位置が使えない</text>
+
+  <rect class="box" x="50" y="230" width="200" height="46" rx="10"></rect><text class="t" x="150" y="253">V2 一覧</text>
+  <rect class="hub" x="380" y="230" width="220" height="56" rx="12"></rect><text class="th" x="490" y="258">V1-a マップ・全体</text>
+  <rect class="box" x="760" y="230" width="200" height="46" rx="10"></rect><text class="t" x="860" y="253">V1-b 検索結果</text>
+  <rect class="box" x="1060" y="230" width="200" height="46" rx="10"></rect><text class="t" x="1160" y="253">V1-c 一致なし</text>
+
+  <rect class="box" x="380" y="420" width="220" height="46" rx="10"></rect><text class="t" x="490" y="443">V1-d 場所のカード</text>
+  <rect class="box" x="380" y="600" width="220" height="46" rx="10"></rect><text class="t" x="490" y="623">V1-e 案内中</text>
+  <rect class="box" x="760" y="560" width="200" height="46" rx="10"></rect><text class="t" x="860" y="583">V1-j 建物の中・1階</text>
+  <rect class="box" x="1060" y="560" width="200" height="46" rx="10"></rect><text class="t" x="1160" y="583">V1-k 建物の中・2階</text>
+
+  <rect class="box" x="50" y="410" width="200" height="46" rx="10"></rect><text class="t" x="150" y="433">V3-a 認識できた</text>
+  <rect class="box" x="50" y="476" width="200" height="46" rx="10"></rect><text class="t" x="150" y="499">V3-b 企画なし</text>
+  <rect class="box" x="50" y="542" width="200" height="46" rx="10"></rect><text class="t" x="150" y="565">V3-c 認識できない</text>
+
+  <rect class="op" x="50" y="722" width="200" height="46" rx="10"></rect><text class="t" x="150" y="745">O1 場所の登録・管理</text>
+  <rect class="op" x="50" y="796" width="200" height="46" rx="10"></rect><text class="t" x="150" y="819">O2 建物の登録・管理</text>
+
+  <!-- 凡例 -->
+  <g transform="translate(700 720)">
+    <path class="e" d="M0 8H40" marker-end="url(#a)"></path><text class="note" x="52" y="12">利用者の操作で移る</text>
+    <path class="e d" d="M0 38H40" marker-end="url(#a)"></path><text class="note" x="52" y="42">状態で切り替わる(操作ではない)</text>
+    <path class="e" d="M0 68H40" marker-start="url(#a)" marker-end="url(#a)"></path><text class="note" x="52" y="72">行き来できる</text>
+    <text class="note" x="0" y="104">「閉じる」「案内をやめる」「マップで探す」で V1-a に戻る矢印は省いた</text>
+    <text class="note" x="0" y="126">V3 の 3 つは同じカメラ画面の状態。下部タブと「カメラで見る」は V3 に入る</text>
+  </g>
+</svg>
