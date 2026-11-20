@@ -66,3 +66,7 @@ input.yaml ──(人が判断)──▶ concepts.yaml ──derive──▶ jou
 ## 変更するとき
 
 このリポジトリは公開。個人情報、鍵、非公開の資料は入れない。変更は PR で出す。
+
+## 画面設計へ進むとき
+
+概念設計が固まったら、画面設計の skill `screen-design` を使う(6 ステップ。どの概念を同じ画面に入れるかを決める)。手法は `concept-design/docs/screen-grouping.md`、検査は `concept-design/tools/screen_check.py` と `screen_groups.py`。
