@@ -5,7 +5,7 @@ description: 概念設計から画面設計まで、6 つのステップで AI �
 
 # screen-design — 概念から画面を作る 6 ステップ
 
-リポジトリ: https://github.com/naoto-anzai/concept-design 。製品に依存しない。実例は `examples/hackathon/`。
+リポジトリ: https://github.com/naoto-anzai/concept-design 。製品に依存しない。この repo の実例は、概念設計の最新版(Stamp・Landmark を含む)に合わせて、ステップ 1〜3 で作り直す(issue #6)。
 前提: 概念設計(`concepts.yaml`)がある。手法の背景は `docs/screen-grouping.md`。
 
 ## ゴール
