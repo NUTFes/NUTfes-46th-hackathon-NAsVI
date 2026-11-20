@@ -1,0 +1,16 @@
+{
+  "$description": "書式の例。値は仮。DTCG 仕様 2025.10 の書式で確認してから確定する(reference.md の未確認を参照)",
+  "color": {
+    "$type": "color",
+    "blue": {
+      "500": { "$value": { "colorSpace": "srgb", "components": [0.1, 0.4, 0.9] }, "$description": "値そのもの(仮)" }
+    },
+    "action": {
+      "primary": { "$value": "{color.blue.500}", "$description": "意味のトークン: 主な操作の色" }
+    }
+  },
+  "space": {
+    "$type": "dimension",
+    "md": { "$value": { "value": 16, "unit": "px" } }
+  }
+}
