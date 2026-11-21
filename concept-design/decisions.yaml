@@ -161,3 +161,17 @@ decisions:
     reason: lint.py が空の requires を ERROR とするため、YAML は規則に合わせた。食い違いは、チームで揃え方を決める。
     status: open
     derived_from: 食い違いの報告
+
+  - id: D-015
+    problem: 概念を、どう画面にまとめるか(画面設計のステップ 3、issue #6)
+    options:
+      - 案 1 {Search, Labeling} | {Position, Destination, Stamp} | {Landmark}(点数 8、画面 3)
+      - 案 2 {Search} | {Labeling} | {Position, Destination, Stamp} | {Landmark}(点数 7、画面 4)
+    adopted: 案 1(提案。チームの合意待ち)
+    reason: >-
+      screen_groups.py(groups.yaml、2026-11-21)の点数が最も高い。画面選定(PR #16)で理由から選んだ分け方
+      (一覧・検索 / マップ / カメラ)と同じ。一緒にできなかった Landmark-Position・Landmark-Destination は、
+      カメラの画面に現在地と案内バーを見せるだけ重ねて補う。
+      案 2 は、絞り込みを検索結果にも効かせる(D-012)ので、Search と Labeling を分けると、絞り込みの状態が見えない画面ができるため捨てた。
+    status: open
+    derived_from: concept-design/groups.yaml、concept-design/screens.yaml、doc/screen-design/screen-selection.md

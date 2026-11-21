@@ -1,0 +1,193 @@
+# 画面設計(skill screen-design の成果物)。作成: 2026-11-21
+# もと: doc/screen-design/screen-selection.md と wireframe.md(版 35)、groups.yaml の案 1
+# 画面の id は英数字。( ) の V1-a などはワイヤーフレームの盤の名前
+status: proposed
+progress: {step: 4, done: [1, 2, 3]}
+
+concepts: [Place, Search, Labeling, Position, Destination, Stamp, Landmark]
+shared: [Place]
+excluded: []                 # 入れない概念はない(7 つすべて入れる)
+limits:
+  max_concepts_per_screen: 3
+  max_actions_per_screen: 4
+  max_transitions_per_journey: 3
+
+grouping:
+  chosen: 案 1   # {Search, Labeling} | {Position, Destination, Stamp} | {Landmark}
+  reason: >-
+    screen_groups.py の点数が最も高い(8)。画面選定(PR #16)で、理由から選んだ分け方と同じ。
+    一緒にできなかった prefer の Landmark-Position・Landmark-Destination は、カメラの画面に現在地と案内バーを
+    「見せるだけ」重ねて補う(状態を変える操作は置かない)。
+  rejected:
+    - {plan: 案 2, reason: "Search と Labeling を分ける。絞り込みを検索結果にも効かせる(D-012)ので、分けると絞り込みの状態が見えない画面ができる"}
+
+screens:
+  - id: map
+    title: マップ
+    wireframe: [V1-a, V1-i]
+    concepts: [Place, Position, Stamp, Labeling]
+    actions:
+      - {do: Labeling.applyFilter, undo: Labeling.clearFilter}
+      - {do: Labeling.clearFilter, undo: Labeling.applyFilter}
+  - id: search
+    title: 検索結果
+    wireframe: [V1-b, V1-c]
+    concepts: [Place, Search, Labeling]
+    actions:
+      - {do: Labeling.clearFilter, undo: Labeling.applyFilter}
+  - id: card
+    title: 場所のカード
+    wireframe: [V1-d]
+    concepts: [Place, Destination, Labeling]
+    actions:
+      - {do: Destination.choose, undo: Destination.clear}
+      - {do: Labeling.attach, undo: Labeling.detach}
+      - {do: Labeling.detach, undo: Labeling.attach}
+  - id: tags
+    title: タグを付ける・作る
+    wireframe: [V1-l]
+    concepts: [Place, Labeling]
+    actions:
+      - {do: Labeling.attach, undo: Labeling.detach}
+      - {do: Labeling.detach, undo: Labeling.attach}
+      - {do: Labeling.defineFor, undo: "none: 自作タグの削除・名前の変更ができるかは未決(OQ-13)"}
+  - id: guide
+    title: 案内中
+    wireframe: [V1-e]
+    concepts: [Place, Position, Destination]
+    actions:
+      - {do: Destination.clear, undo: Destination.choose}   # ※ 来場者が呼ぶ同期が、まだ無い
+  - id: stamp
+    title: スタンプを押す
+    wireframe: [V1-f]
+    concepts: [Position, Stamp]
+    actions:
+      - {do: Stamp.press, undo: Stamp.retract}
+  - id: noloc
+    title: 位置が使えない
+    wireframe: [V1-g]
+    concepts: [Position]
+    actions:
+      - {do: Position.allow, undo: Position.refuse}
+      - {do: Position.refuse, undo: Position.allow}
+      - {do: Position.setManually, undo: "none: 次に位置が取れたときに上書きされる(OQ-2)"}
+  - id: building
+    title: 建物の中の地図
+    wireframe: [V1-j, V1-k]
+    concepts: [Place]        # 建物と階で絞る(※ 概念設計の変更が要る)。状態を変える操作は無い
+    actions: []
+  - id: list
+    title: 一覧
+    wireframe: [V2]
+    concepts: [Place, Labeling, Search]
+    actions:
+      - {do: Labeling.applyFilter, undo: Labeling.clearFilter}
+      - {do: Labeling.clearFilter, undo: Labeling.applyFilter}
+      - {do: Labeling.attach, undo: Labeling.detach}
+      - {do: Labeling.detach, undo: Labeling.attach}
+  - id: camera
+    title: カメラ
+    wireframe: [V3-a, V3-b, V3-c]
+    concepts: [Landmark, Place, Position, Destination]   # Position・Destination は見せるだけ
+    actions: []              # 建物の認識は読み取り(状態を変えない)
+  - id: op_places
+    title: 場所の登録・管理(運営)
+    wireframe: [O1]
+    concepts: [Place, Labeling]
+    actions:
+      - {do: Place.register, undo: Place.remove}
+      - {do: Place.update, undo: Place.update}
+      - {do: Place.remove, undo: "none: 削除の前に、連動して起きること(検索・一覧から消える、案内が終わる)を確認で見せる"}
+      - {do: Labeling.define, undo: Labeling.undefine}
+  - id: op_landmarks
+    title: 建物の登録・管理(運営)
+    wireframe: [O2]
+    concepts: [Landmark]
+    actions:
+      - {do: Landmark.register, undo: Landmark.remove}
+      - {do: Landmark.update, undo: Landmark.update}
+      - {do: Landmark.remove, undo: "none: 削除の前に確認を出す"}
+
+excluded_actions:
+  - {action: Search.index, reason: "場所を登録・更新すると、同期 index-on-register・index-on-update が自動で呼ぶ。人の操作は要らない"}
+  - {action: Search.unindex, reason: "場所を削除すると、同期 remove-unindexes が自動で呼ぶ"}
+  - {action: Labeling.release, reason: "場所を削除すると、同期 remove-releases-labels が自動で呼ぶ"}
+  - {action: Destination.updateGuide, reason: "現在地か行き先が変わると、同期 guide-on-move・guide-on-choose が自動で呼ぶ"}
+  - {action: Position.update, reason: "端末が位置を取るたびに自動で呼ぶ(要求 reportPosition)。画面の操作ではない"}
+  - {action: Position.clear, reason: "どの同期からも呼ばれていない。いつ呼ぶか(位置の利用をやめたときなど)を概念設計で確かめる"}
+
+journeys:
+  - id: F1
+    title: 行きたい場所を名前で見つける
+    start: 来場者がマップを開き、企画の名前の一部を検索窓に入れる
+    end: 場所のカードで、名前・場所・時間・距離が分かる
+    steps:
+      - {screen: map}
+      - {screen: search}
+      - {screen: card}
+  - id: F2
+    title: 行き先へ向かう
+    start: 来場者が場所を見つける(F1 と同じ)
+    end: 案内中の表示で、方角と距離が分かる
+    steps:
+      - {screen: map}
+      - {screen: search}
+      - {screen: card, do: Destination.choose}
+      - {screen: guide}
+  - id: F2-noloc
+    title: 位置が使えないとき
+    start: 来場者が位置の利用を拒否している
+    end: 位置の利用を許可し、マップに現在地が出る
+    steps:
+      - {screen: noloc, do: Position.allow}
+      - {screen: map}
+  - id: F3
+    title: 混雑・感想を知り、スタンプを押す
+    start: 来場者がマップを開く
+    end: 足元にスタンプが押され、取り消しもできると分かる
+    steps:
+      - {screen: map}
+      - {screen: stamp, do: Stamp.press}
+  - id: F4
+    title: 種類やタグから選ぶ
+    start: 来場者が一覧を開く(行き先が決まっていない)
+    end: 絞り込んだ一覧から場所を選び、カードを開く
+    steps:
+      - {screen: list, do: Labeling.applyFilter}
+      - {screen: card}
+  - id: F4-tag
+    title: 自分用のタグを付ける・作る
+    start: 来場者が場所のカードを開いている
+    end: 行きたい場所・自作のタグが付き、チップで絞れる
+    steps:
+      - {screen: card, do: Labeling.attach}
+      - {screen: tags, do: Labeling.defineFor}
+      - {screen: map, do: Labeling.applyFilter}
+  - id: F1-building
+    title: 建物から企画を見つける
+    start: 来場者がマップで、企画のある建物の旗を押す
+    end: 建物の中の地図で企画を見つけ、カードを開く
+    steps:
+      - {screen: map}
+      - {screen: building}
+      - {screen: card}
+  - id: F5
+    title: 迷いを解く
+    start: 来場者がカメラで建物を映す
+    end: 建物の名前と、その棟の企画(または企画が無いこと)が分かる
+    steps:
+      - {screen: camera}
+      - {screen: card}
+  - id: O1
+    title: 運営が場所を登録する
+    start: 運営が運営の画面を開く
+    end: 場所が登録され、来場者の検索・一覧に出る
+    steps:
+      - {screen: op_places, do: Place.register}
+      - {screen: op_places, do: Labeling.define}
+  - id: O2
+    title: 運営が建物を登録する
+    start: 運営が建物のタブを開く
+    end: 建物と基準画像が登録される
+    steps:
+      - {screen: op_landmarks, do: Landmark.register}
