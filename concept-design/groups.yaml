@@ -1,0 +1,34 @@
+# 概念を画面にまとめるための、組ごとの相性(docs/screen-grouping.md の 3 章)
+# 作成: 2026-11-21。doc/screen-design/screen-selection.md(PR #16 と、D-012〜D-014 の反映)の理由から起こした下書き
+status: proposed             # チームの合意後に confirmed
+concepts: [Place, Search, Labeling, Position, Destination, Stamp, Landmark]
+shared: [Place]              # ほとんどの機能が使う。画面に閉じず、必要な画面に出す
+limits:
+  max_concepts_per_screen: 3 # 1 画面の概念数の上限(shared を除く)。Cowan の約 4 チャンクより 1 つ少なく置いた(推論)
+pairs:
+  # --- 位置と向かう・押す(地図の上で一緒に見る)
+  - {a: Position, b: Destination, kind: must,
+     reason: "同期 guide-on-move が Position と Destination を同時に読む。F2 は、行き先を決めたら追加の操作なしで方角と距離が出ること"}
+  - {a: Position, b: Stamp, kind: must,
+     reason: "同期 press-stamp が Position の現在地を使う。F3 はスタンプを 2 操作以内で押せること"}
+  - {a: Destination, b: Stamp, kind: prefer,
+     reason: "どちらも地図の上に描く(D-004)。地図のスタンプ(混雑・感想)を見て、向かう先を選ぶ(F3 → F2)"}
+  # --- 探す・選ぶ
+  - {a: Search, b: Labeling, kind: prefer,
+     reason: "絞り込みは検索結果にも効かせる(D-012)。名前で探すのと種類・タグで選ぶのは、どちらも場所を選ぶ入口(F1・F4)"}
+  - {a: Search, b: Position, kind: neutral}
+  - {a: Search, b: Destination, kind: neutral}
+  - {a: Search, b: Stamp, kind: neutral}
+  - {a: Labeling, b: Position, kind: neutral}
+  - {a: Labeling, b: Destination, kind: neutral}
+  - {a: Labeling, b: Stamp, kind: neutral}
+  # --- 建物を映す(カメラ)
+  - {a: Search, b: Landmark, kind: apart,
+     reason: "Landmark は入力が映像で、画面全体を使う。文字を入れて探す操作と同時には使わない(screen-selection.md の V3)"}
+  - {a: Labeling, b: Landmark, kind: apart,
+     reason: "同上。種類・タグのチップを並べる場所がなく、F5 は任意の機能なので、外すときに画面ごと外せるようにしたい"}
+  - {a: Position, b: Landmark, kind: prefer,
+     reason: "カメラの画面でも、現在地と向きを出し、企画の札を方向と距離で置く(V3-a)"}
+  - {a: Destination, b: Landmark, kind: prefer,
+     reason: "案内中は、カメラの画面に案内バーを重ね、カメラで向かう道案内も兼ねる(V3-a)"}
+  - {a: Stamp, b: Landmark, kind: neutral}
