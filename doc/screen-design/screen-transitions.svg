@@ -109,5 +109,6 @@
     <path class="e" d="M0 68H40" marker-start="url(#a)" marker-end="url(#a)"></path><text class="note" x="52" y="72">行き来できる</text>
     <text class="note" x="0" y="104">「閉じる」「案内をやめる」「マップで探す」で V1-a に戻る矢印は省いた</text>
     <text class="note" x="0" y="126">V3 の 3 つは同じカメラ画面の状態。下部タブと「カメラで見る」は V3 に入る</text>
+    <text class="note" x="0" y="148">V1-m(絞り込み中)・V1-n(着いた)は、V1-a・V1-e の状態なので省いた</text>
   </g>
 </svg>
