@@ -58,8 +58,10 @@
   <path class="e" d="M1160 606V645H640V458H600" marker-end="url(#a)"></path>
   <text class="l lc" x="900" y="638">企画を押す</text>
 
-  <path class="e" d="M490 466V600" marker-end="url(#a)"></path>
-  <text class="l" x="497" y="538">ここへ向かう</text>
+  <path class="e" d="M420 466V600" marker-end="url(#a)"></path>
+  <text class="l" x="413" y="538" text-anchor="end">ここへ向かう</text>
+  <path class="e" d="M535 466V500" marker-start="url(#a)" marker-end="url(#a)"></path>
+  <text class="l" x="542" y="488">＋ タグ</text>
   <path class="e" d="M380 615H266" marker-end="url(#a)"></path>
   <text class="l lc" x="323" y="607">カメラで見る</text>
 
@@ -89,6 +91,7 @@
 
   <rect class="box" x="380" y="420" width="220" height="46" rx="10"></rect><text class="t" x="490" y="443">V1-d 場所のカード</text>
   <rect class="box" x="380" y="600" width="220" height="46" rx="10"></rect><text class="t" x="490" y="623">V1-e 案内中</text>
+  <rect class="box" x="450" y="500" width="170" height="46" rx="10"></rect><text class="t" x="535" y="523">V1-l タグを付ける</text>
   <rect class="box" x="760" y="560" width="200" height="46" rx="10"></rect><text class="t" x="860" y="583">V1-j 建物の中・1階</text>
   <rect class="box" x="1060" y="560" width="200" height="46" rx="10"></rect><text class="t" x="1160" y="583">V1-k 建物の中・2階</text>
 
