@@ -1,0 +1,19 @@
+# 要確認台帳。API 設計の全ゲートの質問と回答を、ここに残す。
+# 仕様(openapi.yaml)の `x-needs-review: "API-n: 理由"` が、ここの id を指す。
+#
+# state: 要確認(まだ決めていない) / 仮置き(AI が仮に置いた。placeholder に内容) / 確定(人間が決めた。decided_by と date が要る)
+# 確定のものは、仕様から x-needs-review を外す。
+# kind は skill api-design の gates.md の区分(認証・認可、バリデーション、エラー仕様、状態遷移、一覧取得、冪等性・競合、個人情報・機密、互換性、非機能、リソース設計、命名)。
+# related_oq は open-questions.yaml の未決事項(あれば)。
+#
+# 検査: python3 tools/openapi_check.py api/openapi.yaml --ledger api/review-ledger.yaml --concepts concepts.yaml
+
+items: []
+#  - id: API-1
+#    kind: 認証・認可
+#    content: 運営者用の登録 API を、誰が呼べるか(運営のみか、出展者も含めるか)
+#    state: 要確認
+#    placeholder: ""
+#    decided_by: ""
+#    date: ""
+#    related_oq: OQ-1

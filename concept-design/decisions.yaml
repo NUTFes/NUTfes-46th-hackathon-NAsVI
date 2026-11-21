@@ -118,6 +118,40 @@ decisions:
     status: open
     derived_from: Notion r0(2026-11-17)
 
+  - id: D-012
+    problem: 絞り込み(フィルター)を、検索結果にも効かせるか
+    options:
+      - 効かせる
+      - 一覧・地図の表示だけに効かせる
+    adopted: 効かせる
+    reason: 利用者(admin)の決定(2026-11-21)。PR #16 の要確認 4 への回答。concepts.yaml の search-places の where は未反映(チームで反映を決める)。
+    status: resolved
+    derived_from: PR #16(looky-looky)の要確認 4
+
+  - id: D-013
+    problem: 場所のカードを開いたあと、行き先を決める手順
+    options:
+      - カードを開いたら、そのまま行き先になる
+      - カードを開き、「ここへ向かう」で行き先にする(ワンクッション)
+    adopted: 「ここへ向かう」で行き先にする
+    reason: 利用者の決定(2026-11-21)。Google マップのような手順。PR #16 の要確認 5。経路は直線のまま(D-003 を維持。地図の作り方は後で再検討)。
+    status: resolved
+    derived_from: PR #16 の要確認 5・6
+
+  - id: D-014
+    problem: 来場者の自分用タグ(Labeling)の初期値と、保存先
+    options:
+      - 固定の 2 つだけ
+      - 固定の 2 つ + 自作を許す。保存はサーバー
+      - 固定の 2 つ + 自作を許す。保存は各自の端末内
+    adopted: 固定の「行きたい場所」「お気に入り」 + 自作を許す。保存は各自の端末内
+    reason: >-
+      利用者の決定(2026-11-21)。タグの作成、付け外し、絞り込みは端末内で完結し、API には載らない。
+      端末のデータが消えるとタグも消える(同期なし)。Labeling.owner を残すか外すかは、チームが決める。
+      D-007 の「Labeling に含める」は維持。名前のルール・上限数は OQ-13。
+    status: resolved
+    derived_from: PR #16 の要確認 7(お気に入り)と利用者の回答
+
   - id: D-011
     problem: 事前条件が無いアクションに「なし」と書くか
     options:
