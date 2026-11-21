@@ -79,8 +79,16 @@ questions:
     answer: null
 
   - id: OQ-12
-    question: 来場者(User)を誰が供給するか。識別しない場合、現在地・行き先・自分用タグ・絞り込みは端末内に置く形になる。その場合、これらを概念として残すかも決める
+    question: 来場者(User)を誰が供給するか。識別しない場合、現在地・行き先・自分用タグ・絞り込みは端末内に置く形になる(自分用タグは D-014 で端末内に決まった。残りが未決)。その場合、これらを概念として残すかも決める
     blocks: [concepts.Position, concepts.Destination, concepts.Labeling, concepts.Stamp, api.権限]
     owner: チーム
     status: open
     answer: null
+
+  - id: OQ-13
+    question: 自作タグの名前のルール(空欄・重複・文字数)と、タグの上限数。名前の変更・削除ができるか、固定の 2 つを消せるか
+    blocks: [concepts.Labeling, screens.タグを作る画面]
+    owner: チーム
+    status: open
+    answer: null
+    note: 決める時期は、タグを作る画面を設計するとき。画面設計のいまの段階では決めない(2026-11-21)。
