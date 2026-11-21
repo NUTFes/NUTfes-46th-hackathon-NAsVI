@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="default">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API 設計の基礎</title>
+</head>
+<body>
+<div id="stage">
+
+<section class="slide cover noconcl static" id="s-s34u6k">
+  <div class="venue">NAsVI 勉強会資料(api-design の確認ゲート用)</div>
+  <h1>API 設計の基礎</h1>
+  <div class="au">設計が初めてでも、ゲートで判断できるようになる</div>
+</section>
+
+<section class="slide" id="s-gvyyl6">
+  <h2>API とは約束である</h2>
+  <div class="body">
+    <p class="sub">使う側と作る側のあいだに、決まりごとを置く。</p>
+    <m-flow style="height:300px" aria-label="画面、API(約束)、サーバーが順に並ぶ図">
+      <script type="application/json">{"nodes": [
+        {"id": "a", "label": "画面\n(使う側)", "x": 10, "y": 90, "w": 320, "h": 120, "step": 1},
+        {"id": "b", "label": "API\n(約束)", "x": 432, "y": 90, "w": 320, "h": 120, "step": 2, "tone": "emph"},
+        {"id": "c", "label": "サーバー\n(作る側)", "x": 854, "y": 90, "w": 320, "h": 120, "step": 3}
+      ], "edges": [
+        {"from": "a", "to": "b"}, {"from": "b", "to": "c"}
+      ]}</script>
+    </m-flow>
+  </div>
+  <div class="concl"><span>約束が決まれば、両側は別々に作れる</span></div>
+</section>
+
+<section class="slide" id="s-fba6ak">
+  <h2>1 回の通信は要求と応答</h2>
+  <div class="body">
+    <p class="sub">呼ぶ側が要求を送り、作る側が応答を返す。</p>
+    <m-cards layout="row" arrows="true" style="height:250px" aria-label="要求と応答の中身">
+      <script type="application/json">{"cards": [
+        {"icon": "arrow-right", "title": "要求", "text": "メソッド・パス・中身"},
+        {"icon": "arrows-right-left", "title": "応答", "text": "ステータス・中身", "tone": "emph"}
+      ]}</script>
+    </m-cards>
+    <div data-step="3"><p class="note">例: GET /places → 200 と、場所の一覧</p></div>
+  </div>
+  <div class="concl"><span>すべての API は、この往復でできている</span></div>
+</section>
+
+<section class="slide" id="s-zaj5yt">
+  <h2>「もの」と「すること」を分ける</h2>
+  <div class="body">
+    <m-compare style="height:330px" aria-label="動詞を URL に入れる書き方と、ものとメソッドに分ける書き方の比較">
+      <script type="application/json">{"sides": [
+        {"label": "動詞を URL に入れる", "tone": "muted"},
+        {"label": "もの + メソッド"}
+      ], "rows": [
+        {"label": "一覧", "values": ["/getPlaces", "GET /places"]},
+        {"label": "削除", "values": ["/deletePlace?id=1", "DELETE /places/1"]},
+        {"label": "スタンプ", "values": ["/pressStamp", "POST /stamps"]}
+      ]}</script>
+    </m-compare>
+  </div>
+  <div class="concl"><span>URL に名詞、メソッドに動詞を置く</span></div>
+</section>
+
+<section class="slide" id="s-uubcqg">
+  <h2>リソースとは名前のあるもの</h2>
+  <div class="body">
+    <p class="sub">NAsVI の画面で扱う「もの」は、まず 3 つ。</p>
+    <m-cards layout="row" style="height:300px" aria-label="場所、スタンプ、建物の 3 つのリソース">
+      <script type="application/json">{"cards": [
+        {"icon": "map-pin", "title": "places\n場所", "text": "企画と駐車場。運営が登録する"},
+        {"icon": "flag", "title": "stamps\nスタンプ", "text": "混雑と感想。来場者が押す", "tone": "emph"},
+        {"icon": "building", "title": "landmarks\n建物", "text": "AR で認識する。基準画像つき", "tone": "accent2"}
+      ]}</script>
+    </m-cards>
+  </div>
+  <div class="concl"><span>画面で扱うものが、リソースになる</span></div>
+</section>
+
+<section class="slide" id="s-wim3lq">
+  <h2>階層は持ち物の関係</h2>
+  <div class="body">
+    <p class="sub">入れ子は「この建物の、企画」という持ち物の関係を表す。</p>
+    <m-tree style="height:340px" aria-label="places、stamps、landmarks と、landmarks の下の入れ子のパス">
+      <script type="application/json">{"nodes": [
+        {"id": "r", "label": "API", "step": 1},
+        {"id": "p", "label": "/places", "parent": "r", "step": 2},
+        {"id": "s", "label": "/stamps", "parent": "r", "step": 2},
+        {"id": "l", "label": "/landmarks", "parent": "r", "step": 2, "tone": "emph"},
+        {"id": "i", "label": "/{建物の ID}", "parent": "l", "step": 3, "tone": "emph"},
+        {"id": "q", "label": "/places", "parent": "i", "step": 4, "tone": "emph"}
+      ]}</script>
+    </m-tree>
+  </div>
+  <div class="concl"><span>入れ子は、持ち物の関係にだけ使う</span></div>
+</section>
+
+<section class="slide" id="s-rpypgn">
+  <h2>名前のそろえ方</h2>
+  <div class="body">
+    <m-compare style="height:360px" aria-label="命名規則の推奨案と代替案の比較">
+      <script type="application/json">{"sides": [
+        {"label": "推奨案"},
+        {"label": "代替案", "tone": "muted"}
+      ], "rows": [
+        {"label": "リソース名", "values": ["複数形 /places", "単数形 /place"]},
+        {"label": "パスの綴り", "values": ["kebab-case", "snake_case"]},
+        {"label": "JSON のキー", "values": ["camelCase", "snake_case"]},
+        {"label": "operationId", "values": ["要求名と同じ", "自由に付ける"]}
+      ]}</script>
+    </m-compare>
+  </div>
+  <div class="concl"><span>規則の中身より、そろっていることが大事</span></div>
+</section>
+
+<section class="slide" id="s-lfkl3p">
+  <h2>4 つのメソッド</h2>
+  <div class="body">
+    <m-cards layout="grid" style="height:300px" aria-label="GET、POST、PUT と PATCH、DELETE の意味">
+      <script type="application/json">{"cards": [
+        {"icon": "eye", "title": "GET", "text": "読む。状態を変えない"},
+        {"icon": "file-text", "title": "POST", "text": "作る。登録する、押す", "tone": "emph"},
+        {"icon": "refresh", "title": "PUT / PATCH", "text": "更新。PUT は全体、PATCH は一部"},
+        {"icon": "tool", "title": "DELETE", "text": "消す。指定したものを削除"}
+      ]}</script>
+    </m-cards>
+    <p class="note" data-step="5">PATCH だけは、別の仕様(RFC 5789)で定義されている</p>
+  </div>
+  <div class="concl"><span>メソッドは、状態を変えるかで選ぶ</span></div>
+</section>
+
+<section class="slide" id="s-blourv">
+  <h2>安全と冪等</h2>
+  <div class="body">
+    <p class="sub">冪等(べきとう)とは、同じ要求を何回送っても、結果が 1 回と同じこと。</p>
+    <m-compare style="height:300px" aria-label="GET、PUT と DELETE、POST の安全と冪等の比較">
+      <script type="application/json">{"sides": [
+        {"label": "GET"},
+        {"label": "PUT・DELETE"},
+        {"label": "POST", "tone": "emph"}
+      ], "rows": [
+        {"label": "状態", "values": ["変えない", "変える", "変える"]},
+        {"label": "2 回送ると", "values": ["同じ", "1 回と同じ", "2 件できうる"]}
+      ]}</script>
+    </m-compare>
+  </div>
+  <div class="concl"><span>再送して困る操作を、先に見つける</span></div>
+</section>
+
+<section class="slide" id="s-jtfq5c">
+  <h2>ステータスコードの帯</h2>
+  <div class="body">
+    <p class="sub">応答の先頭の 3 桁の数字で、結果を伝える。</p>
+    <m-cards layout="row" style="height:300px" aria-label="2xx、4xx、5xx の意味">
+      <script type="application/json">{"cards": [
+        {"icon": "circle-check", "title": "2xx 成功", "text": "200 成功、201 作成、204 返す中身なし"},
+        {"icon": "alert-triangle", "title": "4xx 呼んだ側", "text": "400 不正、404 無い、409 衝突、422 処理できない", "tone": "emph"},
+        {"icon": "tool", "title": "5xx 作った側", "text": "500 予期しない失敗", "tone": "accent2"}
+      ]}</script>
+    </m-cards>
+  </div>
+  <div class="concl"><span>数字の帯で、誰が直すかが分かる</span></div>
+</section>
+
+<section class="slide" id="s-45u2iu">
+  <h2>401 と 403 の違い</h2>
+  <div class="body">
+    <p class="sub">認証は「誰か」、認可は「してよいか」。</p>
+    <m-compare style="height:320px" aria-label="401 と 403 の違いの比較">
+      <script type="application/json">{"sides": [
+        {"label": "401 認証できない"},
+        {"label": "403 してはいけない", "tone": "emph"}
+      ], "rows": [
+        {"label": "意味", "values": ["有効な資格情報がない", "理解したが拒否する"]},
+        {"label": "資格情報を送り直すと", "values": ["通ることがある", "直らない前提"]},
+        {"label": "例", "values": ["運営だと確かめられない", "出展者が他の出展者の場所を更新"]}
+      ]}</script>
+    </m-compare>
+  </div>
+  <div class="concl"><span>誰かを確かめてから、してよいかを確かめる</span></div>
+</section>
+
+<section class="slide" id="s-la7iqf">
+  <h2>エラーの形をそろえる</h2>
+  <div class="body">
+    <p class="sub">呼んだ側が、次の動作を決められる形で返す。</p>
+    <m-compare style="height:300px" aria-label="形がばらばら、独自の形、標準の形の比較">
+      <script type="application/json">{"sides": [
+        {"label": "ばらばら", "tone": "muted"},
+        {"label": "独自の形"},
+        {"label": "標準の形", "tone": "emph"}
+      ], "rows": [
+        {"label": "例", "values": ["失敗しました", "{ error: { code, message } }", "{ type, title, status, detail }"]},
+        {"label": "次の動作", "values": ["分からない", "code で分かる", "type で分かる"]}
+      ]}</script>
+    </m-compare>
+  </div>
+  <div class="concl"><span>標準か独自かは、ゲート 2 で決める</span></div>
+</section>
+
+<section class="slide" id="s-p5iqve">
+  <h2>入力の検査</h2>
+  <div class="body">
+    <p class="sub">受け取る側は、入力が正しいかを必ず確かめる。</p>
+    <m-cards layout="grid" style="height:300px" aria-label="必須、形式、範囲、業務ルールの 4 種類の検査">
+      <script type="application/json">{"cards": [
+        {"icon": "checklist", "title": "必須か", "text": "例: 場所の名前は必須"},
+        {"icon": "code", "title": "形式", "text": "例: 位置は緯度と経度の組", "tone": "accent2"},
+        {"icon": "ruler", "title": "範囲", "text": "例: 文字数の上限"},
+        {"icon": "scale", "title": "業務ルール", "text": "例: 現在地が場所の上のときだけ押せる", "tone": "emph"}
+      ]}</script>
+    </m-cards>
+  </div>
+  <div class="concl"><span>事前条件が、そのままエラーの候補になる</span></div>
+</section>
+
+<section class="slide" id="s-cmfs36">
+  <h2>状態と遷移</h2>
+  <div class="body">
+    <p class="sub">ものには状態があり、操作が状態を変える。</p>
+    <m-flow style="height:220px" aria-label="未登録、登録済み、削除済みの状態の遷移">
+      <script type="application/json">{"nodes": [
+        {"id": "a", "label": "未登録", "x": 10, "y": 50, "w": 300, "h": 110, "step": 1, "tone": "muted"},
+        {"id": "b", "label": "登録済み", "x": 442, "y": 50, "w": 300, "h": 110, "step": 2},
+        {"id": "c", "label": "削除済み", "x": 874, "y": 50, "w": 300, "h": 110, "step": 3, "tone": "muted"}
+      ], "edges": [
+        {"from": "a", "to": "b", "label": "登録"},
+        {"from": "b", "to": "c", "label": "削除"}
+      ]}</script>
+    </m-flow>
+    <p class="note" data-step="4">削除済みの場所を更新すると、404 になる</p>
+  </div>
+  <div class="concl"><span>できない遷移は、エラーにする</span></div>
+</section>
+
+<section class="slide" id="s-nv6dob">
+  <h2>一覧は全部返さない</h2>
+  <div class="body">
+    <m-compare style="height:300px" aria-label="全件を返す場合と区切って返す場合の比較">
+      <script type="application/json">{"sides": [
+        {"label": "全件を返す", "tone": "muted"},
+        {"label": "区切って返す"}
+      ], "rows": [
+        {"label": "件数が増えると", "values": ["遅く、重くなる", "一定に保てる"]},
+        {"label": "先に決めること", "values": ["なし", "上限・並び順・絞り込み"]}
+      ]}</script>
+    </m-compare>
+  </div>
+  <div class="concl"><span>一覧は、上限と並び順を先に決める</span></div>
+</section>
+
+<section class="slide" id="s-rvjpkt">
+  <h2>再送と同時更新</h2>
+  <div class="body">
+    <p class="sub">通信は途中で切れる。人は、もう一度押す。</p>
+    <m-flow style="height:260px" aria-label="スタンプを押して応答が届かず、もう一度押すと同じスタンプが 2 つできる流れ">
+      <script type="application/json">{"nodes": [
+        {"id": "a", "label": "スタンプを\n押す", "x": 10, "y": 60, "w": 260, "h": 130, "step": 1},
+        {"id": "b", "label": "応答が\n届かない", "x": 315, "y": 60, "w": 260, "h": 130, "step": 2, "tone": "muted"},
+        {"id": "c", "label": "もう一度\n押す", "x": 620, "y": 60, "w": 260, "h": 130, "step": 3},
+        {"id": "d", "label": "同じものが\n2 つできる", "x": 925, "y": 60, "w": 260, "h": 130, "step": 4, "tone": "emph"}
+      ], "edges": [
+        {"from": "a", "to": "b"}, {"from": "b", "to": "c"}, {"from": "c", "to": "d"}
+      ]}</script>
+    </m-flow>
+  </div>
+  <div class="concl"><span>同じ要求が 2 回来ても壊れない形にする</span></div>
+</section>
+
+<section class="slide" id="s-5kolcs">
+  <h2>連動が途中で失敗したら</h2>
+  <div class="body">
+    <p class="sub">1 回の要求で、複数の動きが続く。例: 場所を登録すると、検索にも載せる。</p>
+    <m-compare style="height:280px" aria-label="全体を失敗にする場合と一部だけ成功にする場合の比較">
+      <script type="application/json">{"sides": [
+        {"label": "全体を失敗にする"},
+        {"label": "一部だけ成功にする", "tone": "emph"}
+      ], "rows": [
+        {"label": "検索への登録が失敗", "values": ["場所の登録も取り消す", "場所は残る。検索には出ない"]},
+        {"label": "呼んだ側は", "values": ["やり直せばよい", "あるのに探せない"]}
+      ]}</script>
+    </m-compare>
+  </div>
+  <div class="concl"><span>途中の失敗の扱いは、先に決めておく</span></div>
+</section>
+
+<section class="slide" id="s-zdla37">
+  <h2>返してよい項目</h2>
+  <div class="body">
+    <m-compare style="height:330px" aria-label="返さない項目と返す項目の比較">
+      <script type="application/json">{"sides": [
+        {"label": "返さない", "tone": "muted"},
+        {"label": "返す"}
+      ], "rows": [
+        {"label": "位置", "values": ["他の来場者の現在地", "場所とスタンプの位置"]},
+        {"label": "カメラ", "values": ["映像と画像", "認識の結果だけ"]},
+        {"label": "データベース", "values": ["内部の列のまま", "画面が使う項目"]}
+      ]}</script>
+    </m-compare>
+  </div>
+  <div class="concl"><span>返す項目は、画面が要るものだけにする</span></div>
+</section>
+
+<section class="slide" id="s-p7wi3e">
+  <h2>上限と速度</h2>
+  <div class="body">
+    <p class="sub">使う人が増えても、止まらないための上限。</p>
+    <m-cards layout="row" style="height:300px" aria-label="レート制限、タイムアウト、最大サイズ">
+      <script type="application/json">{"cards": [
+        {"icon": "stopwatch", "title": "レート制限", "text": "短い時間に送れる回数の上限"},
+        {"icon": "hourglass", "title": "タイムアウト", "text": "応答を待つ時間の上限", "tone": "accent2"},
+        {"icon": "file", "title": "最大サイズ", "text": "1 回に送れる大きさ。基準画像など", "tone": "emph"}
+      ]}</script>
+    </m-cards>
+  </div>
+  <div class="concl"><span>上限は、来場者数の見込みから決める</span></div>
+</section>
+
+<section class="slide" id="s-b34ejk">
+  <h2>公開後は変えにくい</h2>
+  <div class="body">
+    <p class="sub">使う側が増えるほど、直すと誰かが壊れる。</p>
+    <m-cards layout="row" style="height:300px" aria-label="壊れる変更、壊れにくい変更、版の付け方">
+      <script type="application/json">{"cards": [
+        {"icon": "alert-triangle", "title": "壊れる変更", "text": "項目の削除、名前の変更、必須にする", "tone": "emph"},
+        {"icon": "circle-check", "title": "壊れにくい変更", "text": "任意の項目を足す"},
+        {"icon": "tag", "title": "版", "text": "期間中は付けない案(仮置き)", "tone": "accent2"}
+      ]}</script>
+    </m-cards>
+  </div>
+  <div class="concl"><span>迷う点は、公開前に決める</span></div>
+</section>
+
+<section class="slide" id="s-owet7l">
+  <h2>OpenAPI は設計図</h2>
+  <div class="body">
+    <p class="sub">API を、機械が読める形で書く仕様。</p>
+    <m-tree style="height:340px" aria-label="openapi.yaml の構造。openapi、info、paths、components と、その下のパスと操作">
+      <script type="application/json">{"nodes": [
+        {"id": "r", "label": "openapi.yaml", "step": 1},
+        {"id": "v", "label": "openapi\n(版)", "parent": "r", "step": 2},
+        {"id": "i", "label": "info\n(題名・版)", "parent": "r", "step": 2},
+        {"id": "p", "label": "paths\n(操作)", "parent": "r", "step": 2, "tone": "emph"},
+        {"id": "c", "label": "components\n(部品)", "parent": "r", "step": 2, "tone": "accent2"},
+        {"id": "pp", "label": "/places", "parent": "p", "step": 3, "tone": "emph"},
+        {"id": "cs", "label": "schemas", "parent": "c", "step": 3, "tone": "accent2"},
+        {"id": "op", "label": "操作\n(get など)", "parent": "pp", "step": 4, "tone": "emph"}
+      ]}</script>
+    </m-tree>
+  </div>
+  <div class="concl"><span>設計図があれば、機械が検査できる</span></div>
+</section>
+
+<section class="slide" id="s-ukqhmt">
+  <h2>設計の順序</h2>
+  <div class="body">
+    <p class="sub">データベースの構造から始めない。</p>
+    <m-flow style="height:280px" aria-label="画面と機能、API の契約、データの順に決める流れ">
+      <script type="application/json">{"nodes": [
+        {"id": "a", "label": "画面・機能\n(何をするか)", "x": 10, "y": 80, "w": 340, "h": 130, "step": 1},
+        {"id": "b", "label": "API の契約\n(要求と応答)", "x": 422, "y": 80, "w": 340, "h": 130, "step": 2, "tone": "emph"},
+        {"id": "c", "label": "データ\n(DB)", "x": 834, "y": 80, "w": 340, "h": 130, "step": 3, "tone": "muted"}
+      ], "edges": [
+        {"from": "a", "to": "b"}, {"from": "b", "to": "c"}
+      ]}</script>
+    </m-flow>
+  </div>
+  <div class="concl"><span>画面から逆算して、API を決める</span></div>
+</section>
+
+<section class="slide" id="s-yu4erp">
+  <h2>3 つのゲートと台帳</h2>
+  <div class="body">
+    <m-flow style="height:220px" aria-label="ゲート 1、ゲート 2、機械の検査、ゲート 3 の順">
+      <script type="application/json">{"nodes": [
+        {"id": "a", "label": "ゲート 1\nリソース・命名", "x": 10, "y": 40, "w": 270, "h": 130, "step": 1},
+        {"id": "b", "label": "ゲート 2\n決める事項", "x": 305, "y": 40, "w": 270, "h": 130, "step": 2, "tone": "emph"},
+        {"id": "c", "label": "機械の検査\nERROR 0", "x": 600, "y": 40, "w": 270, "h": 130, "step": 3, "tone": "muted"},
+        {"id": "d", "label": "ゲート 3\n最終確認", "x": 895, "y": 40, "w": 270, "h": 130, "step": 4}
+      ], "edges": [
+        {"from": "a", "to": "b"}, {"from": "b", "to": "c"}, {"from": "c", "to": "d"}
+      ]}</script>
+    </m-flow>
+    <p class="note" data-step="5">台帳の状態は 3 つ: 要確認、仮置き、確定</p>
+  </div>
+  <div class="concl"><span>決めるのは人。AI は仮置きまで</span></div>
+</section>
+
+<section class="slide" id="s-c6onhw">
+  <h2>ゲート 2 の 11 区分</h2>
+  <div class="body">
+    <div data-step="1">
+      <table>
+        <tr><td>認証・認可、個人情報</td><td>401 と 403、返してよい項目</td></tr>
+        <tr><td>バリデーション、エラー</td><td>入力の検査、エラーの形、帯</td></tr>
+        <tr><td>状態遷移、一覧取得</td><td>状態と遷移、一覧は全部返さない</td></tr>
+        <tr><td>冪等性・競合、連動</td><td>安全と冪等、再送、連動の失敗</td></tr>
+        <tr><td>互換性、非機能</td><td>公開後は変えにくい、上限と速度</td></tr>
+        <tr><td>命名</td><td>名前のそろえ方</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="concl"><span>11 区分は、ここまでの知識の総復習だ</span></div>
+</section>
+
+<section class="slide" id="s-dw4bwg">
+  <h2>NAsVI に当てはめる</h2>
+  <div class="body">
+    <p class="sub">現時点の案。決まったことと、未決のことを分ける。</p>
+    <m-tree orient="right" style="height:340px" aria-label="API に載せるものと、載せないものの一覧">
+      <script type="application/json">{"nodes": [
+        {"id": "r", "label": "API", "step": 1},
+        {"id": "y", "label": "載せる", "parent": "r", "step": 2, "tone": "emph"},
+        {"id": "n", "label": "載せない", "parent": "r", "step": 2, "tone": "muted"},
+        {"id": "y1", "label": "places 場所", "parent": "y", "step": 3, "tone": "emph"},
+        {"id": "y2", "label": "stamps", "parent": "y", "step": 3, "tone": "emph"},
+        {"id": "y3", "label": "landmarks", "parent": "y", "step": 3, "tone": "emph"},
+        {"id": "n1", "label": "タグ\n(端末内)", "parent": "n", "step": 3, "tone": "muted"},
+        {"id": "n2", "label": "現在地・行き先\n(OQ-12)", "parent": "n", "step": 3, "tone": "muted"},
+        {"id": "n3", "label": "運営の種類\n(OQ-3)", "parent": "n", "step": 3, "tone": "muted"}
+      ]}</script>
+    </m-tree>
+  </div>
+  <div class="concl"><span>決まっていないことは、決めずに残す</span></div>
+</section>
+
+<section class="slide" id="s-qzkcka">
+  <h2>出典と確かめた範囲</h2>
+  <div class="body">
+    <ul>
+      <li data-step="1">OpenAPI 仕様 3.2.1 と、learn.openapis.org</li>
+      <li data-step="2">RFC 9110、RFC 9457、RFC 5789</li>
+      <li data-step="3">api-design 自体の出典は、元の資料にも記載なし</li>
+      <li data-step="4">未読: 仕様の parameters と Schema の詳細</li>
+    </ul>
+  </div>
+  <div class="concl"><span>出典は、確かめた範囲だけを書いた</span></div>
+</section>
+
+</div>
+</body>
+</html>
