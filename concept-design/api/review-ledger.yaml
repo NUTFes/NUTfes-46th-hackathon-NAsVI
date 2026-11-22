@@ -192,7 +192,7 @@ items:
       エラーボディの形とコードの体系。
       回答: {code, message} の形(案 A)。入力の誤り(400)のときだけ、悪い項目を示す field を足す(例 "field": "name")。application/problem+json で返す。
       コード: 400 invalid_input・out_of_venue、401 unauthorized、403 not_stamp_owner、404 not_found・label_not_found、409 label_in_use・label_title_taken・landmark_in_use、
-      413 image_too_large、429 too_many_requests、500 internal_error、502 footprint_unavailable(API-34)。
+      413 payload_too_large、429 too_many_requests、500 internal_error、502 footprint_unavailable(API-34)。
       複数の項目が誤っていても、示すのは 1 項目だけ(まとめて出したい場面はあるが、今回は A で足りる。api/roadmap.md の 4)
     state: 確定
     placeholder: ""
@@ -218,7 +218,7 @@ items:
       回答(2026-11-22、sabo10p): 案 C。OQ-4 はチームが決めるので、仮置きのまま残す。
       利用者の意見: 種類はいまの 8 つ、混雑は 30 分で消え、感想はその日の閉場で消える案(A)でよい気がする。チームで決めるときの案として残す
     state: 仮置き
-    placeholder: 全件を返す。スタンプの種類は 混雑1〜5・面白い・美味しい・よさ。許容時間は未定(案 混雑 30 分、感想は閉場まで)
+    placeholder: 全件を返す。スタンプの種類は congestion-1〜5・fun・food・good(混雑 1〜5・面白い・美味しい・よさ。API-36)。許容時間は未定(案 混雑 30 分、感想は閉場まで)
     decided_by: ""
     date: ""
     related_oq: OQ-4
@@ -266,7 +266,7 @@ items:
     content: >-
       レート制限、タイムアウト、最大リクエストサイズ。
       回答(案 A): 来場者の読み取り(一覧・検索)は同じ通信元から 1 分に 60 回まで(超えたら 429)。運営の操作は制限なし。
-      応答の上限時間は 10 秒。本文は 1 MB、画像(建物の基準画像 → D-018 以降は見取り図)は 5 MB まで(超えたら 413)。リアルタイムの接続には 30 秒ごとに空の合図(コメント行)を送る。
+      応答の上限時間は 10 秒。本文は 1 MB まで(超えたら 413。画像を送る操作は D-018・API-29 の変更で無くなった)。リアルタイムの接続には 30 秒ごとに空の合図(コメント行)を送る。
       スタンプの連打の制限は API-18(1 分に 5 個)。
       来場者数: 前回は 2 日間で 10000 人程度(利用者、2026-11-22)。1 日 5000 人。
       同時に使う人数の推定(AI の推論。確かめていない): 来場者の 3 割が使い、最も混む 1 時間に 1 日の 2 割が集まるとすると、1 時間に約 300 人。
@@ -320,7 +320,7 @@ items:
       リアルタイム反映(API-24)の対象と、流す出来事の形。
       利用者の仮の回答(2026-11-22): スタンプと、場所の削除を流す(案 C)。理由: 途中で営業停止になる場所があるため。
       出来事は stampPressed(Stamp。retractToken は含まない)・stampRetracted({id})・placeRemoved({id})。appVersionChanged({version})も流す(API-20)。
-      期限を過ぎた混雑スタンプは流さず、端末が pressedAt から消す。つなぎ直したら GET /stamps と GET /places で取り直す(この 2 点も利用者が「このままでよい」と回答)。
+      期限を過ぎた混雑スタンプは流さず、端末が pressedAt から消す(→ API-38 で expiresAt から消すに変更)。つなぎ直したら GET /stamps と GET /places で取り直す(この 2 点も利用者が「このままでよい」と回答)。
       スタンプ以外も流すので、パスを /stamps/events から /changes に変えた(events は showBuildingEvents で「企画」の意味に使っているため避けた。AI の仮置き)。
       運営が止める営業停止は、場所の削除で表す(API-26)
     state: 仮置き
@@ -361,7 +361,7 @@ items:
       概念設計の変更が要る(Place.kind に設備の種類を足す)。反映はチームが決める
       利用者の意見: 設備を Place.kind に足す。Place.kind と種類の線引き(OQ-3)と、概念設計への反映はチームが決める(ゲート 3 の回答)。
     state: 仮置き
-    placeholder: "利用者の意見: Place.kind に 案内所・トイレ・休憩所・ゴミ箱 を足す。チームの合意待ち"
+    placeholder: "利用者の意見: Place.kind に 案内所・トイレ・休憩所・ゴミ箱(info・wc・rest・trash。API-36)を足す。チームの合意待ち"
     decided_by: ""
     date: ""
     related_oq: OQ-3
@@ -373,8 +373,10 @@ items:
       建物の応答に floors(階と見取り図の URL)を入れる。
       概念設計の変更が要る(見取り図は Place とも Landmark とも目的が違うので、新しい概念の候補。wireframe.md の ※)。反映はチームが決める。
       利用者の意見: 見取り図を足す。新しい概念にするかなど、概念設計への反映はチームが決める(ゲート 3 の回答)。
+      利用者の意見(2026-11-23、PR #23 との照合): 見取り図は画像でなく SVG の図形(viewBox と path の d)で持つ。デザインシステムの BuildingFloorPlan の形に合わせる。
+      運営が図形を用意する必要がある(図面の写真のままでは使えない)。四隅の緯度経度(API-30)は残す
     state: 仮置き
-    placeholder: "利用者の意見: 階ごとの見取り図を PUT・DELETE /landmarks/{landmarkId}/floors/{floor}/plan で扱い、建物の応答に floors を入れる。チームの合意待ち"
+    placeholder: "利用者の意見: 階ごとの見取り図を SVG の図形として PUT・DELETE /landmarks/{landmarkId}/floors/{floor}/plan で扱い、建物の応答に floors を入れる。チームの合意待ち"
     decided_by: ""
     date: ""
     related_oq: ""
@@ -386,7 +388,7 @@ items:
       別案: 場所ごとに、見取り図の上の座標(x・y)を持たせる(場所の項目が増える)
       利用者の意見: 四隅の緯度経度の案(bounds)でよい(2026-11-22)。見取り図を足すこと(API-29)と合わせて、チームの合意待ち
     state: 仮置き
-    placeholder: "利用者の意見: 見取り図に bounds(north・south・east・west)を持たせ、端末が緯度経度から換算する。チームの合意待ち"
+    placeholder: "利用者の意見: 見取り図に bounds(north・south・east・west)を持たせ、端末が緯度経度から図形の上の x・y に換算する。チームの合意待ち"
     decided_by: ""
     date: ""
     related_oq: ""
@@ -408,7 +410,8 @@ items:
     kind: 命名
     content: >-
       場所の建物の欄の名前。concepts.yaml は building(Landmark の id を指す。D-017)、仕様は landmarkId。
-      回答: 仕様は landmarkId のまま(D-020 で内部の名前は Landmark と確定。id であることも名前から分かる)
+      回答: 仕様は landmarkId のまま(D-020 で内部の名前は Landmark と確定。id であることも名前から分かる)。
+      デザインシステムとの合わせ方は API-39
     state: 確定
     placeholder: ""
     decided_by: sabo10p
@@ -427,9 +430,9 @@ items:
     kind: エラー仕様
     content: >-
       輪郭の取り直し(Request.reloadFootprint)の形。パスは動詞を避けて POST /landmarks/{landmarkId}/footprint(本文なし)。
-      OpenStreetMap から輪郭が取れないときは、輪郭を変えずに 502 footprint_unavailable を返す(登録のときも同じ)
+      OpenStreetMap から輪郭が取れないときは、輪郭を変えずに 502 footprint_unavailable を返す。登録のときは断らず、輪郭なしで登録する(API-37)
     state: 仮置き
-    placeholder: POST /landmarks/{landmarkId}/footprint。取れなければ 502 footprint_unavailable
+    placeholder: POST /landmarks/{landmarkId}/footprint。取れなければ 502 footprint_unavailable(登録は輪郭なしで通す)
     decided_by: ""
     date: ""
     related_oq: ""
@@ -443,3 +446,63 @@ items:
     decided_by: ""
     date: ""
     related_oq: ""
+  # --- PR #23(デザインシステム)の部品の型との照合(2026-11-23) ---
+  - id: API-36
+    kind: 命名
+    content: >-
+      場所の種別とスタンプの種類の値を、日本語にするか、デザインシステムの英語のコードにそろえるか。
+      回答: 英語のコードにそろえ、1 つの値で持つ(案 A。2 段に分ける案 C は、概念設計の Place.kind と形がずれ、ありえない組み合わせを防ぐ検査も要るので選ばなかった)。
+      場所の種別: event(企画)・parking(駐車場)・info(案内所)・wc(トイレ)・rest(休憩所)・trash(ゴミ箱)。
+      スタンプ: congestion-1〜5(混雑 1〜5)・fun(面白い)・food(美味しい)・good(よさ)。画面に出す日本語は画面の側で当てる。
+      デザインシステムの PlaceCard.kind(event・parking・facility の 3 つ)へは、画面の側で info・wc・rest・trash を facility に変換する
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-23"
+    related_oq: ""
+  - id: API-37
+    kind: バリデーション
+    content: >-
+      輪郭(footprint)の無い建物を許すか。デザインシステムの BuildingShapePreview は「形なし」を許し、概念設計は footprint: Landmark -> one Polygon(必ず 1 つ)。
+      利用者の意見(2026-11-23): 許す(案 A)。OpenStreetMap に輪郭が無くても登録でき、footprint は null。
+      輪郭の無い建物はカメラの正面に選ばれないが、一覧・見取り図・その棟の企画には使える。あとで取り直せる。
+      概念設計の footprint を lone(0 か 1)に変える必要があり、チームの合意待ち
+    state: 仮置き
+    placeholder: "利用者の意見: footprint は null を許す。登録は輪郭なしでも通す。チームの合意待ち"
+    decided_by: ""
+    date: ""
+    related_oq: ""
+  - id: API-38
+    kind: 状態遷移
+    content: >-
+      スタンプが消える時刻を API で返すか(デザインシステムの MyStampRow が expiresAt を受け取る)。
+      回答: スタンプの応答に expiresAt を足す(案 A)。サーバーが期限の長さから決める(混雑は押した時刻 + 期限、感想はその日の閉場)。
+      GET /stamps は expiresAt を過ぎたものを返さず、端末も expiresAt を過ぎたら消す。期限の長さを変えても画面を直さずに済む(API-20)。
+      端末の時計が少しずれても、スタンプなら困らない(利用者)。期限の長さそのものは OQ-4・API-17(仮置き)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-23"
+    related_oq: OQ-4
+  - id: API-39
+    kind: 命名
+    content: >-
+      建物の id の名前が、概念設計 building、API landmarkId、デザインシステム(PR #23 の BuildingFlag)buildingId とずれている。
+      回答: デザインシステムの props を landmarkId に直す(案 A)。API の項目を名前を変えずに部品へ渡せる。D-020(内部は Landmark、画面の言葉だけ建物)に沿う。
+      直すのは PR #23(デザインシステム)の側。概念設計の building は概念の書き方なのでそのまま
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-23"
+    related_oq: ""
+  - id: API-40
+    kind: 命名
+    content: >-
+      取り消しの証の名前。概念設計(D-021)は proof、仕様は retractToken・ヘッダー X-Retract-Token だった。
+      回答: 仕様を概念設計の proof にそろえる(案 B)。押した応答の項目は proof、取り消しのヘッダーは X-Stamp-Proof。
+      API-13・API-19・API-25 などの retractToken は、proof と読み替える
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-23"
+    related_oq: OQ-12

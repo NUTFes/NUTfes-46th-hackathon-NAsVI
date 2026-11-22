@@ -18,7 +18,7 @@ servers:
   - url: /api
     description: >-
       デプロイ先は未定。非機能(API-21): 来場者の読み取りは同じ通信元から 1 分に 60 回まで、
-      スタンプは 1 分に 5 個まで(API-18)、応答は 10 秒まで、本文 1 MB・見取り図の画像 5 MB まで
+      スタンプは 1 分に 5 個まで(API-18)、応答は 10 秒まで、本文 1 MB まで
 
 tags:
   - name: places
@@ -70,7 +70,7 @@ paths:
                 items:
                   - id: pl_01
                     name: 焼きそば屋台
-                    kind: 企画
+                    kind: event
                     location: {lat: 37.4249, lng: 138.7781}
                     description: 2 年生の模擬店
                     landmarkId: null
@@ -99,7 +99,7 @@ paths:
               $ref: "#/components/schemas/PlaceInput"
             example:
               name: 焼きそば屋台
-              kind: 企画
+              kind: event
               location: {lat: 37.4249, lng: 138.7781}
               description: 2 年生の模擬店
               hours:
@@ -114,7 +114,7 @@ paths:
               example:
                 id: pl_01
                 name: 焼きそば屋台
-                kind: 企画
+                kind: event
                 location: {lat: 37.4249, lng: 138.7781}
                 description: 2 年生の模擬店
                 landmarkId: null
@@ -160,7 +160,7 @@ paths:
                 items:
                   - id: pl_01
                     name: 焼きそば屋台
-                    kind: 企画
+                    kind: event
                     location: {lat: 37.4249, lng: 138.7781}
                     description: 2 年生の模擬店
                     landmarkId: null
@@ -364,7 +364,7 @@ paths:
       tags: [stamps]
       summary: スタンプの一覧
       description: >-
-        混雑スタンプは、押されてから許容時間を過ぎたものを返さない(OQ-4)。
+        消える時刻(expiresAt)を過ぎたスタンプは返さない(API-38)。期限の長さは OQ-4。
         押した人(by)は返さない。
       x-needs-review: "API-17: 混雑スタンプの許容時間と、感想スタンプの期限(OQ-4)"
       responses:
@@ -377,9 +377,10 @@ paths:
               example:
                 items:
                   - id: st_01
-                    kind: 混雑3
+                    kind: congestion-3
                     at: {lat: 37.4250, lng: 138.7783}
                     pressedAt: "2026-11-23T11:05:00+09:00"
+                    expiresAt: "2026-11-23T11:35:00+09:00"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -392,7 +393,7 @@ paths:
       summary: 足元にスタンプを押す
       description: >-
         地点(at)は端末が送る、押す人の現在地。現在地はサーバーに無い(API-5)ので、サーバーは足元かどうかを確かめられない。
-        応答の retractToken は、取り消すときに要る(押した本人の確認。API-13)。
+        応答の proof(取り消しの証)は、取り消すときに要る(押した本人の確認。API-13・D-021)。
       requestBody:
         required: true
         content:
@@ -400,7 +401,7 @@ paths:
             schema:
               $ref: "#/components/schemas/StampInput"
             example:
-              kind: 混雑3
+              kind: congestion-3
               at: {lat: 37.4250, lng: 138.7783}
       responses:
         "201":
@@ -411,10 +412,11 @@ paths:
                 $ref: "#/components/schemas/PressedStamp"
               example:
                 id: st_01
-                kind: 混雑3
+                kind: congestion-3
                 at: {lat: 37.4250, lng: 138.7783}
                 pressedAt: "2026-11-23T11:05:00+09:00"
-                retractToken: 9f2c1e7a
+                expiresAt: "2026-11-23T11:35:00+09:00"
+                proof: 9f2c1e7a
         "400":
           description: 入力が正しくない、または会場の範囲の外
           content:
@@ -442,7 +444,7 @@ paths:
         場所が削除された(placeRemoved)ことが流れてくる(API-24・API-25)。
         最初に GET /stamps と GET /places で一覧を取り、そのあとはこの流れで差分を当てる。
         切れたら、ブラウザが自動でつなぎ直す。つなぎ直したら一覧を取り直す(取りこぼしを埋める)。
-        期限を過ぎた混雑スタンプは流さない。端末が pressedAt から消す(OQ-4)。
+        期限を過ぎたスタンプは流さない。端末が expiresAt を過ぎたら消す(API-38)。
         行き先にしていた場所の placeRemoved を受け取ったら、端末は案内を終える(API-5)。
         appVersionChanged を受け取ったら、画面は再読み込みを促す(破壊的変更をしたとき。API-20)。
         知らない出来事は無視する。サーバーは 30 秒ごとに空の合図(コメント行)を送り、接続を保つ(API-21)。
@@ -451,7 +453,7 @@ paths:
         "200":
           description: >-
             出来事の流れ(text/event-stream)。各出来事は event 行と data 行(JSON)。
-            stampPressed の data は Stamp(retractToken は含まない)。stampRetracted と placeRemoved の data は {id}。
+            stampPressed の data は Stamp(proof は含まない)。stampRetracted と placeRemoved の data は {id}。
             appVersionChanged の data は {version}(新しい版の文字列)。
           content:
             text/event-stream:
@@ -459,7 +461,7 @@ paths:
                 type: string
               example: |
                 event: stampPressed
-                data: {"id":"st_02","kind":"美味しい","at":{"lat":37.4251,"lng":138.7780},"pressedAt":"2026-11-23T11:06:00+09:00"}
+                data: {"id":"st_02","kind":"food","at":{"lat":37.4251,"lng":138.7780},"pressedAt":"2026-11-23T11:06:00+09:00","expiresAt":"2026-11-23T17:00:00+09:00"}
 
                 event: stampRetracted
                 data: {"id":"st_01"}
@@ -487,9 +489,9 @@ paths:
       x-request: retractStamp
       tags: [stamps]
       summary: 自分が押したスタンプを取り消す
-      description: 押したときに受け取った retractToken を、ヘッダーで渡す(Stamp.retract の事前条件「by が u」の代わり。API-13)。
+      description: 押したときに受け取った proof(取り消しの証)を、ヘッダーで渡す(D-021。Stamp.by の代わりに、証の一致で押した本人と確かめる。API-13)。
       parameters:
-        - name: X-Retract-Token
+        - name: X-Stamp-Proof
           in: header
           required: true
           schema: {type: string}
@@ -520,6 +522,7 @@ paths:
       summary: 建物の一覧(輪郭つき)
       description: >-
         端末が建物を認識するために、建物の輪郭(footprint)を配る。端末は現在地・向き・輪郭から正面の建物を決める(D-018。現在地と向きは送らない)。
+        輪郭の無い建物(footprint が null)も返す。カメラの正面には選ばれないが、一覧・見取り図・その棟の企画には使う(API-37)。
         運営の建物の画面(op_landmarks)も使う。
       x-needs-review: "API-33: 輪郭を API で配るか、端末に静的ファイルで同梱するか(OQ-16)"
       responses:
@@ -541,7 +544,7 @@ paths:
                       - {lat: 37.4244, lng: 138.7776}
                     floors:
                       - floor: 1
-                        planUrl: /api/landmarks/lm_a/floors/1/plan
+                        plan: {viewBox: "0 0 400 240", d: "M10 10 H390 V230 H10 Z M200 10 V230"}
                         bounds: {north: 37.4248, south: 37.4244, east: 138.7782, west: 138.7776}
         "429":
           $ref: "#/components/responses/TooManyRequests"
@@ -554,7 +557,7 @@ paths:
       summary: 建物を登録する(運営)
       description: >-
         輪郭はサーバーが地図データ(OpenStreetMap)から取る。運営は輪郭を描かない(D-019)。
-        輪郭が取れなければ登録しない(502 footprint_unavailable)。
+        輪郭が取れなくても登録する(footprint は null。API-37)。あとで POST /landmarks/{landmarkId}/footprint で取り直せる。
       security:
         - operatorAuth: []
       requestBody:
@@ -587,8 +590,6 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "502":
-          $ref: "#/components/responses/FootprintUnavailable"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -712,12 +713,12 @@ paths:
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          application/json:
             schema:
               $ref: "#/components/schemas/FloorPlanInput"
             example:
-              plan: (A 棟 1 階の見取り図。PNG の中身)
-              bounds: '{"north":37.4248,"south":37.4244,"east":138.7782,"west":138.7776}'
+              plan: {viewBox: "0 0 400 240", d: "M10 10 H390 V230 H10 Z M200 10 V230"}
+              bounds: {north: 37.4248, south: 37.4244, east: 138.7782, west: 138.7776}
       responses:
         "200":
           description: 登録した見取り図
@@ -727,7 +728,7 @@ paths:
                 $ref: "#/components/schemas/FloorPlan"
               example:
                 floor: 1
-                planUrl: /api/landmarks/lm_a/floors/1/plan
+                plan: {viewBox: "0 0 400 240", d: "M10 10 H390 V230 H10 Z M200 10 V230"}
                 bounds: {north: 37.4248, south: 37.4244, east: 138.7782, west: 138.7776}
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -736,14 +737,14 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "413":
-          description: 画像が大きすぎる
+          description: 見取り図の図形が大きすぎる(本文 1 MB まで。API-21)
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Error"
               example:
-                code: image_too_large
-                message: 画像は 5 MB 以下にしてください
+                code: payload_too_large
+                message: 見取り図は 1 MB 以下にしてください
         "500":
           $ref: "#/components/responses/InternalError"
     delete:
@@ -901,10 +902,11 @@ components:
     PlaceKind:
       type: string
       x-needs-review: "API-28: 設備を Place.kind に足す(利用者の意見。チームの合意待ち)"
-      enum: [企画, 駐車場, 案内所, トイレ, 休憩所, ゴミ箱]
+      enum: [event, parking, info, wc, rest, trash]
       description: >-
-        場所の性質(Place.kind)。運営の種類(Label)とは別(OQ-3)。
-        案内所・トイレ・休憩所・ゴミ箱は設備(API-28)。設備は端末の絞り込みの対象にしない(ワイヤーフレームの案)
+        場所の性質(Place.kind)。運営の種類(Label)とは別(OQ-3)。値は英語のコード(API-36。デザインシステムの部品と同じ)。
+        event = 企画、parking = 駐車場、info = 案内所、wc = トイレ、rest = 休憩所、trash = ゴミ箱。
+        info・wc・rest・trash は設備(API-28)。設備は端末の絞り込みの対象にしない(ワイヤーフレームの案)
 
     Place:
       type: object
@@ -999,26 +1001,35 @@ components:
 
     StampKind:
       type: string
-      enum: [混雑1, 混雑2, 混雑3, 混雑4, 混雑5, 面白い, 美味しい, よさ]
+      enum: [congestion-1, congestion-2, congestion-3, congestion-4, congestion-5, fun, food, good]
+      description: >-
+        値は英語のコード(API-36。デザインシステムの部品と同じ)。
+        congestion-1〜5 = 混雑 1〜5、fun = 面白い、food = 美味しい、good = よさ
       x-needs-review: "API-17: スタンプの種類(OQ-4)"
     Stamp:
       type: object
-      required: [id, kind, at, pressedAt]
+      required: [id, kind, at, pressedAt, expiresAt]
       description: 押した人(by)は返さない。サーバーのログにも地点と通信元を残さない(API-19)
       properties:
         id: {type: string}
         kind: {$ref: "#/components/schemas/StampKind"}
         at: {$ref: "#/components/schemas/Point"}
         pressedAt: {type: string, format: date-time}
+        expiresAt:
+          type: string
+          format: date-time
+          description: >-
+            このスタンプが消える時刻。サーバーが期限の長さから決める(API-38)。
+            混雑は押した時刻 + 期限、感想はその日の閉場。期限の長さは OQ-4(いまは仮に混雑 30 分。D-022)
     PressedStamp:
       allOf:
         - $ref: "#/components/schemas/Stamp"
         - type: object
-          required: [retractToken]
+          required: [proof]
           properties:
-            retractToken:
+            proof:
               type: string
-              description: 取り消しに使う。押した端末だけが持つ
+              description: 取り消しの証(D-021・API-40)。取り消すときに X-Stamp-Proof で渡す。押した端末だけが持つ
     StampList:
       type: object
       required: [items]
@@ -1038,13 +1049,16 @@ components:
     Landmark:
       type: object
       required: [id, name, location, footprint, floors]
+      x-needs-review: "API-37: 輪郭の無い建物を許す(利用者の意見。概念設計の変更が要り、チームの合意待ち)"
       properties:
         id: {type: string}
         name: {type: string}
         location: {$ref: "#/components/schemas/Point"}
         footprint:
-          type: array
-          description: 建物の輪郭(多角形の頂点。順に結ぶ)。OpenStreetMap から取る(D-018・D-019)
+          type: [array, "null"]
+          description: >-
+            建物の輪郭(多角形の頂点。順に結ぶ)。OpenStreetMap から取る(D-018・D-019)。
+            取れなかった建物は null(画面は「形なし」と出し、カメラの正面には選ばない。API-37)
           minItems: 3
           items: {$ref: "#/components/schemas/Point"}
         floors:
@@ -1054,16 +1068,23 @@ components:
     FloorPlan:
       type: object
       x-needs-review: "API-29: 見取り図を足す(利用者の意見。チームの合意待ち)"
-      required: [floor, planUrl, bounds]
+      required: [floor, plan, bounds]
       properties:
         floor: {type: integer}
-        planUrl:
-          type: string
-          description: 見取り図の画像の URL
+        plan: {$ref: "#/components/schemas/PlanShape"}
         bounds: {$ref: "#/components/schemas/Bounds"}
+    PlanShape:
+      type: object
+      description: >-
+        見取り図の図形(SVG の viewBox と path の d)。デザインシステムの BuildingFloorPlan.plan と同じ形(API-29)。
+        企画の位置は送らない。端末が場所の緯度経度と bounds から、図の上の x・y を出す(API-30)
+      required: [viewBox, d]
+      properties:
+        viewBox: {type: string}
+        d: {type: string}
     Bounds:
       type: object
-      description: 見取り図の画像の四辺に当たる緯度経度。端末が場所の位置を画像の上に換算する(API-30)
+      description: 見取り図の図形の四辺(viewBox の上下左右)に当たる緯度経度。端末が場所の位置を図の上に換算する(API-30)
       x-needs-review: "API-30: 四隅の緯度経度で換算する(利用者の意見。チームの合意待ち)"
       required: [north, south, east, west]
       properties:
@@ -1075,13 +1096,8 @@ components:
       type: object
       required: [plan, bounds]
       properties:
-        plan:
-          type: string
-          format: binary
-          description: 見取り図の画像
-        bounds:
-          type: string
-          description: Bounds を JSON にした文字列(multipart のため)
+        plan: {$ref: "#/components/schemas/PlanShape"}
+        bounds: {$ref: "#/components/schemas/Bounds"}
     LandmarkList:
       type: object
       required: [items]
