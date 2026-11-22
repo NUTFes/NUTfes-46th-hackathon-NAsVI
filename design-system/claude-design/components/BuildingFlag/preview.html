@@ -22,9 +22,9 @@
       h('rect', { x: 50, y: 130, width: 200, height: 170, fill: 'var(--mist-600)', opacity: 0.6 }));
   }
   ReactDOM.createRoot(document.getElementById('root')).render(h(function(){var s=S(false);return h('div',{className:'nv-pv',style:{alignItems:'center',gap:20}},L('通常(押すと選択中)・選択中・行き先'),
-  h(N.BuildingFlag,{buildingId:'library',name:'図書館棟',count:2,selected:s[0],onPress:function(){s[1](!s[0]);}}),
-  h(N.BuildingFlag,{buildingId:'sougou',name:'総合研究棟',count:1,selected:true}),
-  h(N.BuildingFlag,{buildingId:'sougou',name:'総合研究棟',count:1,isDestination:true}));}));
+  h(N.BuildingFlag,{landmarkId:'library',name:'図書館棟',count:2,selected:s[0],onPress:function(){s[1](!s[0]);}}),
+  h(N.BuildingFlag,{landmarkId:'sougou',name:'総合研究棟',count:1,selected:true}),
+  h(N.BuildingFlag,{landmarkId:'sougou',name:'総合研究棟',count:1,isDestination:true}));}));
 </script>
 </body>
 </html>

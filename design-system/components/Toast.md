@@ -15,7 +15,7 @@
 |---|---|---|---|---|---|
 | message | 文字列 | ○ | — | 「混雑3 を足元に押しました」 | なし |
 | undoLabel | 文字列 |  | 取り消す |  | なし |
-| onUndo | 関数 |  | なし | retractStamp | stamps の取り消し(端末が覚えた proof を送る。D-021) |
+| onUndo | 関数 |  | なし | retractStamp | DELETE /stamps/{stampId}(proof をヘッダー X-Stamp-Proof で送る。D-021、#21) |
 | durationMs | 数 |  | 6000 |  | なし |
 
 ## 状態

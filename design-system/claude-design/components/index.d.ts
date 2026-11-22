@@ -139,7 +139,8 @@ export declare function Icon(props: IconProps): React.ReactElement;
 
 /* ---------- 地図の印 ---------- */
 export interface BuildingFlagProps extends MapPosition {
-  buildingId: string;
+  /** 建物の id。API の場所の landmarkId と同じ値(D-020、#21 の API-39) */
+  landmarkId: string;
   /** 企画数(絞り込み中は絞った後の数) */
   count: number;
   /** 【Design System で追加】読み上げ用の建物名 */

@@ -167,3 +167,14 @@
 - 確認の結果: 未確認(PR #23 のレビューで確かめる)
 - やり直しコスト: 低
 
+## 決定: 建物の旗の id を landmarkId にし、照合表を API 設計(#21)に合わせる
+- 日付: 2026-11-23
+- 段階: 部品の仕様・照合
+- 決めた内容: BuildingFlag の props `buildingId` を `landmarkId` に変えた(API の場所の項目名と同じにし、名前を変えずに渡せるようにする。D-020 の「内部の名前は Landmark、画面の言葉だけ建物」に沿う)。`props-api-check.md` を #21 の仕様(`GET /labels`・`labelIds`、`DELETE /stamps/{stampId}` と `X-Stamp-Proof`、`landmarkId`・`floor`・`hours`、種別のコード 6 つ、`footprint`、`expiresAt`)に合わせた。MyStampRow・Toast・FacilityMark・PlaceCard・BuildingShapePreview・BuildingFloorPlan の API の欄も直した
+- AI が出した案と根拠: PR #23 の API 設計の側からのコメント(sabo10p、2026-11-23。#21 の台帳 API-35〜39)
+- 検討した代替案と、却下した理由: 部品の名前に合わせて API を `buildingId` にする案は、内部の名前を Landmark に決めた D-020 と食い違うので取らなかった
+- 前提(崩れたら見直す条件): #21 のゲートで項目名が変わったら、同じ所を直す
+- 人間の確認: looky-looky の指示(コメントのとおりに直す)
+- 確認の結果: 未確認(PR #23 のレビューで確かめる)
+- やり直しコスト: 低
+

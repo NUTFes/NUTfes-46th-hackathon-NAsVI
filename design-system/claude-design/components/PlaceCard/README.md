@@ -21,7 +21,7 @@
 |---|---|---|---|---|---|
 | placeId | 文字列 | ○ | — | | places.id |
 | name | 文字列 | ○ | — | | places.name |
-| kind | 列挙 | ○ | — | event / parking / facility(設備。D-017) | places.kind |
+| kind | 列挙 | ○ | — | event / parking / facility(設備。D-017) | places.kind(API の info・wc・rest・trash は、画面の側で facility にまとめて渡す。#21 の API-36) |
 | building・floor | 文字列 | | なし | 表示用の文字列(「総合研究棟」「2階」) | places.building(Landmark の id。名前にして渡す)・floor(数。「2階」にして渡す) |
 | description | 文字列 | | なし | | places.description |
 | hours | 文字列 | | なし | 表示用の文字列(「両日 10:00〜16:00」)。places.hours(開始と終了の組、複数可)から、画面の側の 1 つの関数で作って渡す | places.hours(D-020) |
@@ -56,4 +56,4 @@ Design System で足した props: loading・removed(仕様には無い。`compon
 ## 未確認・要確認
 
 - 解消(D-020): 開催時間は Place.hours(開始と終了の組)として持つ。この部品は表示用の文字列を受ける(組から文字列への整形は、画面の側で 1 か所にまとめる)。「いまやっている企画」で絞るときは、部品ではなく絞り込みの側で組を使う
-- API の PlaceInput・Place に hours を足す(D-020。#21 にはまだ無い)
+- API(#21)は hours を開始と終了の日時の組で返す。「両日 10:00〜16:00」の文字列は、画面の側で組み立てる(API-35)

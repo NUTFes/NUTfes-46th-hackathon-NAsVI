@@ -20,8 +20,8 @@
 | stampId | 文字列 | ○ | — | 取り消すときに使う | stamps.id |
 | kind | 列挙 | ○ | — | congestion-1〜5 / fun / food / good | stamps.kind |
 | pressedAt | 時刻 | ○ | — | 経過時間を出す | stamps の押した時刻 |
-| expiresAt | 時刻 | | なし | 混雑は押してから 30 分、感想はその日の閉場まで(仮置き。D-022、OQ-4) | なし(端末で計算。期限が決まれば API でもよい) |
-| onRetract | 関数 | ○ | — | retractStamp | stamps の取り消し(端末が覚えた proof を送る。D-021) |
+| expiresAt | 時刻 | | なし | 混雑は押してから 30 分、感想はその日の閉場まで(仮置き。D-022、OQ-4) | stamps.expiresAt(API が返す値をそのまま渡す。#21 の API-38) |
+| onRetract | 関数 | ○ | — | retractStamp | DELETE /stamps/{stampId}(押したときに受け取った proof を、ヘッダー X-Stamp-Proof で送る。D-021、#21) |
 
 Design System で足した props: retracting(仕様には無い。`components/index.d.ts` に【Design System で追加】と書いた)
 

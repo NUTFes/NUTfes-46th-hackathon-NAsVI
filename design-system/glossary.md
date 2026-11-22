@@ -27,7 +27,7 @@
 
 | 内部の名前(概念設計・API) | 画面の言葉 | 部品の名前 | 備考 |
 |---|---|---|---|
-| Landmark(API は `landmarks`) | 建物 | `Building*`(BuildingFlag、BuildingFloorTabs、BuildingFloorPlan、BuildingCameraOverlay、BuildingShapePreview) | 名前は Landmark のまま(D-020) |
+| Landmark(API は `landmarks`) | 建物 | `Building*`(BuildingFlag、BuildingFloorTabs、BuildingFloorPlan、BuildingCameraOverlay、BuildingShapePreview) | 名前は Landmark のまま(D-020)。部品の props も API と同じ `landmarkId` にする(BuildingFlag) |
 | Place.building(Landmark の id。API は `landmarkId`) | 建物(「総合研究棟 2階」) | PlaceRow・PlaceCard の `building` | 部品には建物の名前(表示用の文字列)を渡す |
 | Place.floor(数。1 = 1 階、地下は負) | 階(「2階」) | PlaceRow・PlaceCard の `floor`、BuildingFloorTabs | 部品には「2階」の形で渡す |
 | Place.hours(開始と終了の組、複数可) | 開催時間(「両日 10:00〜16:00」) | PlaceCard の `hours` | 部品には表示用の文字列を渡す(D-020) |

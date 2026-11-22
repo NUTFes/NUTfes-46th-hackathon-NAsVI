@@ -16,7 +16,7 @@
 
 | 名前 | 型 | 必須 | 既定値 | 取りうる値 / 説明 | API の項目 |
 |---|---|---|---|---|---|
-| plan | 画像か形 | ○ | — |  | 見取り図 ※(新しい概念の候補。OQ-14) |
+| plan | 画像か形 | ○ | — |  | 見取り図 ※(新しい概念の候補。OQ-14)。#21 の案は `{viewBox, d}` と、四隅の緯度経度(bounds)から画面が x・y を計算する形(API-29・30、合意待ち) |
 | places | 配列 | ○ | — |  | places |
 
 Design System で足した props: label・note・onOpen(仕様には無い。`components/index.d.ts` に【Design System で追加】と書いた)

@@ -12,7 +12,7 @@
 ## props
 | 名前 | 型 | 必須 | 既定値 | 取りうる値 / 説明 | API の項目 |
 |---|---|---|---|---|---|
-| buildingId | 文字列 | ○ | — |  | landmarks.id |
+| landmarkId | 文字列 | ○ | — | 建物の id。API の項目名と同じ名前にする(D-020、#21 の API-39) | landmarks.id(場所の landmarkId と同じ値) |
 | count | 数 | ○ | — | 絞り込み中は絞った後の数 | なし(端末で places の building から数える。D-017) |
 | selected・isDestination | 真偽 |  | false |  | なし |
 | onPress | 関数 | ○ | — |  | なし |

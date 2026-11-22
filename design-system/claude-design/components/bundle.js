@@ -203,7 +203,7 @@
   /* ---------------- 地図の印 ---------------- */
   function BuildingFlag(p) {
     return h('button', {
-      type: 'button', 'data-building': p.buildingId,
+      type: 'button', 'data-landmark': p.landmarkId,
       className: cx('nv-mark', 'nv-flag', p.selected && 'nv-flag--selected', p.isDestination && 'nv-flag--dest', p.x != null && 'nv-mark--at', p.className),
       style: at(p.x, p.y), 'aria-label': (p.name || '建物') + '・企画 ' + p.count + ' 件' + (p.isDestination ? '・行き先' : '') + (p.selected ? '・選択中' : ''),
       'aria-pressed': p.selected ? 'true' : 'false', onClick: p.onPress

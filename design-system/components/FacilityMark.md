@@ -12,7 +12,7 @@
 ## props
 | 名前 | 型 | 必須 | 既定値 | 取りうる値 / 説明 | API の項目 |
 |---|---|---|---|---|---|
-| kind | 列挙 | ○ | — | info / wc / rest / trash | places.kind(設備 4 種) |
+| kind | 列挙 | ○ | — | info / wc / rest / trash | places.kind(info・wc・rest・trash。API と同じコード。#21 の API-36) |
 | zoomed | 真偽 |  | false |  | なし |
 
 ## 状態
