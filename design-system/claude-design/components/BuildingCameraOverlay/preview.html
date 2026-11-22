@@ -1,0 +1,30 @@
+<!-- 見本(Claude Design のカードの印) @dsCard group="画面の部品" height=452 -->
+<!doctype html>
+<html lang="ja">
+<head>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../bundle.css">
+<script>document.documentElement.setAttribute('data-theme', new URLSearchParams(location.search).get('theme') || 'dark');</script>
+<script src="../lib/react.production.min.js"></script>
+<script src="../lib/react-dom.production.min.js"></script>
+<script src="../bundle.js"></script>
+<meta charset="utf-8"><title>BuildingCameraOverlay — 見本</title></head>
+<body>
+<div id="root"></div>
+<script>
+  var N = window.NAsVI, h = React.createElement;
+  function L(t) { return h('p', { className: 'nv-pv-label' }, t); }
+  function S(v) { return React.useState(v); }
+  function ago(m) { return Date.now() - m * 60000; }
+  function SCENE() {
+    return h('svg', { className: 'nv-cam-scene', viewBox: '0 0 300 420', preserveAspectRatio: 'xMidYMid slice', 'aria-hidden': 'true' },
+      h('rect', { width: 300, height: 420, fill: 'var(--ink-800)' }), h('rect', { y: 300, width: 300, height: 120, fill: 'var(--ink-700)' }),
+      h('rect', { x: 50, y: 130, width: 200, height: 170, fill: 'var(--mist-600)', opacity: 0.6 }));
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'nv-pv',style:{gap:16}},
+  h(N.BuildingCameraOverlay,{width:300,height:420,frontBuilding:'図書館棟',heading:45,accuracyM:8,frontY:118,
+    labels:[{name:'お化け屋敷',distanceM:150,x:70,y:70,isDestination:true},{name:'PMC LIVE',distanceM:90,x:14,y:220},{name:'F7 おりがみ工房',distanceM:120,x:96,y:300,behind:true}]},SCENE()),
+  h(N.BuildingCameraOverlay,{width:300,height:420,heading:null,labels:[{name:'模擬店',distanceM:60,x:40,y:200}]},SCENE())));
+</script>
+</body>
+</html>

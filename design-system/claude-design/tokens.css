@@ -1,0 +1,158 @@
+/* NAsVI デザインシステム — generated from tokens.json */
+:root, [data-theme="dark"] {
+  --bg-page: var(--ink-900);
+  --bg-surface: var(--ink-800);
+  --text-primary: var(--mist-50);
+  --text-secondary: var(--mist-300);
+  --action-primary: var(--violet-400);
+  --action-on-primary: var(--violet-950);
+  --action-selected-bg: #a78bfa38;
+  --border-subtle: #a78bfa47;
+  --destination: var(--yellow-300);
+  --destination-on: var(--violet-950);
+  --destination-border: var(--yellow-300);
+  --event: var(--teal-300);
+  --event-on: var(--teal-950);
+  --parking: var(--blue-400);
+  --parking-on: var(--blue-950);
+  --facility: var(--mist-50);
+  --facility-on: var(--violet-950);
+  --feeling: var(--pink-300);
+  --feeling-on: var(--violet-950);
+  --danger: var(--red-400);
+  --danger-bg: var(--red-950);
+  --danger-text: var(--red-200);
+  --map-ring: var(--ink-900);
+  --congestion-border: var(--orange-300);
+  --state-pressed: #ffffff1f;
+  --text-disabled: var(--mist-400);
+  --skeleton: #a78bfa29;
+  --stale: var(--orange-300);
+  --congestion-1: var(--orange-100);
+  --congestion-1-on: var(--violet-950);
+  --congestion-2: var(--orange-300);
+  --congestion-2-on: var(--violet-950);
+  --congestion-3: var(--orange-500);
+  --congestion-3-on: var(--violet-950);
+  --congestion-4: var(--orange-700);
+  --congestion-4-on: var(--white);
+  --congestion-5: var(--orange-900);
+  --congestion-5-on: var(--white);
+  --border-control: #a78bfa99;
+  --danger-on: var(--violet-950);
+  --destination-text: var(--yellow-300);
+  --ink-950: #0b0614;
+  --ink-900: #130a22;
+  --ink-800: #1c1032;
+  --ink-700: #2a1650;
+  --violet-50: #f6f4fa;
+  --violet-100: #ede9fe;
+  --violet-200: #ddd6fe;
+  --violet-300: #c4b5fd;
+  --violet-400: #a78bfa;
+  --violet-700: #6d28d9;
+  --violet-950: #1e0b3a;
+  --mist-50: #f4f0ff;
+  --mist-100: #ddd6f3;
+  --mist-200: #d6cdee;
+  --mist-300: #b4a9cf;
+  --mist-400: #a99fc6;
+  --mist-600: #5b5274;
+  --teal-300: #5eead4;
+  --teal-700: #0f766e;
+  --teal-950: #062a24;
+  --blue-400: #60a5fa;
+  --blue-600: #2563eb;
+  --blue-950: #0b1a33;
+  --yellow-300: #ffd84a;
+  --yellow-400: #facc15;
+  --orange-100: #ffedd5;
+  --orange-300: #fdba74;
+  --orange-500: #f97316;
+  --orange-700: #c2410c;
+  --orange-900: #7c2d12;
+  --pink-300: #f9a8d4;
+  --pink-400: #f472b6;
+  --red-200: #fecaca;
+  --red-400: #f87171;
+  --red-600: #dc2626;
+  --red-700: #b91c1c;
+  --red-950: #2d1520;
+  --red-50: #fef2f2;
+  --white: #ffffff;
+  --shadow-sheet: 0px -8px 30px 0px #00000073;
+}
+[data-theme="light"] {
+  --bg-page: var(--violet-50);
+  --bg-surface: var(--white);
+  --text-primary: var(--violet-950);
+  --text-secondary: var(--mist-600);
+  --action-primary: var(--violet-700);
+  --action-on-primary: var(--white);
+  --action-selected-bg: var(--violet-100);
+  --border-subtle: #1e0b3a26;
+  --destination: var(--yellow-400);
+  --destination-on: var(--violet-950);
+  --destination-border: var(--violet-950);
+  --event: var(--teal-700);
+  --event-on: var(--white);
+  --parking: var(--blue-600);
+  --parking-on: var(--white);
+  --facility: var(--violet-950);
+  --facility-on: var(--white);
+  --feeling: var(--pink-400);
+  --feeling-on: var(--violet-950);
+  --danger: var(--red-600);
+  --danger-bg: var(--red-50);
+  --danger-text: var(--red-700);
+  --map-ring: var(--violet-50);
+  --congestion-border: var(--orange-700);
+  --state-pressed: #1e0b3a14;
+  --text-disabled: var(--mist-600);
+  --skeleton: #1e0b3a14;
+  --stale: var(--orange-700);
+  --congestion-1: var(--orange-100);
+  --congestion-1-on: var(--violet-950);
+  --congestion-2: var(--orange-300);
+  --congestion-2-on: var(--violet-950);
+  --congestion-3: var(--orange-500);
+  --congestion-3-on: var(--violet-950);
+  --congestion-4: var(--orange-700);
+  --congestion-4-on: var(--white);
+  --congestion-5: var(--orange-900);
+  --congestion-5-on: var(--white);
+  --border-control: #1e0b3a80;
+  --danger-on: var(--white);
+  --destination-text: var(--orange-900);
+}
+:root {
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
+  --radius-pill: 999px;
+  --opacity-disabled: 0.45;
+  --touch-target: 44px;
+  --font-base: "Noto Sans JP", sans-serif;
+}
+.distance-lg { font-family: var(--font-base); font-size: 28px; line-height: 1.05; font-weight: 800; }
+.distance { font-family: var(--font-base); font-size: 24px; line-height: 1.1; font-weight: 800; }
+.title { font-family: var(--font-base); font-size: 20px; line-height: 1.35; font-weight: 800; }
+.heading { font-family: var(--font-base); font-size: 16px; line-height: 1.35; font-weight: 800; }
+.subtitle { font-family: var(--font-base); font-size: 15px; line-height: 1.35; font-weight: 700; }
+.input { font-family: var(--font-base); font-size: 16px; line-height: 1.4; font-weight: 500; }
+.action-lg { font-family: var(--font-base); font-size: 16px; line-height: 1.4; font-weight: 800; }
+.action { font-family: var(--font-base); font-size: 14px; line-height: 1.4; font-weight: 700; }
+.label { font-family: var(--font-base); font-size: 13px; line-height: 1.4; font-weight: 700; }
+.body { font-family: var(--font-base); font-size: 13px; line-height: 1.5; font-weight: 400; }
+.caption { font-family: var(--font-base); font-size: 12px; line-height: 1.5; font-weight: 400; }
+.caption-bold { font-family: var(--font-base); font-size: 12px; line-height: 1.4; font-weight: 700; }
+.micro { font-family: var(--font-base); font-size: 11px; line-height: 1.4; font-weight: 700; }
