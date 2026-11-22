@@ -107,7 +107,7 @@ questions:
     blocks: [concepts.Landmark, api.landmarks, screens.op_landmarks]
     owner: チーム
     status: resolved
-    answer: OSM を正にする。運営は取り込みと読み込み直しだけ(D-019)
+    answer: OSM を初めの値にする。運営の編集画面は残し、輪郭の確認・修正と読み込み直しができる。一から描く画面は作らない(D-019)
     note: PR #4 の試作は 99 棟・約 26KB の静的ファイル。場所と建物は、名前でなく建物の id の参照で結ぶ(Place.building)。
 
   - id: OQ-16
@@ -117,3 +117,11 @@ questions:
     status: open
     answer: null
     note: PR #4 の試作は 99 棟・約 26KB の静的ファイル。読み込み直し(reload-footprint)の結果をどう端末へ届けるかに関わる。
+
+  - id: OQ-17
+    question: 運営が修正した建物の輪郭を、地図データからの読み込み直し(reload-footprint)で上書きしてよいか。修正した建物は、読み込み直しの対象から外すか
+    blocks: [concepts.Landmark, screens.op_landmarks]
+    owner: チーム
+    status: open
+    answer: null
+    note: D-019 の訂正(2026-11-23)で生じた。修正を残したいなら、修正済みの印か、上書き前の確認が要る。

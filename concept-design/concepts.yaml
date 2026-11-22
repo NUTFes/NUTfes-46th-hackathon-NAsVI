@@ -210,7 +210,7 @@ concepts:
     notes: >-
       正面の建物を決める計算(現在地から向いている方向へ線を伸ばし、最初に輪郭と交わる建物を選ぶ)は、状態を必要としない計算なので、概念にせず、外部の計算(Geometry.facing)として同期の where に置く(推論)。
       映像は使わない。現在地と向きは端末の中で計算し、サーバーへ送らない(decisions D-018)。
-      輪郭は地図データ(OpenStreetMap)から取り、運営は描かない・直さない。取り直す操作だけを持つ(同期 reload-footprint。D-019)。配り方は OQ-16。
+      輪郭は地図データ(OpenStreetMap)を初めの値にする。運営は、輪郭を確認・修正でき(update)、地図データから取り直せる(同期 reload-footprint)。一から描く操作は持たない(D-019)。修正した輪郭を取り直しで上書きしてよいかは OQ-17。配り方は OQ-16。
       基本の型として Polygon を扱う(推論)。Place と重なる疑い(どちらも位置を持つ)は、輪郭を持つので分けた(decisions D-008)。
 
 syncs:
@@ -386,7 +386,7 @@ syncs:
   - name: register-landmark
     when: Request.registerLandmark
     where: 実行者が場所を管理できる。輪郭は OpenStreetMap から取る(Osm.outline(建物の位置)。外部の計算。D-019)   # OQ-1
-    then: Landmark.register   # 取った輪郭を footprint として渡す
+    then: Landmark.register   # 取った輪郭を footprint として渡す。運営が後から update で直せる
 
   - name: update-landmark
     when: Request.updateLandmark
@@ -395,7 +395,7 @@ syncs:
 
   - name: reload-footprint
     when: Request.reloadFootprint
-    where: 実行者が場所を管理できる。l が Landmark.landmarks に含まれ、Osm.outline(Landmark.location of l)が輪郭を返す   # 外部の計算(推論)。運営が輪郭を描かず、取り直すだけ(D-019)。OQ-1
+    where: 実行者が場所を管理できる。l が Landmark.landmarks に含まれ、Osm.outline(Landmark.location of l)が輪郭を返す   # 外部の計算(推論)。運営が修正した輪郭は、取り直すと上書きされる可能性がある(OQ-17)。D-019。OQ-1
     then: Landmark.update   # 取り直した輪郭を footprint として渡す。輪郭が取れなければ、footprint は変えずに断る
 
   - name: remove-landmark
