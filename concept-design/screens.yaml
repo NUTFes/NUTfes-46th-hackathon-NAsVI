@@ -1,7 +1,7 @@
 # 画面設計(skill screen-design の成果物)。作成: 2026-11-21
 # もと: doc/screen-design/screen-selection.md と wireframe.md(版 35)、groups.yaml の案 1
 # 画面の id は英数字。( ) の V1-a などはワイヤーフレームの盤の名前
-status: proposed
+status: confirmed   # 画面の分け方と画面の一覧は、チームで合意(2026-11-21)
 progress: {step: 6, done: [1, 2, 3, 4, 5]}   # 5 の机上の点検は doc/screen-design/desk-check.md。6(3 人に試す)は未着手
 
 concepts: [Place, Search, Labeling, Position, Destination, Stamp, Landmark]
@@ -24,8 +24,8 @@ grouping:
 screens:
   - id: map
     title: マップ
-    wireframe: [V1-a, V1-i, V1-m]
-    shows: [場所の印(建物の旗と企画数・屋外の企画・設備・駐車場), 現在地と向き, スタンプ(混雑の濃淡・感想のマーク), 行き先の印と直線(案内中), 種類・タグのチップ, 絞り込み中の帯と件数(V1-m)]
+    wireframe: [V1-a, V1-i, V1-m, V1-o]
+    shows: [場所の印(建物の旗と企画数・屋外の企画・設備・駐車場), 現在地と向き, スタンプ(混雑の濃淡・感想のマーク), 行き先の印と直線(案内中), 種類・タグのチップ, 絞り込み中の帯と件数(V1-m)、0 件の理由と次の手(V1-o)]
     concepts: [Place, Position, Stamp, Labeling]
     actions:
       - {do: Labeling.applyFilter, undo: Labeling.clearFilter}
@@ -97,9 +97,9 @@ screens:
   - id: camera
     title: カメラ
     wireframe: [V3-a, V3-b, V3-c]
-    shows: [認識した建物の名前, その棟の企画(または無いこと), 現在地と向き, 案内バー(案内中)]
+    shows: [正面の建物の名前(現在地と向きと建物の形から決める ※), その建物の企画(または無いこと), 企画の方向と距離の札(建物の奥かどうか), ミニマップ, 現在地と向き, 案内バー(案内中)]
     concepts: [Landmark, Place, Position, Destination]   # Position・Destination は見せるだけ
-    actions: []              # 建物の認識は読み取り(状態を変えない)
+    actions: []              # 正面の建物の判定は読み取り(状態を変えない)
   - id: op_places
     title: 場所の登録・管理(運営)
     wireframe: [O1]
@@ -113,7 +113,7 @@ screens:
   - id: op_landmarks
     title: 建物の登録・管理(運営)
     wireframe: [O2]
-    shows: [建物の一覧と基準画像の有無, 入力欄, 基準画像, 階ごとの見取り図の状態 ※]
+    shows: [建物の一覧と建物の形の有無, 入力欄, 建物の形(OpenStreetMap), 階ごとの見取り図の状態 ※]
     concepts: [Landmark]
     actions:
       - {do: Landmark.register, undo: Landmark.remove}
@@ -186,8 +186,8 @@ journeys:
       - {screen: card}
   - id: F5
     title: 迷いを解く
-    start: 来場者がカメラで建物を映す
-    end: 建物の名前と、その棟の企画(または企画が無いこと)が分かる
+    start: 来場者がカメラを周りの建物に向ける
+    end: 正面の建物の名前と、その建物の企画(または企画が無いこと)が分かる
     steps:
       - {screen: camera}
       - {screen: card}
@@ -201,6 +201,6 @@ journeys:
   - id: O2
     title: 運営が建物を登録する
     start: 運営が建物のタブを開く
-    end: 建物と基準画像が登録される
+    end: 建物と建物の形が登録される
     steps:
       - {screen: op_landmarks, do: Landmark.register}

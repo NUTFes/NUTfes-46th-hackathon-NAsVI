@@ -1,6 +1,6 @@
 # 概念を画面にまとめるための、組ごとの相性(docs/screen-grouping.md の 3 章)
 # 作成: 2026-11-21。doc/screen-design/screen-selection.md(PR #16 と、D-012〜D-014 の反映)の理由から起こした下書き
-status: proposed             # チームの合意後に confirmed
+status: confirmed            # チームで合意(2026-11-21)
 concepts: [Place, Search, Labeling, Position, Destination, Stamp, Landmark]
 shared: [Place]              # ほとんどの機能が使う。画面に閉じず、必要な画面に出す
 limits:
