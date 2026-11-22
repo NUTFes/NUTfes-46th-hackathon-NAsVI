@@ -387,3 +387,16 @@ items:
     decided_by: ""
     date: ""
     related_oq: ""
+  # --- issue #17 の API の欄(2026-11-22) ---
+  - id: API-31
+    kind: 互換性
+    content: >-
+      場所の id は、会期中に変わらない(issue #17。端末のタグは場所の id で覚えるため)。
+      削除した場所の id は、再び使わない。
+      営業停止(API-26)は運営が止めるもので、再開の可能性はほぼ無い(利用者)。万一再開して登録し直すと別の id になり、来場者のタグは外れる。これは受け入れる。
+      端末は、一覧に無い id のタグや placeRemoved を受け取った id を、表示しない(タグのデータは端末が消すか残すかを決めてよい)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""

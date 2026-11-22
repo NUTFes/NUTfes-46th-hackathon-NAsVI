@@ -842,6 +842,8 @@ components:
 
     Place:
       type: object
+      description: >-
+        id は会期中に変わらず、削除した id は再び使わない(API-31)。端末のタグは、この id で場所を覚える
       required: [id, name, kind, location, description, landmarkId, floor, labelIds]
       properties:
         id: {type: string}
