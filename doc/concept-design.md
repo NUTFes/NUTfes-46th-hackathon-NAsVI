@@ -23,7 +23,7 @@
 | F2 | 行き先へ向かう | 現在地と行き先の位置関係をつかんで、迷わず向かえる |
 | F3 | 混雑・感想を知る | 足元に押されたスタンプ(混雑 1〜5、面白い、美味しい、よさ など)から、混んでいる場所や良い場所を知って、行く先や時間を選べる |
 | F4 | 種類・自分用タグから選ぶ(任意) | 行き先が決まっていない人が、種類や自分用のタグ(お気に入り・行きたい)から場所を選べる。タグで絞ると、地図に出る点も絞られる |
-| F5 | 迷いを解く | 今いる建物が分かり、その棟に企画が無いことも含めて、迷っているかを判断できる |
+| F5 | 迷いを解く | 今いる建物が分かり、その建物に企画が無いことも含めて、迷っているかを判断できる |
 
 ## 2. 概念を分ける(特定性・完全性・独立性。1、12 章)
 
@@ -50,31 +50,37 @@
 
 基本の型として、`String`、`Number`、`Date`/`Time`(AB3 の例が宣言なしで使う)に加え、`Point`(位置)と、列挙(`Kind`、`Level`)を使う。`Point` と列挙を基本の型として扱うのは【推論】。演繹文書の資料では確認できていない。
 
-### 3.1 PlaceList(型パラメータなし)
+### 3.1 PlaceList [Building]
 
-`Place` は `register` が作るので、型パラメータにしない。
+`Place` は `register` が作る。建物は外から来る(Landmark の id を指す)ので、型パラメータ `Building` にする。
 
 ```
-concept Place
-purpose 来場者が、会場にどんな場所があるかを知る
-principle 運営が場所の名前・種別・位置・説明を登録する。来場者が場所の
-一覧を見ると、登録された場所が見え、1 つを選ぶと、その名前・位置・
-説明が分かる。運営が場所を取り除くと、一覧から消える
+concept Place [Building]
+purpose 運営が登録した場所(企画、駐車場、設備)を、来場者がどんな場所があるかとして知れる
+principle 運営が場所の名前・種別・位置・説明(建物の中なら、建物と階)を登録する。
+来場者が場所の一覧を見ると、登録された場所が見え、1 つを選ぶと、その名前・位置・
+説明が分かる。運営が場所を取り除くと、一覧から消える。場所の id は開催期間中は
+変わらず、取り除いた場所の id は、あとで別の場所に使われない
 state
  places: set Place
  name: Place -> one String
- kind: Place -> one Kind          // Kind = {企画, 駐車場}
+ kind: Place -> one Kind          // Kind = {企画, 駐車場, 案内所, トイレ, 休憩所, ゴミ箱}(案内所〜ゴミ箱は設備。OQ-3)
  location: Place -> one Point
  description: Place -> one String
+ building: Place -> lone Building // 場所がある建物。屋外の企画・駐車場には無い
+ floor: Place -> lone Number      // 階(1 = 1 階、地下は負)。建物の外には無い
+ hours: Place -> set Period       // 開催時間。Period = {開始: Time, 終了: Time}。複数の時間帯を持てる
 actions
- register (name: String, kind: Kind, at: Point, text: String): Place
- update (p: Place, name: String, kind: Kind, at: Point, text: String)
+ register (name: String, kind: Kind, at: Point, text: String, b: Building?, floor: Number?, hours: Period*): Place
+ update (p: Place, name: String, kind: Kind, at: Point, text: String, b: Building?, floor: Number?, hours: Period*)
    requires p in places
  remove (p: Place)
    requires p in places
 ```
 
 - 一覧と個々の情報を見るのは、状態の読み取りで、同期の `where` が行う(10 章。getter は持たない)。
+- 建物・階・設備・開催時間を足した(2026-11-22〜23。decisions D-017・D-020)。開催時間は、将来「いまやっている企画」で絞れるよう、文字列でなく開始と終了の組で持つ。設備は検索・絞り込みの対象にしない。
+- 場所の id は、端末のタグが id で場所を覚えるため、開催期間中は変えず、取り除いた id を再び使わない。
 ### 3.2 Search [Item]
 
 `Item` は、検索の対象として外から渡される。`Search` はこれを作らない。
@@ -191,72 +197,74 @@ actions
 
 - 道案内を Destination に含めた(コメント反映)。方角と距離の計算は状態を必要としないので同期が行い、結果を Destination が保つ。Position を Destination の中で参照しない(独立性)ので、現在地は同期が渡す。【推論】
 - 道なりの経路が必要になった場合は、経路を表す状態を Destination に足す。足すかは【未決】。
-### 3.6 Stamp [User]
+### 3.6 Stamp
 
 ```
-concept Stamp [User]
+concept Stamp
 purpose 来場者が、足元にスタンプを押して、混雑や場所の良さを共有し、他の来場者が見て場所を選べる
 principle 来場者が自分のいる地点にスタンプ(混雑 1〜5、面白い、美味しい、
 よさ など)を押すと、そのスタンプが地点と時刻つきで残る。他の来場者が
-地図を見ると、その地点にスタンプが見える。押した本人が取り消すと、
-スタンプは見えなくなる
+地図を見ると、その地点にスタンプが見える。押した端末だけが持つ取り消しの証を
+使って取り消すと、スタンプは見えなくなる。他の人には、誰が押したかは分からない
 state
  stamps: set Stamp
  kind: Stamp -> one StampKind    // StampKind = {混雑1, 混雑2, 混雑3, 混雑4, 混雑5, 面白い, 美味しい, よさ}【未決】OQ-4
  at: Stamp -> one Point
- by: Stamp -> one User
+ proof: Stamp -> one Proof       // 取り消しの証。押した端末だけが持つ。誰が押したかは持たない
  pressedAt: Stamp -> one Time
 actions
- press (u: User, kind: StampKind, at: Point, t: Time): Stamp
- retract (u: User, s: Stamp)
-   requires s in stamps and by of s is u
+ press (kind: StampKind, at: Point, t: Time): (Stamp, Proof)
+ retract (s: Stamp, proof: Proof)
+   requires s in stamps and proof of s is proof
 ```
 
 - Congestion(場所ごとの混雑の報告)を、Stamp に完全に差し替えた(コメント反映)。混雑は、スタンプの種類(混雑 1〜5)の 1 つとして扱う。古い混雑スタンプを答えに出さない判定は、同期の `where` で行う(5 章の `show-stamps`)。【推論】
   理由: 時間の経過で起きるアクションを、演繹文書の書き方でどう書くかは未確認(10 章)。アクションにすると、そこで詰まる。
 - 足元に押す: スタンプは場所(Item)ではなく、押した人の現在地(Point)に付く(確定)。`press-stamp` が Position の現在地を渡す。そのため Stamp は Place を参照せず、Place の削除にも連動しない。
+- 押した人を持たない(2026-11-23。D-021): 取り消せるのが押した本人であることは、押したときに返す取り消しの証(`Proof`)の一致で確かめる。端末のデータが消えると取り消せないことは受け入れる。`Proof` は基本の型として扱う。【推論】
 ### 3.7 Landmark
 
-Landmark は、建物の基準画像と位置を登録し、画像から一致する建物を返す(Slack の構想)。Landmark は自分で作るので、型パラメータにしない。基本の型として `Image`(画像)を足す。【推論】
+Landmark は、建物の名前・位置・輪郭を保ち、現在地と向きから、正面にある建物を返す(Slack の構想。2026-11-22 に、基準画像との照合から、輪郭に変えた。D-018)。Landmark は自分で作るので、型パラメータにしない。基本の型として `Polygon`(地図上の多角形)を足す。【推論】
 
 ```
 concept Landmark
 purpose 来場者が、いま見ている建物がどれかを知って、迷いを解く
-principle 運営が建物の名前・位置・基準画像を登録する。来場者がカメラを
-向けると、基準画像に一致する建物の名前と位置が分かる。一致する建物が
-無ければ、分からない。運営が建物を取り除くと、その建物は分からなくなる
+principle 建物の名前・位置・輪郭が登録される。来場者が端末を建物に向けると、
+現在地と向きから、正面にある建物の名前と位置が分かる。正面に建物が
+無ければ、分からない。建物が取り除かれると、その建物は分からなくなる
 state
  landmarks: set Landmark
  name: Landmark -> one String
  location: Landmark -> one Point
- image: Landmark -> one Image        // 基準画像
+ footprint: Landmark -> one Polygon  // 建物の輪郭(地図上の多角形の頂点列)
 actions
- register (name: String, at: Point, image: Image): Landmark
- update (l: Landmark, name: String, at: Point, image: Image)
+ register (name: String, at: Point, footprint: Polygon): Landmark
+ update (l: Landmark, name: String, at: Point, footprint: Polygon)
    requires l in landmarks
  remove (l: Landmark)
    requires l in landmarks
 ```
 
-- 画像の一致は、状態を必要としない計算なので、概念にせず、外部の計算(`Vision.matches`)として同期の `where` に置く(Laya と同じ扱い)。【推論】
-- 来場者の映像は、端末の中で処理し、保存も送信もしない。映像から一致の判定までを端末内で通し、結果(建物の名前と位置)だけを来場者に見せる(Slack の要件)。概念の仕様ではなく、実装の制約として扱う。
-- Place(企画、駐車場)と重なる疑い: どちらも位置を持つ。Landmark は建物で、基準画像を持つので、分けた。Place の `kind` に建物を足す案もある。【推論】
+- 正面の建物を決める計算(現在地から向いている方向へ線を伸ばし、最初に輪郭と交わる建物を選ぶ)は、状態を必要としない計算なので、概念にせず、外部の計算(`Geometry.facing`)として同期の `where` に置く(Laya と同じ扱い)。【推論】
+- 映像は使わない。現在地と向きは、端末の中で計算し、サーバーへ送らない(D-018)。
+- 輪郭は地図データ(OpenStreetMap)から取る。運営は輪郭を描かず、直さず、取り直す操作(同期 `reload-footprint`)だけを持つ(D-019)。輪郭の配り方は OQ-16。画像認識(MindAR)は拡張として残す。
+- Place(企画、駐車場、設備)と重なる疑い: どちらも位置を持つ。Landmark は建物で、輪郭を持つので、分けた。Place の `kind` に建物を足す案もある。【推論】
 ## 4. 概念の点検
 
 | 概念 | 特定性(目的 1 つ) | 独立性(他の概念を名前で参照しない) | 完全性(生涯: 準備と終わり) | 型パラメータの判定 |
 |---|---|---|---|---|
-| Place | 場所を知る 1 つ | 参照なし | register / update / remove | `Place` は自作。`Point` は基本の型(推論) |
+| Place | 場所を知る 1 つ | 参照なし。`Building` は型パラメータ | register / update / remove | `Place` は自作。`Building` は外から来る。`Point`・`Period` は基本の型(推論) |
 | Search | 見つける 1 つ | 参照なし。`Item` は型パラメータ | index / unindex | `Item` は外から来る |
 | Labeling | 種類やタグで絞る 1 つ | 参照なし | define / defineFor / undefine、attach / detach / release、applyFilter / clearFilter | User、Item は外から来る。Label は自作 |
 | Position | 現在地を保つ 1 つ | 参照なし | allow / refuse、update / clear | `User` は外から来る |
 | Destination | 行き先と道案内を保つ 1 つ | 参照なし | choose / updateGuide / clear | `User`、`Item` は外から来る |
-| Stamp | 足元のスタンプを残す 1 つ | 参照なし | press / retract | User は外から来る。Point は基本の型(推論) |
-| Landmark | 建物を知る 1 つ | 参照なし | register / update / remove | 型パラメータなし。Image、Point は基本の型(推論) |
+| Stamp | 足元のスタンプを残す 1 つ | 参照なし | press / retract | 型パラメータなし。Point・Proof は基本の型(推論) |
+| Landmark | 建物を知る 1 つ | 参照なし | register / update / remove | 型パラメータなし。Polygon、Point は基本の型(推論) |
 
-重なりの疑い(特定性・冗長。12 章)。 `Place.kind`(企画 / 駐車場)と `Labeling`(飲食、展示など)は、どちらも「種類」を持つ。目的が 1 対 1 なら、まとめてよい形に近い。
+重なりの疑い(特定性・冗長。12 章)。 `Place.kind`(企画 / 駐車場 / 設備)と `Labeling`(飲食、展示など)は、どちらも「種類」を持つ。目的が 1 対 1 なら、まとめてよい形に近い。
 
-- 案 1(この文書の採用): `kind` を `Place` に残す。F4 を外しても、企画と駐車場を区別できる。
-- 案 2: `kind` をやめて、「企画」「駐車場」も `Labeling` の種類にする。冗長が無くなるが、F4(任意)を外せなくなる。
+- 案 1(この文書の採用): `kind` を `Place` に残す。F4 を外しても、企画・駐車場・設備を区別できる。
+- 案 2: `kind` をやめて、「企画」「駐車場」「設備」も `Labeling` の種類にする。冗長が無くなるが、F4(任意)を外せなくなる。
 - 【未決】OQ-3。決まるまで、案 1 のまま。
 ## 5. 同期
 
@@ -270,14 +278,14 @@ actions
 
 ```
 sync register-place
-when Web.request (registerPlace, who, name, kind, at, text)
+when Web.request (registerPlace, who, name, kind, at, text, b, floor, hours)
 where who may manage places                        // 【未決】OQ-1、OQ-5
-then p = Place.register (name, kind, at, text)
+then p = Place.register (name, kind, at, text, b, floor, hours)
 
 sync update-place
-when Web.request (updatePlace, who, p, name, kind, at, text)
+when Web.request (updatePlace, who, p, name, kind, at, text, b, floor, hours)
 where who may manage places
-then Place.update (p, name, kind, at, text)
+then Place.update (p, name, kind, at, text, b, floor, hours)
 
 sync remove-place
 when Web.request (removePlace, who, p)
@@ -286,16 +294,18 @@ then Place.remove (p)
 
 sync show-places
 when Web.request (showPlaces)
-where p in Place.places, with Place.name, Place.kind, Place.location, Place.description
-then Web.respond (the places)
+where p in Place.places, with Place.name, Place.kind, Place.location, Place.description,
+      Place.building, Place.floor, Place.hours, and the labels attached to p
+      // 絞り込みは端末で行う(D-012・D-014)。運営の種類どうしは OR、自分用のタグは AND(D-016)。設備は絞り込まない
+then Web.respond (the places, each with its labels)
 
 // Place の変化に、他の概念を連動させる
 sync index-on-register
-when Place.register (name, kind, at, text): p
+when Place.register (name, kind, at, text, b, floor, hours): p
 then Search.index (p, name)
 
 sync reindex-on-update
-when Place.update (p, name, kind, at, text)
+when Place.update (p, name, kind, at, text, b, floor, hours)
 then Search.index (p, name)
 
 sync cascade-remove
@@ -337,6 +347,16 @@ sync define-label
 when Web.request (defineLabel, who, title)
 where who may manage places
 then Labeling.define (title)
+
+sync show-labels
+when Web.request (showLabels)
+where l in Labeling.labels, and Labeling.owner of l is none     // 運営の種類。種類のチップの名前に使う
+then Web.respond (the labels)
+
+sync remove-label
+when Web.request (removeLabel, who, l)
+where who may manage places                        // 【未決】OQ-1。どの場所にも付いていなければ、undefine できる
+then Labeling.undefine (l)
 
 sync assign-label
 when Web.request (assignLabel, who, p, l)
@@ -425,61 +445,77 @@ then Web.respond (d, with Place.name, h, r, Destination.guidedAt of u)
 sync press-stamp
 when Web.request (pressStamp, u, kind, now)
 where Position.at of u is p                         // 足元 = 押す人の現在地
-then Stamp.press (u, kind, p, now)
+then Stamp.press (kind, p, now)                     // 取り消しの証が返る
 
 sync retract-stamp
-when Web.request (retractStamp, u, s)
-then Stamp.retract (u, s)
+when Web.request (retractStamp, s, proof)
+then Stamp.retract (s, proof)
 
 sync show-stamps
 when Web.request (showStamps, now)
 where s in Stamp.stamps
-      Stamp.kind of s is not a congestion stamp,
-      or the age (now - Stamp.pressedAt of s) is within the limit   // 【未決】OQ-4
+      Stamp.kind of s is a congestion stamp and the age (now - Stamp.pressedAt of s) is within 30 minutes,
+      or Stamp.kind of s is a feeling stamp and now is before the closing time of that day
+      // 仮置きの値(D-022)。【未決】OQ-4
 then Web.respond (s, with Stamp.kind, Stamp.at, Stamp.pressedAt)
 ```
 
-- 混雑スタンプは、許容時間を過ぎると `where` に合わず、答えに出ない。感想のスタンプ(面白い、美味しい、よさ)に期限を付けるかは決まっていない。【未決】OQ-4
-### 5.5 建物の認識と、迷いの解消(F5)
+- 混雑スタンプは、許容時間を過ぎると `where` に合わず、答えに出ない。感想のスタンプ(面白い、美味しい、よさ)は、その日の閉場まで見える。期限の値(混雑 30 分、感想は閉場まで)は仮置きで、チームが決める。【未決】OQ-4
+### 5.5 建物の判定と、迷いの解消(F5)
 
 ```
 sync register-landmark
-when Web.request (registerLandmark, who, name, at, image)
+when Web.request (registerLandmark, who, name, at)
 where who may manage places                        // 【未決】OQ-1
-then l = Landmark.register (name, at, image)
+      Osm.outline (at) is footprint                // 【推論】外部の計算。輪郭は地図データから取る(D-019)
+then l = Landmark.register (name, at, footprint)
 
 sync update-landmark
-when Web.request (updateLandmark, who, l, name, at, image)
+when Web.request (updateLandmark, who, l, name, at, footprint)
 where who may manage places
-then Landmark.update (l, name, at, image)
+then Landmark.update (l, name, at, footprint)
+
+sync reload-footprint
+when Web.request (reloadFootprint, who, l)
+where who may manage places
+      l in Landmark.landmarks
+      Osm.outline (Landmark.location of l) is footprint     // 取れなければ、輪郭は変えずに断る
+then Landmark.update (l, Landmark.name of l, Landmark.location of l, footprint)
 
 sync remove-landmark
 when Web.request (removeLandmark, who, l)
 where who may manage places
 then Landmark.remove (l)
 
-sync recognize-building
-when Web.request (recognizeBuilding, frame)        // frame は端末内で処理し、保存も送信もしない
+sync show-landmarks
+when Web.request (showLandmarks)
 where l in Landmark.landmarks
-      Vision.matches (frame, Landmark.image of l)  // 【推論】外部の計算。ブラウザ内で実行
+then Web.respond (the landmarks)
+
+sync recognize-building
+when Web.request (recognizeBuilding, u, heading)   // 現在地と向きは端末内で扱い、送信しない(D-018)
+where l in Landmark.landmarks
+      Geometry.facing (Position.at of u, heading, Landmark.footprint of l)   // 【推論】外部の計算
 then Web.respond (l, with Landmark.name, Landmark.location)
 
 sync show-building-events
-when Web.request (showBuildingEvents, frame)
+when Web.request (showBuildingEvents, u, heading)
 where l in Landmark.landmarks
-      Vision.matches (frame, Landmark.image of l)
-      p in Place.places near Landmark.location of l       // near の範囲は【未決】OQ-10
+      Geometry.facing (Position.at of u, heading, Landmark.footprint of l)
+      p in Place.places with Place.building of p is l
 then Web.respond (l, the places p, with Place.name, Place.location)
 
 sync show-no-events
-when Web.request (showBuildingEvents, frame)
+when Web.request (showBuildingEvents, u, heading)
 where l in Landmark.landmarks
-      Vision.matches (frame, Landmark.image of l)
-      no p in Place.places near Landmark.location of l
-then Web.respond (l, no events)                       // 「この棟には企画がない」を見せる
+      Geometry.facing (Position.at of u, heading, Landmark.footprint of l)
+      no p in Place.places with Place.building of p is l
+then Web.respond (l, no events)                       // 「この建物には企画がない」を見せる
 ```
 
-- 「この棟には企画がない」を見せる(Slack の構想)ために、`show-no-events` を分けた。`show-building-events` は、企画が 1 件以上あるときだけ起きる。
+- 「この建物には企画がない」を見せる(Slack の構想)ために、`show-no-events` を分けた。`show-building-events` は、企画が 1 件以上あるときだけ起きる。
+- 建物の企画は、場所の `building` が建物と一致するもので決める(2026-11-22)。以前の「建物の近く(near)」は使わない。OQ-10 のうち near の範囲は、要らなくなった。
+- 運営は輪郭を描かない。建物を登録するときに地図データから取り込み、ずれたときは `reload-footprint` で取り直す(D-019)。
 - 「迷っているか」の判定は、まだ書いていない。Position と Destination から、`where` で計算できるか(行き先から遠ざかる、同じ所に長く留まる、など)を決める。【未決】OQ-10
 ## 6. 機能 × 概念・同期の対応(被覆)
 
@@ -488,8 +524,8 @@ then Web.respond (l, no events)                       // 「この棟には企�
 | F1 | Place、Search | register-place、update-place、remove-place、show-places、index-on-register、reindex-on-update、cascade-remove、search-places、search-places-laya |
 | F2 | Place、Position、Destination | allow-location、refuse-location、report-position、set-position、choose-destination、guide-on-choose、guide-on-move、show-route、clear-destinations-on-remove |
 | F3 | Position、Stamp | press-stamp、retract-stamp、show-stamps |
-| F4 | Place、Labeling | define-label、assign-label、define-my-tag、mark-place、unmark-place、apply-filter、clear-filter、browse-by-label、show-places、cascade-remove |
-| F5 | Place、Landmark | register-landmark、update-landmark、remove-landmark、recognize-building、show-building-events、show-no-events |
+| F4 | Place、Labeling | define-label、show-labels、remove-label、assign-label、define-my-tag、mark-place、unmark-place、apply-filter、clear-filter、browse-by-label、show-places、cascade-remove |
+| F5 | Place、Landmark | register-landmark、update-landmark、reload-footprint、remove-landmark、show-landmarks、recognize-building、show-building-events、show-no-events |
 
 - どの機能も、概念と同期の組で実現される。どの機能にも使われない概念は無い。
 - F4 を外すと、`Labeling` と、5.2 の同期が丸ごと外れる。`cascade-remove` の `Labeling.release` の行と、`show-places` の絞り込みの行も外す。他の概念は変わらない。
@@ -522,6 +558,11 @@ app NAsVI includes
 | 8 | 同期に、`Place.update` / `remove` を起こす要求が無い | `update-place`、`remove-place` を足した | アクションはあるが、起こす同期が無かった |
 | 9 | 事前条件に「なし」と書く | 書かない | 演繹文書の書式に、書く欄が無い。事前条件が無いアクションは、`requires` を省く |
 | 10 | 同期の `where` が、日本語の文だけ | 状態への問い合わせの形で書いた | `where` は状態への問い合わせ(10 章) |
+| 11 | Place に建物・階・開催時間が無い。Kind は企画と駐車場。 | `Place [Building]` に building・floor・hours。Kind に設備 4 種 | 画面・API 設計が前提にした(D-017・D-020) |
+| 12 | Landmark が基準画像を持ち、映像と照合する | footprint(輪郭)を持ち、現在地と向きから正面の建物を決める。輪郭は OpenStreetMap から取る | D-018・D-019。画像認識は拡張として残す |
+| 13 | Stamp が押した人(by)を持つ | 取り消しの証(proof)の一致で確かめる。by をやめた | D-021。API-13・19 と一致 |
+| 14 | show-places が絞り込みを行う | 絞り込みは端末。サーバーは運営の種類を付けて返す | D-012・D-014・D-016 |
+| 15 | showLabels・removeLabel・showLandmarks・reloadFootprint が無い | 同期を足した | API-6・10、D-019 |
 
 ## 8. 決めること・確認できないこと
 
@@ -531,14 +572,16 @@ app NAsVI includes
 |---|---|
 | OQ-1 場所の登録者(旧: 混雑の報告者) | who may manage places。運営者用のイベント登録ページを作ることが決まった(2026-11-19)ので、運営と来場者の区別が必要になった。スタンプは来場者が押すので、報告者の権限(who may report)は不要になった。権限の根拠となる状態が要る。決まったら、その状態を持つ概念を足す(候補は、運営の識別を保つ概念。足すかは、運営と来場者を区別する必要があるかによる) |
 | OQ-2 現在地を手で指定するか | `Position.setManually`、`set-position`、位置が取れないときの見せ方 |
-| OQ-3 F4 を入れるか、種類と `Place.kind` の線引き | 4 章の「重なりの疑い」。案 1 か案 2 |
-| OQ-4 スタンプの種類と、混雑スタンプを古いとみなす時間 | StampKind の列挙(混雑 1〜5、面白い、美味しい、よさ など)、show-stamps の許容時間 |
+| OQ-3 F4 を入れるか、種類と `Place.kind` の線引き | 4 章の「重なりの疑い」。案 1 か案 2。設備を `Kind` に足した(D-017)ので、線引きの対象が増えた |
+| OQ-4 スタンプの種類と、混雑スタンプを古いとみなす時間 | StampKind の列挙(混雑 1〜5、面白い、美味しい、よさ など)。show-stamps の許容時間は、仮置きの値(混雑 30 分、感想は閉場まで。D-022) |
 | OQ-5 場所データの入れ方 | 運営者用の登録ページを作ることが決まった(2026-11-19)。register-place の when は、その登録ページからの要求になる。スプレッドシートの取り込みは、使う場合だけ |
-| OQ-12 来場者(`User`)を誰が供給するか | Position [User]、Destination [User, Item]、Labeling [User, Item]、Stamp [User]。来場者を識別しないなら、利用者ごとの状態は、端末の中に置く形になる。その場合、Position、Destination を概念として残すかも決める |
+| OQ-12 来場者(`User`)を誰が供給するか | Position [User]、Destination [User, Item]、Labeling [User, Item]、Stamp は User を持たなくなった(D-021)。来場者を識別しないなら、利用者ごとの状態は、端末の中に置く形になる。その場合、Position、Destination を概念として残すかも決める |
 | OQ-8 タグ検索と Laya の組み込み | タグ名を index に渡すか。Laya(自然言語から曖昧検索できる小規模言語モデル)の入出力形式と、動かす場所(端末かサーバか)。search-places-laya の Laya.matches の書き方 |
 | OQ-9 待ち合わせ(合言葉) | 周囲のオンライン者に合言葉を共有する案(Slack)。入れる場合は、グループと位置の共有を保つ概念(Meetup など)が要る。Position の「見えるのは自分の現在地のみ」と衝突するので、共有を許可した相手にだけ見せる形にするかを決める。来場者(User)の識別も要る |
 | OQ-10 迷いの判定と「企画なし」の表示 | 「迷っている」の判定方法(行き先から遠ざかる、同じ所に長く留まる、など)。near の範囲。判定を概念にするか、同期の where の計算にするか |
-| OQ-11 Landmark の認識の実装 | ブラウザ内で動く小型の視覚モデル(ONNX Runtime Web、Transformers.js。数十 MB)か、既存の MindAR(画像認識版)か。映像から判定までを端末内で通し、画像を保存・送信せず結果だけ見せる条件を満たせるか。Image を基本の型として扱うこと |
+| OQ-11 Landmark の認識の実装(閉じた) | 映像でなく、現在地・向き・建物の輪郭で決めることにした(D-018)。画像認識(MindAR)は拡張 |
+| OQ-14 階ごとの見取り図を新概念にするか | 階の画像と、四隅の緯度経度。Place・Landmark とは目的が違う。概念には足していない |
+| OQ-16 建物の輪郭の配り方 | 端末へ静的ファイルで同梱するか、API で返すか |
 
 演繹文書で確認できていないこと(この文書が【推論】で置いた所)。
 
@@ -551,8 +594,8 @@ app NAsVI includes
 7. Labeling に、来場者の自分用タグ(`owner`)と絞り込み状態(`filtering`)を持たせた形。目的が同じなので 1 概念にしたが、運営の種類と自分用タグを別の概念に分ける案もある。
 8. 道案内の結果(方角、距離)を Destination の状態に持たせ、同期が更新する形。
 9. Stamp を、場所(Place)ではなく地点(Point)に付ける形(設計は確定。演繹文書の例には無い)。
-10. `Image` を、基本の型として扱うこと。
-11. ブラウザ内で動く画像の一致(`Vision.matches`)を、外部の計算として同期の `where` に置いた形(Laya と同じ扱い)。
+10. `Polygon`・`Period`・`Proof` を、基本の型として扱うこと。
+11. 正面の建物の判定(`Geometry.facing`)と、輪郭の取得(`Osm.outline`)を、外部の計算として同期の `where` に置いた形(Laya と同じ扱い)。名前は仮。
 ## 9. 変更履歴
 
 この文書の正本は、Notion の「NAsVI の概念設計」と、このリポジトリで二重になっている。Notion の末尾「9. 変更履歴」に、各版の変更前と変更後の本文がある。リポジトリでは、git の履歴で辿る。
@@ -564,3 +607,4 @@ app NAsVI includes
 | r2 | 2026-11-19 | Laya の定義(自然言語から曖昧検索できる小規模言語モデル)。Stamp を地点(Point)に確定 |
 | r3 | 2026-11-19 | Slack のメモの取り込み(Landmark、迷いの判定、待ち合わせ、運営者用の登録ページ) |
 | r4 | 2026-11-19 | OQ 番号を、`open-questions.yaml` に揃える(OQ-6〜9 → OQ-8〜11、OQ-12 を新設) |
+| r5 | 2026-11-23 | API 設計・デザインシステムとの擦り合わせ(D-017〜D-022)。Place に建物・階・開催時間・設備、Landmark を輪郭に、Stamp の取り消しを証に、絞り込みを端末に。同期 show-labels・remove-label・show-landmarks・reload-footprint を追加 |
