@@ -21,6 +21,8 @@ questions:
     owner: チーム
     status: open
     answer: null
+    note: >-
+      利用者の意見(API 設計の台帳 API-28、2026-11-22)。設備(案内所・トイレ・休憩所・ゴミ箱)を Place.kind に足す。チームの決定待ち。
 
   - id: OQ-4
     question: スタンプの種類(混雑 1〜5、面白い、美味しい、よさ など)と、混雑スタンプを古いとみなす時間。感想のスタンプに期限を付けるか
@@ -28,6 +30,8 @@ questions:
     owner: チーム
     status: open
     answer: null
+    note: >-
+      案(API 設計の台帳 API-17、2026-11-22)。種類はいまの 8 つ、混雑は 30 分で消え、感想はその日の閉場で消える。利用者は「これでよい気がする」。チームの決定待ち。
 
   - id: OQ-5
     question: 場所のデータをどう入れるか(運営が操作して登録するか、スプレッドシートから取り込むか)
@@ -42,6 +46,7 @@ questions:
     owner: チーム
     status: open
     answer: null
+    note: 想定来場者数は、前回が 2 日間で 10000 人程度(利用者、2026-11-22。API 設計の台帳 API-21)。審査基準・デモの場面・チーム人数は未回答。
 
   - id: OQ-7
     question: input.yaml の課題・機能 F1〜F5 は、ボードの P1 案と合っているか(F1〜F4 は画像から推測した下書き。F3・F4 の広げ方と F5 は Slack の発言から)
@@ -70,6 +75,8 @@ questions:
     owner: チーム
     status: open
     answer: null
+    note: >-
+      利用者の意見(API 設計の台帳 API-23、2026-11-22)。その棟の企画は、建物の近くでなく、建物の id が付いた場所で出す。そうすると near の範囲は要らない。「迷っている」の判定は未回答。チームの決定待ち。
 
   - id: OQ-11
     question: 建物の認識の実装(ブラウザ内で動く小型の視覚モデルか、既存の MindAR か)。映像から判定までを端末内で通し、画像を保存・送信せず結果だけ見せる条件を満たせるか
@@ -84,6 +91,7 @@ questions:
     owner: チーム
     status: open
     answer: null
+    note: API 設計では、現在地と行き先(Position・Destination)を端末内に置き、API に載せない形で進める(api/review-ledger.yaml の API-5、2026-11-22)。来場者を識別するかは未決のまま。
 
   - id: OQ-13
     question: 自作タグの名前のルール(空欄・重複・文字数)と、タグの上限数。名前の変更・削除ができるか、固定の 2 つを消せるか
