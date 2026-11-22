@@ -89,13 +89,14 @@ items:
   - id: API-7
     kind: リソース設計
     content: >-
-      GET /labels・GET /landmarks・DELETE /labels/{labelId}・PUT と DELETE /landmarks/{landmarkId}/floors/{floor}/plan に対応する要求(Request.showLabels・Request.showLandmarks・Request.removeLabel など)を concepts.yaml に足す。
-      それまで openapi.yaml では x-request を付けずに置く
+      画面に要るのに concepts.yaml に要求が無かった操作。
+      main の PR #24(D-017・D-019)で Request.showLabels・removeLabel・showLandmarks・reloadFootprint が足され、仕様に x-request を付けた(2026-11-23)。
+      残りは階ごとの見取り図(PUT・DELETE /landmarks/{landmarkId}/floors/{floor}/plan)だけ。見取り図を概念にするかが OQ-14 で未決のため
     state: 仮置き
-    placeholder: 要求名を showLabels・showLandmarks・removeLabel・setFloorPlan・removeFloorPlan と仮に呼ぶ。概念設計への反映はチームが行う
+    placeholder: 要求名を setFloorPlan・removeFloorPlan と仮に呼ぶ。概念設計への反映はチーム(OQ-14)
     decided_by: ""
     date: ""
-    related_oq: OQ-11
+    related_oq: OQ-14
   - id: API-8
     kind: 一覧取得
     content: >-
@@ -174,14 +175,14 @@ items:
     kind: バリデーション
     content: >-
       場所・種類・建物の項目の必須と文字数、検索語の上限、位置の形。
-      回答(項目): 場所に建物(landmarkId)と階(floor)を足す(案 C)。時間は説明(description)に書く。
+      回答(項目): 場所に建物(landmarkId)と階(floor)を足す(案 C)。時間は説明(description)に書く → main の D-020 で、開催時間は Place.hours(開始と終了の組、複数可)として持つことに変わった。仕様に hours を足した(2026-11-23)。
       建物の中の地図(building)で、建物と階ごとに企画を出すため。屋外の企画・駐車場は、どちらも null。
       概念設計の変更が要る(Place に建物と階を持たせる。建物との結びつきを、概念の仕様に書くか同期に書くかはチームが決める)。
       回答(細かい決まり、案 A): 場所の名前 1〜50 文字(重複は許す。実際には名前が違うはず、と利用者)、説明 500 文字以下、
       種類の名前 1〜20 文字で重複を禁止(409 label_title_taken)、階は整数 -5〜20、位置は緯度経度(lat・lng)、検索語は 1〜50 文字。違反は 400
       利用者の意見: 場所に建物と階を持たせる(概念設計の変更)。概念設計に入れるかはチームが決める(ゲート 2 の質問 6 の回答 C)。
     state: 仮置き
-    placeholder: "利用者の意見: 場所に建物(landmarkId)と階(floor)を足し、時間は説明に書く。文字数などの決まりも利用者の回答どおり。チームの合意待ち"
+    placeholder: "利用者の意見: 場所に建物(landmarkId)と階(floor)を足す。開催時間は hours(D-020)。文字数などの決まりも利用者の回答どおり。チームの合意待ち"
     decided_by: ""
     date: ""
     related_oq: ""
@@ -191,7 +192,7 @@ items:
       エラーボディの形とコードの体系。
       回答: {code, message} の形(案 A)。入力の誤り(400)のときだけ、悪い項目を示す field を足す(例 "field": "name")。application/problem+json で返す。
       コード: 400 invalid_input・out_of_venue、401 unauthorized、403 not_stamp_owner、404 not_found・label_not_found、409 label_in_use・label_title_taken・landmark_in_use、
-      413 image_too_large、429 too_many_requests、500 internal_error。
+      413 image_too_large、429 too_many_requests、500 internal_error、502 footprint_unavailable(API-34)。
       複数の項目が誤っていても、示すのは 1 項目だけ(まとめて出したい場面はあるが、今回は A で足りる。api/roadmap.md の 4)
     state: 確定
     placeholder: ""
@@ -265,7 +266,7 @@ items:
     content: >-
       レート制限、タイムアウト、最大リクエストサイズ。
       回答(案 A): 来場者の読み取り(一覧・検索)は同じ通信元から 1 分に 60 回まで(超えたら 429)。運営の操作は制限なし。
-      応答の上限時間は 10 秒。本文は 1 MB、建物の基準画像は 5 MB まで(超えたら 413)。リアルタイムの接続には 30 秒ごとに空の合図(コメント行)を送る。
+      応答の上限時間は 10 秒。本文は 1 MB、画像(建物の基準画像 → D-018 以降は見取り図)は 5 MB まで(超えたら 413)。リアルタイムの接続には 30 秒ごとに空の合図(コメント行)を送る。
       スタンプの連打の制限は API-18(1 分に 5 個)。
       来場者数: 前回は 2 日間で 10000 人程度(利用者、2026-11-22)。1 日 5000 人。
       同時に使う人数の推定(AI の推論。確かめていない): 来場者の 3 割が使い、最も混む 1 時間に 1 日の 2 割が集まるとすると、1 時間に約 300 人。
@@ -280,10 +281,12 @@ items:
     content: >-
       建物の基準画像の送り方と形式。いまは multipart/form-data で画像を送り、GET /landmarks で imageUrl を配る。MindAR を使う場合は、配るものが .mind ファイルなどに変わる。
       回答(2026-11-22、sabo10p): OQ-11 が決まるまで要確認のまま残す(案 C)
-    state: 要確認
+      回答: main の D-018(利用者の決定、2026-11-22)で、建物の判定は映像でなく現在地・向き・建物の輪郭で行うことになり、基準画像は持たない。
+      Landmark.image は footprint(OpenStreetMap の輪郭)に変わった(D-019)。仕様から基準画像を外し、footprint に置き換えた(2026-11-23)
+    state: 確定
     placeholder: ""
-    decided_by: ""
-    date: ""
+    decided_by: sabo10p
+    date: "2026-11-23"
     related_oq: "OQ-11"
   - id: API-23
     kind: 一覧取得
@@ -399,4 +402,44 @@ items:
     placeholder: ""
     decided_by: sabo10p
     date: "2026-11-22"
+    related_oq: ""
+  # --- main の PR #24(D-017〜D-022)を取り込んだあとの対応(2026-11-23) ---
+  - id: API-32
+    kind: 命名
+    content: >-
+      場所の建物の欄の名前。concepts.yaml は building(Landmark の id を指す。D-017)、仕様は landmarkId。
+      回答: 仕様は landmarkId のまま(D-020 で内部の名前は Landmark と確定。id であることも名前から分かる)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-23"
+    related_oq: ""
+  - id: API-33
+    kind: リソース設計
+    content: >-
+      建物の輪郭(footprint)を、GET /landmarks で配るか、端末に静的ファイルで同梱するか(OQ-16)。いまの仕様は API で配る形
+    state: 仮置き
+    placeholder: GET /landmarks の応答に footprint を入れて配る
+    decided_by: ""
+    date: ""
+    related_oq: OQ-16
+  - id: API-34
+    kind: エラー仕様
+    content: >-
+      輪郭の取り直し(Request.reloadFootprint)の形。パスは動詞を避けて POST /landmarks/{landmarkId}/footprint(本文なし)。
+      OpenStreetMap から輪郭が取れないときは、輪郭を変えずに 502 footprint_unavailable を返す(登録のときも同じ)
+    state: 仮置き
+    placeholder: POST /landmarks/{landmarkId}/footprint。取れなければ 502 footprint_unavailable
+    decided_by: ""
+    date: ""
+    related_oq: ""
+  - id: API-35
+    kind: バリデーション
+    content: >-
+      開催時間(hours。D-020)の時刻の形。いまは日付つきの日時(ISO 8601、+09:00)。学園祭は 2 日間なので、日付が要る。
+      デザインシステムの hours(表示用の文字列)とどう対応させるか(画面が日時から「11:00〜15:00」を作るか)も確かめる
+    state: 仮置き
+    placeholder: start・end は日付つきの日時(date-time)。表示用の文字列は画面が作る
+    decided_by: ""
+    date: ""
     related_oq: ""

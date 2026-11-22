@@ -18,7 +18,7 @@ servers:
   - url: /api
     description: >-
       デプロイ先は未定。非機能(API-21): 来場者の読み取りは同じ通信元から 1 分に 60 回まで、
-      スタンプは 1 分に 5 個まで(API-18)、応答は 10 秒まで、本文 1 MB・基準画像 5 MB まで
+      スタンプは 1 分に 5 個まで(API-18)、応答は 10 秒まで、本文 1 MB・見取り図の画像 5 MB まで
 
 tags:
   - name: places
@@ -29,7 +29,7 @@ tags:
     description: 足元に押すスタンプ(混雑・感想)。F3
 
   - name: landmarks
-    description: 建物と基準画像。F5
+    description: 建物(輪郭)と階の見取り図。F5
 
 x-excluded-requests:
   allowLocation: 端末内(API-5)。ブラウザの位置情報の許可で足りる
@@ -45,7 +45,7 @@ x-excluded-requests:
   clearFilter: 端末内(API-8)
   browse: 端末内(API-8・D-014)
   searchNatural: OQ-8(Laya を入れるか)が未決のため外す(API-6)
-  recognizeBuilding: 端末内(OQ-11)。映像を送らないため、端末が GET /landmarks の基準画像と照合する
+  recognizeBuilding: 端末内(D-018)。端末が現在地・向きと GET /landmarks の輪郭から正面の建物を決める。現在地と向きは送らない
 
 paths:
   /places:
@@ -72,9 +72,11 @@ paths:
                     name: 焼きそば屋台
                     kind: 企画
                     location: {lat: 37.4249, lng: 138.7781}
-                    description: 2 年生の模擬店。11:00〜15:00
+                    description: 2 年生の模擬店
                     landmarkId: null
                     floor: null
+                    hours:
+                      - {start: "2026-11-28T11:00:00+09:00", end: "2026-11-28T15:00:00+09:00"}
                     labelIds: [lb_food]
         "429":
           $ref: "#/components/responses/TooManyRequests"
@@ -99,7 +101,9 @@ paths:
               name: 焼きそば屋台
               kind: 企画
               location: {lat: 37.4249, lng: 138.7781}
-              description: 2 年生の模擬店。11:00〜15:00
+              description: 2 年生の模擬店
+              hours:
+                - {start: "2026-11-28T11:00:00+09:00", end: "2026-11-28T15:00:00+09:00"}
       responses:
         "201":
           description: 登録した場所
@@ -112,9 +116,11 @@ paths:
                 name: 焼きそば屋台
                 kind: 企画
                 location: {lat: 37.4249, lng: 138.7781}
-                description: 2 年生の模擬店。11:00〜15:00
+                description: 2 年生の模擬店
                 landmarkId: null
                 floor: null
+                hours:
+                  - {start: "2026-11-28T11:00:00+09:00", end: "2026-11-28T15:00:00+09:00"}
                 labelIds: []
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -156,9 +162,11 @@ paths:
                     name: 焼きそば屋台
                     kind: 企画
                     location: {lat: 37.4249, lng: 138.7781}
-                    description: 2 年生の模擬店。11:00〜15:00
+                    description: 2 年生の模擬店
                     landmarkId: null
                     floor: null
+                    hours:
+                      - {start: "2026-11-28T11:00:00+09:00", end: "2026-11-28T15:00:00+09:00"}
                     labelIds: [lb_food]
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -186,7 +194,8 @@ paths:
             schema:
               $ref: "#/components/schemas/PlacePatch"
             example:
-              description: 2 年生の模擬店。11:00〜16:00(延長)
+              hours:
+                - {start: "2026-11-28T11:00:00+09:00", end: "2026-11-28T16:00:00+09:00"}
       responses:
         "200":
           description: 更新後の場所
@@ -258,11 +267,11 @@ paths:
   /labels:
     get:
       operationId: showLabels
+      x-request: showLabels
       security: []   # 来場者の操作。認証なし(API-12)
       tags: [labels]
       summary: 運営の種類の一覧
       description: マップと一覧のチップに使う。自分用のタグは端末内なので含まない(D-014)。
-      x-needs-review: "API-7: 対応する要求が concepts.yaml に無い(showLabels の仮置き)"
       responses:
         "200":
           description: 運営の種類の一覧
@@ -322,10 +331,10 @@ paths:
       - $ref: "#/components/parameters/LabelId"
     delete:
       operationId: removeLabel
+      x-request: removeLabel
       tags: [labels]
       summary: 運営の種類を消す(運営)
       description: どこかの場所にまだ付いている種類は消せない(Labeling.undefine の事前条件。API-10)。
-      x-needs-review: "API-7: 対応する要求が concepts.yaml に無い(removeLabel の仮置き)"
       security:
         - operatorAuth: []
       responses:
@@ -505,12 +514,14 @@ paths:
   /landmarks:
     get:
       operationId: showLandmarks
+      x-request: showLandmarks
       security: []   # 来場者の操作。認証なし(API-12)
       tags: [landmarks]
-      summary: 建物の一覧(基準画像つき)
+      summary: 建物の一覧(輪郭つき)
       description: >-
-        端末が建物を認識するために、基準画像を配る(映像は送らない。OQ-11)。運営の建物の画面(op_landmarks)も使う。
-      x-needs-review: "API-7: 対応する要求が concepts.yaml に無い(showLandmarks の仮置き)"
+        端末が建物を認識するために、建物の輪郭(footprint)を配る。端末は現在地・向き・輪郭から正面の建物を決める(D-018。現在地と向きは送らない)。
+        運営の建物の画面(op_landmarks)も使う。
+      x-needs-review: "API-33: 輪郭を API で配るか、端末に静的ファイルで同梱するか(OQ-16)"
       responses:
         "200":
           description: 建物の一覧
@@ -523,7 +534,11 @@ paths:
                   - id: lm_a
                     name: A 棟
                     location: {lat: 37.4246, lng: 138.7779}
-                    imageUrl: /api/landmarks/lm_a/image
+                    footprint:
+                      - {lat: 37.4248, lng: 138.7776}
+                      - {lat: 37.4248, lng: 138.7782}
+                      - {lat: 37.4244, lng: 138.7782}
+                      - {lat: 37.4244, lng: 138.7776}
                     floors:
                       - floor: 1
                         planUrl: /api/landmarks/lm_a/floors/1/plan
@@ -537,19 +552,20 @@ paths:
       x-request: registerLandmark
       tags: [landmarks]
       summary: 建物を登録する(運営)
-      x-needs-review: "API-22: 基準画像の送り方と形式"
+      description: >-
+        輪郭はサーバーが地図データ(OpenStreetMap)から取る。運営は輪郭を描かない(D-019)。
+        輪郭が取れなければ登録しない(502 footprint_unavailable)。
       security:
         - operatorAuth: []
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          application/json:
             schema:
               $ref: "#/components/schemas/LandmarkInput"
             example:
               name: A 棟
-              location: '{"lat":37.4246,"lng":138.7779}'
-              image: (A 棟の写真。JPEG の中身)
+              location: {lat: 37.4246, lng: 138.7779}
       responses:
         "201":
           description: 登録した建物
@@ -561,21 +577,18 @@ paths:
                 id: lm_a
                 name: A 棟
                 location: {lat: 37.4246, lng: 138.7779}
-                imageUrl: /api/landmarks/lm_a/image
+                footprint:
+                  - {lat: 37.4248, lng: 138.7776}
+                  - {lat: 37.4248, lng: 138.7782}
+                  - {lat: 37.4244, lng: 138.7782}
+                  - {lat: 37.4244, lng: 138.7776}
                 floors: []
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "413":
-          description: 画像が大きすぎる
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/Error"
-              example:
-                code: image_too_large
-                message: 画像は 5 MB 以下にしてください
+        "502":
+          $ref: "#/components/responses/FootprintUnavailable"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -587,13 +600,13 @@ paths:
       x-request: updateLandmark
       tags: [landmarks]
       summary: 建物を更新する(運営)
-      x-needs-review: "API-22: 基準画像の送り方と形式"
+      description: 名前と位置を直す。輪郭は直せない。取り直すときは POST /landmarks/{landmarkId}/footprint(D-019)。
       security:
         - operatorAuth: []
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          application/json:
             schema:
               $ref: "#/components/schemas/LandmarkPatch"
             example:
@@ -636,6 +649,46 @@ paths:
               example:
                 code: landmark_in_use
                 message: A 棟には 12 件の場所が付いています
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /landmarks/{landmarkId}/footprint:
+    parameters:
+      - $ref: "#/components/parameters/LandmarkId"
+    post:
+      operationId: reloadFootprint
+      x-request: reloadFootprint
+      tags: [landmarks]
+      summary: 建物の輪郭を地図データから取り直す(運営)
+      description: >-
+        サーバーが OpenStreetMap から建物の位置の輪郭を取り直し、差し替える(D-019)。本文は要らない。
+        輪郭が取れなければ、輪郭は変えずに 502 footprint_unavailable を返す。
+      x-needs-review: "API-34: 取り直す操作のパスと、取れないときのエラー"
+      security:
+        - operatorAuth: []
+      responses:
+        "200":
+          description: 取り直したあとの建物
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Landmark"
+              example:
+                id: lm_a
+                name: A 棟
+                location: {lat: 37.4246, lng: 138.7779}
+                footprint:
+                  - {lat: 37.4248, lng: 138.7776}
+                  - {lat: 37.4248, lng: 138.7782}
+                  - {lat: 37.4244, lng: 138.7782}
+                  - {lat: 37.4244, lng: 138.7776}
+                floors: []
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/FootprintUnavailable"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -736,7 +789,11 @@ paths:
                   id: lm_a
                   name: A 棟
                   location: {lat: 37.4246, lng: 138.7779}
-                  imageUrl: /api/landmarks/lm_a/image
+                  footprint:
+                    - {lat: 37.4248, lng: 138.7776}
+                    - {lat: 37.4248, lng: 138.7782}
+                    - {lat: 37.4244, lng: 138.7782}
+                    - {lat: 37.4244, lng: 138.7776}
                   floors: []
                 items: []
         "404":
@@ -813,6 +870,15 @@ components:
           example:
             code: too_many_requests
             message: しばらく待ってから押してください
+    FootprintUnavailable:
+      description: 地図データ(OpenStreetMap)から建物の輪郭が取れなかった
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: footprint_unavailable
+            message: この位置の建物の輪郭が地図データに見つかりません
     InternalError:
       description: サーバーの不具合
       content:
@@ -844,7 +910,7 @@ components:
       type: object
       description: >-
         id は会期中に変わらず、削除した id は再び使わない(API-31)。端末のタグは、この id で場所を覚える
-      required: [id, name, kind, location, description, landmarkId, floor, labelIds]
+      required: [id, name, kind, location, description, landmarkId, floor, hours, labelIds]
       properties:
         id: {type: string}
         name: {type: string}
@@ -852,7 +918,7 @@ components:
         location: {$ref: "#/components/schemas/Point"}
         description:
           type: string
-          description: 説明。時間もここに書く(API-14)
+          description: 説明。開催時間は hours に持つ(D-020)
         landmarkId:
           type: [string, "null"]
           description: 場所がある建物の id。屋外の企画・駐車場は null(API-14)
@@ -860,10 +926,22 @@ components:
         floor:
           type: [integer, "null"]
           description: 階(1 = 1 階、地下は負)。建物の外なら null
+        hours:
+          type: array
+          description: 開催時間(D-020)。複数の時間帯を持てる。駐車場・設備など時間が無いものは空
+          items: {$ref: "#/components/schemas/Period"}
         labelIds:
           type: array
           description: 付いている運営の種類の id。端末の絞り込みに使う(API-8)
           items: {type: string}
+    Period:
+      type: object
+      description: 開催時間の 1 つの時間帯(開始と終了の組。D-020)
+      x-needs-review: "API-35: 時刻の形(日付つきの日時か、時刻だけか)"
+      required: [start, end]
+      properties:
+        start: {type: string, format: date-time}
+        end: {type: string, format: date-time}
     PlaceList:
       type: object
       required: [items]
@@ -881,6 +959,9 @@ components:
         description: {type: string, maxLength: 500}
         landmarkId: {type: [string, "null"]}
         floor: {type: [integer, "null"], minimum: -5, maximum: 20}
+        hours:
+          type: array
+          items: {$ref: "#/components/schemas/Period"}
     PlacePatch:
       type: object
       minProperties: 1
@@ -891,6 +972,9 @@ components:
         description: {type: string, maxLength: 500}
         landmarkId: {type: [string, "null"]}
         floor: {type: [integer, "null"], minimum: -5, maximum: 20}
+        hours:
+          type: array
+          items: {$ref: "#/components/schemas/Period"}
 
     Label:
       type: object
@@ -953,14 +1037,16 @@ components:
 
     Landmark:
       type: object
-      required: [id, name, location, imageUrl, floors]
+      required: [id, name, location, footprint, floors]
       properties:
         id: {type: string}
         name: {type: string}
         location: {$ref: "#/components/schemas/Point"}
-        imageUrl:
-          type: string
-          description: 基準画像の URL
+        footprint:
+          type: array
+          description: 建物の輪郭(多角形の頂点。順に結ぶ)。OpenStreetMap から取る(D-018・D-019)
+          minItems: 3
+          items: {$ref: "#/components/schemas/Point"}
         floors:
           type: array
           description: 見取り図のある階(API-29)。無ければ空
@@ -1005,27 +1091,17 @@ components:
           items: {$ref: "#/components/schemas/Landmark"}
     LandmarkInput:
       type: object
-      required: [name, location, image]
+      required: [name, location]
+      description: 輪郭は送らない。サーバーが location から取る(D-019)
       properties:
         name: {type: string, minLength: 1, maxLength: 50}
-        location:
-          type: string
-          description: Point を JSON にした文字列(multipart のため)
-        image:
-          type: string
-          format: binary
-          description: 基準画像
+        location: {$ref: "#/components/schemas/Point"}
     LandmarkPatch:
       type: object
       minProperties: 1
       properties:
         name: {type: string, minLength: 1, maxLength: 50}
-        location:
-          type: string
-          description: Point を JSON にした文字列(multipart のため)
-        image:
-          type: string
-          format: binary
+        location: {$ref: "#/components/schemas/Point"}
     BuildingPlaces:
       type: object
       required: [landmark, items]
