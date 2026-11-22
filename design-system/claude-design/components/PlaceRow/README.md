@@ -3,7 +3,7 @@
 場所 1 件を一覧に並べ、押すと場所のカードを開く。
 
 - 使う画面: search(V1-b)、list(V2)、camera(V3-a・b)、building(V1-k)
-- 見せるもの: Place(places の id・名前・種類・建物・階 ※)、距離(端末で計算)、タグの状態(端末)
+- 見せるもの: Place(places の id・名前・種類・建物・階。D-017)、距離(端末で計算)、タグの状態(端末)
 - 状態: 下書き(チームで確認する前)。※ の付いた所は、概念設計の変更待ち
 
 並べ方: `<div class="nv-list">` の中に並べる(行どうしの区切り線が付く)。
@@ -23,7 +23,7 @@
 | name | 文字列 | ○ | — | 長い名前は 2 行まで | places.name |
 | kindLabel | 文字列 | | なし | 「体験」など | places の種類 |
 | building | 文字列 | | なし | 「図書館棟」「屋外」 | places の建物 |
-| floor | 文字列 | | なし | 「2階」※ | places の階 ※ |
+| floor | 文字列 | | なし | 「2階」 | places.floor(数。「2階」にして渡す。D-017) |
 | distanceM | 数 | | なし | 直線距離。現在地が無ければ出さない | なし(端末で計算。places.location と現在地) |
 | highlight | 文字列 | | なし | 検索語。名前の中で強調 | なし |
 | tags | {wantToGo, favorite} | | なし | 渡すと右にしおりと星を出す | なし(端末。D-014) |
@@ -58,5 +58,5 @@ Design System で足した props: isDestination・loading(仕様には無い。`
 
 ## 未確認・要確認
 
-- places に「建物」「階」の項目があるか(※ 概念設計の変更待ち。#15 と照合)
+- 解消(D-017): places に建物(building。API では landmarkId)と階(floor)が入った
 - 距離の計算に使う位置の精度が低いとき、距離を出すか

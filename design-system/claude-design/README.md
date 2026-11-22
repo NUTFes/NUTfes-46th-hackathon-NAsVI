@@ -131,7 +131,8 @@ React.createElement(FilterBand, { labels: ['行きたい場所'], count: 2, onCl
 
 - 部品は 4 つの箱に分かれる: 基本の部品(Button、Chip など 12 個)、地図の印(7 個)、画面の部品(12 個)、運営の部品(PC。5 個)。
 - 名前の付け方: 基本の部品は役割で(`Button`、`Banner`)、地図の印と画面の部品は概念の名前を頭に付ける(`PlaceRow`、`DestinationCard`、`StampMark`)。
-- ※ の付いた部品(`FacilityMark`、`BuildingFloorTabs`、`BuildingFloorPlan`、`BuildingCameraOverlay`、`BuildingShapePreview`)は、概念設計の変更待ち。
+- ※ の付いた部品(`BuildingFloorPlan`)は、概念設計の決定待ち(見取り図を新しい概念にするか。OQ-14)。
+- 内部の名前(概念設計・API)は `Landmark`(API は `landmarks`)のまま。画面の言葉は「建物」、部品の名前は `Building*` にそろえる(D-020)。
 
 ## Design System で足したもの
 
@@ -148,7 +149,7 @@ React.createElement(FilterBand, { labels: ['行きたい場所'], count: 2, onCl
 この部品で組んだ画面を確定にする前に、チームに確かめる。
 
 - 「地図で指定する」(現在地が使えないとき。OQ-2)
-- 混雑を出さなくなるまでの時間(OQ-4)と、近いスタンプをまとめる距離
+- スタンプの期限の最終値(OQ-4。いまは混雑 30 分・感想はその日の閉場までで仮置き)と、近いスタンプをまとめる距離
 - 文章で探す(拡張。OQ-8)、タグの名前の決まりと上限(OQ-13)
-- カメラの「正面の建物」を現在地と向きと建物の形で決める方式(OQ-11)
+- 建物の輪郭を、端末へ同梱するか API から返すか(OQ-16)
 - 実機の屋外での見え方(トイレのアイコン、ライトの行き先の黄)

@@ -176,3 +176,80 @@ decisions:
       チームで合意(2026-11-21)。
     status: resolved
     derived_from: concept-design/groups.yaml、concept-design/screens.yaml、doc/screen-design/screen-selection.md
+
+  - id: D-017
+    problem: API 設計(PR #21)とデザインシステム(PR #23)が一致して前提にしていて、concepts.yaml だけが違った 7 項目を、どうするか
+    options:
+      - 二つが一致している部分だけ concepts.yaml に反映する
+      - 二つの間でもずれている項目(カメラの方式、開催時間、landmark か building か、スタンプの本人確認と期限)も、いま決める
+    adopted: 一致している部分だけ反映する
+    reason: >-
+      利用者の指示(2026-11-22)。反映した項目: (1) Place に building・floor(API-14)、(2) Kind に設備 4 種(API-28、OQ-3)、
+      (4) Request.showLabels・removeLabel・showLandmarks(API-6・7・10)、(5) 絞り込みは端末で行う。運営の種類どうし OR、自分用のタグ AND(D-012・D-014・D-016、API-8・9)、
+      (6) 場所の id は開催期間中に変えない(API-31)、(7)「棟」→「建物」。
+      (3) 階ごとの見取り図は、新しい概念にするかが未決なので OQ-14 に残し、概念は足していない。
+      二つの間でもずれている項目は、チームの決定待ちで、反映していない。
+      API-14・28 は、台帳では仮置き(利用者 sabo10p の意見。チーム未合意)。
+    status: resolved
+    derived_from: PR #21 の concept-design/api/review-ledger.yaml、PR #23 の design-system/props-api-check.md
+
+  - id: D-018
+    problem: 建物の判定を、映像と基準画像の照合にするか、現在地・向き・建物の輪郭にするか
+    options:
+      - 映像を基準画像と照合する(MindAR など。登録した地点限定)
+      - 現在地・向き・建物の輪郭(OpenStreetMap)から、正面の建物を決める
+    adopted: 現在地・向き・建物の輪郭から決める。Landmark.image を footprint(輪郭)に変える。画像認識は拡張として残す
+    reason: >-
+      利用者の決定(2026-11-22)。根拠は、PR #23 のデモ(2026-11-17 から GPS 方式)と、PR #4 の ar-guide/ の通常版(コードで確認。
+      向いた方向へ線を伸ばし、最初に交わる建物を選ぶ。映像は解析しない)が一致していること。画像認識版(MindAR)は 4 地点限定の別の実験版。
+      OQ-11 は、この方式で閉じた。方位の誤差の見積もり(誤差 10° でラベルが画面幅の約 3 割ずれる)は机上の仮定で、実機は未測定。
+    status: resolved
+    derived_from: PR #4(ar-guide/)のレビュー、PR #23 の ②
+
+  - id: D-019
+    problem: 建物の輪郭を、どこから取り、運営の画面でどこまで扱うか
+    options:
+      - 地図データ(OpenStreetMap)を正にする。運営は確かめて、読み込み直すだけ
+      - 運営が輪郭を描く・頂点を直す
+    adopted: 地図データ(OpenStreetMap)を正にする。運営の操作は、登録時の取り込みと、読み込み直し(同期 reload-footprint)だけ
+    reason: >-
+      利用者の決定(2026-11-22)。PR #23 の O2(BuildingShapePreview)がすでにこの形。輪郭を描く画面は作らない。
+      OSM の輪郭が実際の建物とずれた建物が見つかったら、描く・直す操作を足すかを見直す(前提が崩れる条件)。
+      外部の計算 Osm.outline の名前は仮。
+    status: resolved
+    derived_from: D-018、open-questions OQ-15
+
+  - id: D-020
+    problem: 開催時間を、説明の文字列に含めるか、別の項目として持つか。あわせて、landmark と building のどちらの名前にするか
+    options:
+      - description に書く(API 設計の案)
+      - Place に開始と終了の時刻の組として持つ(デザインシステムの hours に合わせる)
+    adopted: Place.hours として別に持つ(開始・終了の組、複数可)。名前は Landmark のまま(画面の言葉だけ「建物」)
+    reason: >-
+      利用者の決定(2026-11-23)。description にまとめると、将来「いまやっている企画」で絞りたいときにデータの形として難しくなる。
+      名前は推奨どおり(内部は Landmark、画面は「建物」)で確定。Place の型引数 Building は Landmark の id を指す。
+      API の PlaceInput・Place に hours を足す必要がある(台帳 API-14 の「時間は説明に書く」を変える)。デザインシステムの hours(文字列)は、表示用の文字列と、時刻の組の両方が要るか確かめる。
+    status: resolved
+    derived_from: design-system/props-api-check.md の 3、concept-design/api/review-ledger.yaml の API-14
+
+  - id: D-021
+    problem: スタンプを取り消せるのが押した本人だと、どう確かめるか
+    options:
+      - 押した人(by)を持ち、取り消す人と照らす
+      - 押したときに取り消しの証を返し、一致で確かめる(押した人は持たない)
+    adopted: 取り消しの証(proof)の一致で確かめる。Stamp.by をやめる
+    reason: >-
+      推奨どおり確定(利用者、2026-11-23)。API 設計の API-13・19(retractToken、by を返さない)と、デザインシステムの
+      MyStampRow(端末が自分の押したスタンプを覚える)が一致する。OQ-12 のうち、本人の確かめ方は閉じた。
+    status: resolved
+    derived_from: API-13・API-19、OQ-12
+
+  - id: D-022
+    problem: スタンプの期限の長さ
+    options:
+      - 混雑は 30 分、感想はその日の閉場まで(利用者 sabo10p の案、API-17)
+      - チームで測ってから決める
+    adopted: 仮置きの値(混雑 30 分、感想は閉場まで)で進める
+    reason: 利用者の決定(2026-11-23)。値はチームが決めるまで変えてよい。OQ-4 は開いたまま。
+    status: open
+    derived_from: API-17・API-25、OQ-4

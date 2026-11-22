@@ -3,7 +3,7 @@
 場所 1 件の情報を見せ、行き先にする・タグを付ける。
 
 - 使う画面: card(V1-d)
-- 見せるもの: Place(places の名前・種類・建物・階 ※・説明・時間)、Destination、Labeling(タグ、端末)
+- 見せるもの: Place(places の名前・種類・建物・階・説明・開催時間。D-017・D-020)、Destination、Labeling(タグ、端末)
 - 状態: 下書き(チームで確認する前)。※ の付いた所は、概念設計の変更待ち
 
 ## 作り
@@ -21,10 +21,10 @@
 |---|---|---|---|---|---|
 | placeId | 文字列 | ○ | — | | places.id |
 | name | 文字列 | ○ | — | | places.name |
-| kind | 列挙 | ○ | — | event / parking / facility ※ | places.kind |
-| building・floor | 文字列 | | なし | ※ | places の建物・階 ※ |
+| kind | 列挙 | ○ | — | event / parking / facility(設備。D-017) | places.kind |
+| building・floor | 文字列 | | なし | 表示用の文字列(「総合研究棟」「2階」) | places.building(Landmark の id。名前にして渡す)・floor(数。「2階」にして渡す) |
 | description | 文字列 | | なし | | places.description |
-| hours | 文字列 | | なし | 「両日 10:00〜16:00」 | **places に無い**(要確認) |
+| hours | 文字列 | | なし | 表示用の文字列(「両日 10:00〜16:00」)。places.hours(開始と終了の組、複数可)から、画面の側の 1 つの関数で作って渡す | places.hours(D-020) |
 | distanceM | 数 | | なし | | なし(端末で計算) |
 | tags | {wantToGo, favorite} | ○ | — | | なし(端末) |
 | onGo | 関数 | ○ | — | chooseDestination | なし(OQ-12 が決まるまで端末) |
@@ -55,4 +55,5 @@ Design System で足した props: loading・removed(仕様には無い。`compon
 
 ## 未確認・要確認
 
-- 開催時間(hours)は概念 Place の項目に無い。description に含めるか、項目を足すか(#15 と概念設計)
+- 解消(D-020): 開催時間は Place.hours(開始と終了の組)として持つ。この部品は表示用の文字列を受ける(組から文字列への整形は、画面の側で 1 か所にまとめる)。「いまやっている企画」で絞るときは、部品ではなく絞り込みの側で組を使う
+- API の PlaceInput・Place に hours を足す(D-020。#21 にはまだ無い)

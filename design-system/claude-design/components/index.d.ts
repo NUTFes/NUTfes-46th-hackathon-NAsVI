@@ -218,7 +218,7 @@ export interface PlaceCardProps {
   building?: string;
   floor?: string;
   description?: string;
-  /** 「両日 10:00〜16:00」 */
+  /** 表示用の文字列(「両日 10:00〜16:00」)。places.hours(開始と終了の組)から、画面の側で作って渡す(D-020) */
   hours?: string;
   distanceM?: number;
   tags: PlaceTags;
@@ -281,7 +281,7 @@ export interface MyStampRowProps {
   stampId: string;
   kind: StampKind;
   pressedAt: Time;
-  /** 混雑だけ。期限は OQ-4 */
+  /** 消える時刻。混雑は 30 分、感想はその日の閉場まで(仮置き。D-022、OQ-4) */
   expiresAt?: Time;
   onRetract?: () => void;
   /** 【Design System で追加】取り消し中 */

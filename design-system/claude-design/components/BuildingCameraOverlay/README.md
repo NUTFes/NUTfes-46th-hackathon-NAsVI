@@ -17,7 +17,7 @@
 
 | 名前 | 型 | 必須 | 既定値 | 取りうる値 / 説明 | API の項目 |
 |---|---|---|---|---|---|
-| frontBuilding | 文字列 |  | なし | 現在地・向き・建物の形から端末で決める | landmarks.name・形 ※ |
+| frontBuilding | 文字列 |  | なし | 現在地・向き・建物の形から端末で決める | landmarks.name・footprint(輪郭。D-018) |
 | labels | 配列 | ○ | — | 名前・方向・距離・建物の奥か | places |
 | heading | 数か無し | ○ | — | 無いときは V3-c | なし |
 | accuracyM | 数 |  | なし |  | なし |
@@ -47,5 +47,5 @@ Design System で足した props: width・height・frontY(カメラの映像は 
 
 ## 未確認・要確認
 
-- Landmark の基準画像を建物の形に変える(※)
-- OQ-11 を GPS 方式で閉じるか
+- 解消(D-018): 概念 Landmark は基準画像(image)をやめ、輪郭(footprint)を持つ形になった。OQ-11 は閉じた
+- 輪郭を端末へ同梱するか、API から返すか(OQ-16)

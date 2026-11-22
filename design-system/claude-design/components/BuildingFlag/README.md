@@ -18,7 +18,7 @@
 | 名前 | 型 | 必須 | 既定値 | 取りうる値 / 説明 | API の項目 |
 |---|---|---|---|---|---|
 | buildingId | 文字列 | ○ | — |  | landmarks.id |
-| count | 数 | ○ | — | 絞り込み中は絞った後の数 | なし(端末で places から数える。建物と階 ※) |
+| count | 数 | ○ | — | 絞り込み中は絞った後の数 | なし(端末で places の building から数える。D-017) |
 | selected・isDestination | 真偽 |  | false |  | なし |
 | onPress | 関数 | ○ | — |  | なし |
 
@@ -47,4 +47,4 @@ Design System で足した props: name(仕様には無い。`components/index.d.
 
 ## 未確認・要確認
 
-- 場所が建物と階を持つか(※)
+- 解消(D-017): 場所が建物(building)と階(floor)を持つ

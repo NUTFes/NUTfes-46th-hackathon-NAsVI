@@ -14,7 +14,7 @@
 ## props
 | 名前 | 型 | 必須 | 既定値 | 取りうる値 / 説明 | API の項目 |
 |---|---|---|---|---|---|
-| label | 文字列 | ○ | — | 「飲食」「行きたい場所」など | places の種類の名前(種類)/ なし(タグは端末) |
+| label | 文字列 | ○ | — | 「飲食」「行きたい場所」など | 運営の種類は GET /labels の名前と、places の labelIds(#21)/ なし(タグは端末) |
 | selected | 真偽 | ○ | false | 絞り込みに使っているか | なし(端末の状態。Labeling.filtering) |
 | source | 列挙 | ○ | — | kind(運営の種類)/ tag(自分用のタグ) | なし |
 | onToggle | 関数 | ○ | — | applyFilter・clearFilter | なし(端末の中) |

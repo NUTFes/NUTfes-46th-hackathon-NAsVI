@@ -1,9 +1,9 @@
 # BuildingShapePreview
 
-- status: proposed(※ の決定待ち。決まるまで仕様を確定にしない)
+- status: proposed
 - 目的(1 文): 運営が、建物の形(OpenStreetMap)を確かめ、読み込み直す
 - 使う画面: op_landmarks
-- 見せる概念・項目: landmarks の形 ※
+- 見せる概念・項目: landmarks の輪郭(footprint。D-018)
 
 ## 構造(anatomy)
 1. 形の図
@@ -13,7 +13,7 @@
 ## props
 | 名前 | 型 | 必須 | 既定値 | 取りうる値 / 説明 | API の項目 |
 |---|---|---|---|---|---|
-| shape | 形 |  | なし | 無いとき「形なし(カメラの正面に出ない)」 | landmarks の形 ※ |
+| shape | 形 |  | なし | 無いとき「形なし(カメラの正面に出ない)」 | landmarks.footprint |
 | onReload | 関数 | ○ | — |  | なし |
 
 ## 状態
@@ -33,4 +33,5 @@
 - 色だけに頼っていないか: 文で分かる
 
 ## 未確認・要確認
-- Landmark の基準画像を形に変える(※)
+- 解消(D-018・D-019): 輪郭は OpenStreetMap を正にし、運営は描かない・直さない。「形を読み込み直す」は同期 reload-footprint(Landmark.update)で、この決定と合っている
+- 輪郭を端末へ同梱するか、API から返すか(OQ-16)

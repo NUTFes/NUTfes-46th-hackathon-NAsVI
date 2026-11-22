@@ -1,9 +1,9 @@
 # FacilityMark
 
-- status: proposed(※ の決定待ち。決まるまで仕様を確定にしない)
+- status: proposed
 - 目的(1 文): 設備(案内所・トイレ・休憩所・ゴミ箱)の位置を示す
 - 使う画面: map、building
-- 見せる概念・項目: places(kind=facility ※)
+- 見せる概念・項目: places(kind が案内所・トイレ・休憩所・ゴミ箱。D-017)
 
 ## 構造(anatomy)
 1. 白い丸
@@ -12,7 +12,7 @@
 ## props
 | 名前 | 型 | 必須 | 既定値 | 取りうる値 / 説明 | API の項目 |
 |---|---|---|---|---|---|
-| kind | 列挙 | ○ | — | info / wc / rest / trash | places.kind ※ |
+| kind | 列挙 | ○ | — | info / wc / rest / trash | places.kind(設備 4 種) |
 | zoomed | 真偽 |  | false |  | なし |
 
 ## 状態
@@ -32,5 +32,5 @@
 - 色だけに頼っていないか: アイコンの形で区別し、色は増やさない
 
 ## 未確認・要確認
-- Place.kind に設備を足すか(※)
+- 解消(D-017): Place.kind に設備 4 種が入った。設備は検索・絞り込みの対象にしない
 - 実機・屋外で、トイレのアイコンが小さすぎないか

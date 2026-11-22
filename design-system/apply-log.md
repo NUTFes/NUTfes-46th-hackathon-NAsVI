@@ -15,10 +15,10 @@
 | stamp | V1-f | Sheet、StampCongestionPicker、StampFeelingButton、Toast、MyStampRow | なし |
 | noloc | V1-g | Banner、Button | なし |
 | layers | V1-h | Sheet、CheckRow、Button | なし |
-| building | V1-j・k | Sheet、BuildingFloorTabs ※、BuildingFloorPlan ※、PlaceRow、EmptyState | なし |
+| building | V1-j・k | Sheet、BuildingFloorTabs、BuildingFloorPlan ※、PlaceRow、EmptyState | なし |
 | list | V2 | SearchField、Chip、FilterBand、PlaceRow、Badge、EmptyState、TabBar | なし |
-| camera | V3-a・b・c | BuildingCameraOverlay ※、DestinationBar、PlaceRow、EmptyState、Banner、Button | なし |
-| op_places・op_landmarks | O1・O2 | DataTable、FormField、LocationPicker、BuildingShapePreview ※、DeleteConfirm、Chip、Button、Badge | なし |
+| camera | V3-a・b・c | BuildingCameraOverlay、DestinationBar、PlaceRow、EmptyState、Banner、Button | なし |
+| op_places・op_landmarks | O1・O2 | DataTable、FormField、LocationPicker、BuildingShapePreview、DeleteConfirm、Chip、Button、Badge | なし |
 
 ## 2. うまくいかないとき・極端なデータのとき
 

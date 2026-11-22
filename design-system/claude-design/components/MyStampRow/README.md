@@ -3,7 +3,7 @@
 自分が押したスタンプを 1 件ずつ並べ、取り消せるようにする。
 
 - 使う画面: stamp(V1-f)
-- 見せるもの: Stamp(種類、押した時刻、消えるまでの時間)。自分のスタンプを見分ける方法は OQ-12
+- 見せるもの: Stamp(種類、押した時刻、消えるまでの時間)。自分のスタンプは、押したときに受け取る取り消しの証(proof)と一緒に、端末が覚える(D-021)
 - 状態: 下書き(チームで確認する前)。※ の付いた所は、概念設計の変更待ち
 
 ## 作り
@@ -20,8 +20,8 @@
 | stampId | 文字列 | ○ | — | 取り消すときに使う | stamps.id |
 | kind | 列挙 | ○ | — | congestion-1〜5 / fun / food / good | stamps.kind |
 | pressedAt | 時刻 | ○ | — | 経過時間を出す | stamps の押した時刻 |
-| expiresAt | 時刻 | | なし | 混雑だけ。期限は OQ-4 | なし(端末で計算。期限が決まれば API でもよい) |
-| onRetract | 関数 | ○ | — | retractStamp | なし(取り消しを API に載せるかは OQ-12) |
+| expiresAt | 時刻 | | なし | 混雑は押してから 30 分、感想はその日の閉場まで(仮置き。D-022、OQ-4) | なし(端末で計算。期限が決まれば API でもよい) |
+| onRetract | 関数 | ○ | — | retractStamp | stamps の取り消し(端末が覚えた proof を送る。D-021) |
 
 Design System で足した props: retracting(仕様には無い。`components/index.d.ts` に【Design System で追加】と書いた)
 
@@ -48,5 +48,5 @@ Design System で足した props: retracting(仕様には無い。`components/in
 
 ## 未確認・要確認
 
-- 自分のスタンプを見分ける方法(OQ-12。端末に id を覚えておく案)
-- 混雑の期限(OQ-4。いまは 30 分で仮置き)
+- 解消(D-021): 端末が stampId と proof を覚え、取り消しは proof の一致で確かめる。端末のデータが消えると取り消せない(受け入れる)
+- 期限の最終値(OQ-4。いまは混雑 30 分・感想は閉場までで仮置き。D-022)

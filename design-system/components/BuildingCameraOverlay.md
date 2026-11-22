@@ -1,6 +1,6 @@
 # BuildingCameraOverlay
 
-- status: proposed(※ の決定待ち。決まるまで仕様を確定にしない)
+- status: proposed
 - 目的(1 文): カメラの映像の上に、正面の建物、企画の札、ミニマップ、向きの状態を重ねる
 - 使う画面: camera(V3-a・b・c)
 - 見せる概念・項目: landmarks の名前と形、places の位置・名前、Position(端末)
@@ -14,7 +14,7 @@
 ## props
 | 名前 | 型 | 必須 | 既定値 | 取りうる値 / 説明 | API の項目 |
 |---|---|---|---|---|---|
-| frontBuilding | 文字列 |  | なし | 現在地・向き・建物の形から端末で決める | landmarks.name・形 ※ |
+| frontBuilding | 文字列 |  | なし | 現在地・向き・建物の形から端末で決める | landmarks.name・footprint(輪郭。D-018) |
 | labels | 配列 | ○ | — | 名前・方向・距離・建物の奥か | places |
 | heading | 数か無し | ○ | — | 無いときは V3-c | なし |
 | accuracyM | 数 |  | なし |  | なし |
@@ -38,5 +38,5 @@
 - 色だけに頼っていないか: 札の文で分かる
 
 ## 未確認・要確認
-- Landmark の基準画像を建物の形に変える(※)
-- OQ-11 を GPS 方式で閉じるか
+- 解消(D-018): 概念 Landmark は基準画像(image)をやめ、輪郭(footprint)を持つ形になった。OQ-11 は閉じた
+- 輪郭を端末へ同梱するか、API から返すか(OQ-16)

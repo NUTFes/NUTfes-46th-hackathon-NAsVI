@@ -82,7 +82,7 @@ screens:
     title: 建物の中の地図
     wireframe: [V1-j, V1-k]
     shows: [建物の名前, 階, 見取り図と企画の位置, 階ごとの企画数]
-    concepts: [Place]        # 建物と階で絞る(※ 概念設計の変更が要る)。状態を変える操作は無い
+    concepts: [Place]        # 建物と階で絞る(D-017)。状態を変える操作は無い
     actions: []
   - id: list
     title: 一覧
@@ -97,7 +97,7 @@ screens:
   - id: camera
     title: カメラ
     wireframe: [V3-a, V3-b, V3-c]
-    shows: [正面の建物の名前(現在地と向きと建物の形から決める ※), その建物の企画(または無いこと), 企画の方向と距離の札(建物の奥かどうか), ミニマップ, 現在地と向き, 案内バー(案内中)]
+    shows: [正面の建物の名前(現在地と向きと建物の輪郭から決める。D-018), その建物の企画(または無いこと), 企画の方向と距離の札(建物の奥かどうか), ミニマップ, 現在地と向き, 案内バー(案内中)]
     concepts: [Landmark, Place, Position, Destination]   # Position・Destination は見せるだけ
     actions: []              # 正面の建物の判定は読み取り(状態を変えない)
   - id: op_places
@@ -113,11 +113,11 @@ screens:
   - id: op_landmarks
     title: 建物の登録・管理(運営)
     wireframe: [O2]
-    shows: [建物の一覧と建物の形の有無, 入力欄, 建物の形(OpenStreetMap), 階ごとの見取り図の状態 ※]
+    shows: [建物の一覧と建物の形の有無, 入力欄, 建物の形(OpenStreetMap。確かめるだけで、描かない・直さない), 読み込み直す操作, 階ごとの見取り図の状態 ※]
     concepts: [Landmark]
     actions:
       - {do: Landmark.register, undo: Landmark.remove}
-      - {do: Landmark.update, undo: Landmark.update}
+      - {do: Landmark.update, undo: Landmark.update}   # 読み込み直す(同期 reload-footprint)も、この update
       - {do: Landmark.remove, undo: "none: 削除の前に確認を出す"}
 
 excluded_actions:
@@ -201,6 +201,6 @@ journeys:
   - id: O2
     title: 運営が建物を登録する
     start: 運営が建物のタブを開く
-    end: 建物と建物の形が登録される
+    end: 建物が登録され、輪郭が地図データから取り込まれる
     steps:
       - {screen: op_landmarks, do: Landmark.register}
