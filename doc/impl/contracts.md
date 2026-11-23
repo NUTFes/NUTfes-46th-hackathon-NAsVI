@@ -22,10 +22,15 @@ export interface ChangeEvent { id: number; type: ChangeType; payload: unknown; c
 // 本体の更新(stmts)と changes への追記を、1 回の D1 batch で行い、続けて Hub に publish する。
 // publish の失敗は、リクエストを失敗にしない(接続中の端末は、つなぎ直しで続きを受け取る)。
 export async function commitWithChange(
-  env: Env, stmts: D1PreparedStatement[], change: { type: ChangeType; payload: unknown },
+  env: Env, stmts: D1PreparedStatement[],
+  change: { type: ChangeType; payload: unknown } | { type: ChangeType; payloadSql: { sql: string; params: unknown[] } },
   ctx?: { waitUntil(p: Promise<unknown>): void }
-): Promise<{ changeId: number }>
+): Promise<{ changeId: number; payload: unknown }>
 ```
+- 固定の `payload` は従来通り渡せる。更新後の DB 値から本文を作る場合は、代わりに JSON 文字列を返す `payloadSql: { sql, params }` を渡す。同じ batch の最後に `INSERT INTO changes (type, payload, created_at) SELECT ?, (<sql>), ? RETURNING payload` を実行し、bind 順は `type, ...params, createdAt`。
+- `payloadSql.sql` は SQL に文字列展開されるため、呼び出し側は固定リテラルだけを渡し、値は必ず `params` で bind する。`json_group_array` などで作る配列の並びは SQL の `ORDER BY` で明示する。SQL が NULL を返す場合は `changes.payload` の NOT NULL 制約で batch 全体が失敗し、`stmts` の更新もロールバックされる。
+- この SELECT 内の `last_insert_rowid()` は、`stmts` の最後の INSERT の行を指す。最後が `place_labels` などの子テーブルへの INSERT なら親の行は指さない。親の行を参照したい場合は INSERT の並びに注意するか、SQL 内で親の ID を明示して参照する。
+- `payloadSql` の場合は D1 batch の最終結果の `results[last].results[0].payload` を `JSON.parse` し、Hub の `ChangeEvent.payload` と戻り値の `payload` に使う。batch 後の読み戻しクエリは行わない。固定の場合の戻り値の `payload` は渡した値。`ctx` があれば publish を `ctx.waitUntil` に渡し、なければ完了を待つ。publish の失敗でリクエストを失敗にしない。
 - `payload` の形は `openapi.yaml` の `/changes` の説明に従う。`stampPressed` に `proof` を含めない。
 - cursor は `changes` の最大の id を文字列にしたもの。`GET /places`・`GET /stamps` は、一覧と同じ時点の値を返す。
 - Hub: Worker の `GET /api/changes` は Hub(Durable Object。`idFromName('main')`)へ渡す。発行は Hub の `POST /publish`(本文は `ChangeEvent`)。接続中の端末に `id: <id>\nevent: <type>\ndata: <payload>` で流す。合図(`: ping`)は 30 秒以内の間隔で送る。

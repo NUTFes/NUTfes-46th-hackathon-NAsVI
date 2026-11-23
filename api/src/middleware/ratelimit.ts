@@ -3,26 +3,16 @@
 import { createMiddleware } from 'hono/factory';
 import type { AppEnv } from '../env';
 import { problem } from '../lib/errors';
+import { bodyLimit } from './bodylimit';
 
 export interface RateLimitOptions { key: string; limit: number; windowSec: number }
 
-const MAX_BODY_BYTES = 1048576;
 const CLEANUP_INTERVAL_MS = 60_000;
 const counters = new Map<string, { count: number; expiresAt: number }>();
 let nextCleanupAt = 0;
 
 export function rateLimit({ key, limit, windowSec }: RateLimitOptions) {
-  return createMiddleware<AppEnv>(async (c, next) => {
-    if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
-      if (Number(c.req.header('content-length')) > MAX_BODY_BYTES) {
-        return problem(c, 413, 'payload_too_large', '本文は 1 MB 以下にしてください');
-      }
-      // Hono caches this buffer, so downstream handlers can still read the body.
-      if ((await c.req.arrayBuffer()).byteLength > MAX_BODY_BYTES) {
-        return problem(c, 413, 'payload_too_large', '本文は 1 MB 以下にしてください');
-      }
-    }
-
+  return createMiddleware<AppEnv>((c, next) => bodyLimit(c, async () => {
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(
       c.req.header('cf-connecting-ip') ?? 'unknown',
     ));
@@ -46,9 +36,10 @@ export function rateLimit({ key, limit, windowSec }: RateLimitOptions) {
     // Keep the check and increment synchronous so concurrent requests share the cap.
     if (counter.count >= limit) {
       c.header('Retry-After', String(Math.ceil((counter.expiresAt - now) / 1000)));
-      return problem(c, 429, 'too_many_requests', 'しばらく待ってからもう一度お試しください');
+      c.res = problem(c, 429, 'too_many_requests', 'しばらく待ってからもう一度お試しください');
+      return;
     }
     counter.count++;
     await next();
-  });
+  }));
 }
