@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { RouterLink } from 'vue-router';
 import { adminGet, adminSend, ApiError } from '../../admin/client';
 import { useAdminFeedback } from '../../admin/feedback';
 import { adminTokens } from '../../admin/tokens';
 import { toXY } from '../../domain/geo';
 import { useLandmarksStore } from '../../stores/landmarks';
-import type { Landmark } from '../../types';
+import type { Landmark, Place } from '../../types';
 
 // 色・余白・文字の値とトークン名の対応は admin/tokens.ts の定数を使う。
 const landmarkTokens = {
@@ -15,6 +16,20 @@ const landmarkTokens = {
 const store = useLandmarksStore();
 const { reportError, clearError } = useAdminFeedback();
 const loaded = ref(false);
+// 建物別 API は設備を除くため、削除判定の件数は全場所から数える。
+const places = ref<Place[]>([]);
+const placesLoaded = ref(false);
+const placesError = ref(false);
+const placeCounts = computed(() => {
+  const counts = new Map<string, number>();
+  for (const place of places.value) {
+    if (place.landmarkId !== null) counts.set(place.landmarkId, (counts.get(place.landmarkId) ?? 0) + 1);
+  }
+  return counts;
+});
+const deleteConflict = ref(false);
+const conflictTitle = ref<HTMLElement | null>(null);
+const relatedPlaces = computed(() => places.value.filter((place) => place.landmarkId === selectedId.value));
 const busy = ref(false);
 const notice = ref('');
 const selectedId = ref<string | null>(null);
@@ -71,7 +86,7 @@ let controller: AbortController | null = null;
 
 // 一度に一つだけ送信し、管理画面を離れた後の応答・エラーは反映しない。
 async function perform<T>(request: (signal: AbortSignal) => Promise<T>, apply: (value: T) => void,
-  onError: (error: unknown) => void = reportError) {
+  onError: (error: unknown, signal: AbortSignal) => void | Promise<void> = reportError) {
   if (busy.value) return;
   const current = new AbortController();
   controller = current;
@@ -82,7 +97,7 @@ async function perform<T>(request: (signal: AbortSignal) => Promise<T>, apply: (
     const result = await request(current.signal);
     if (!current.signal.aborted) apply(result);
   } catch (error) {
-    if (!current.signal.aborted) onError(error);
+    if (!current.signal.aborted) await onError(error, current.signal);
   } finally {
     if (controller === current) {
       busy.value = false;
@@ -92,6 +107,7 @@ async function perform<T>(request: (signal: AbortSignal) => Promise<T>, apply: (
 }
 
 function resetForm() {
+  deleteConflict.value = false;
   fieldErrors.value = {};
   selectedId.value = null;
   Object.assign(draft, { name: '', lat: '', lng: '' });
@@ -100,10 +116,17 @@ function resetForm() {
 
 function load() {
   if (confirmingDelete.value) return;
-  return perform((signal) => adminGet('/landmarks', { signal }), (result) => {
-    store.setAll(result.items);
-    loaded.value = true;
-    if (selectedId.value !== null && !selected.value) resetForm();
+  return perform(async (signal) => Promise.allSettled([
+    adminGet('/landmarks', { signal }), adminGet('/places', { signal }),
+  ]), ([landmarksResult, placesResult]) => {
+    if (landmarksResult.status === 'fulfilled') {
+      store.setAll(landmarksResult.value.items);
+      loaded.value = true;
+      if (selectedId.value !== null && !selected.value) resetForm();
+    } else reportError(landmarksResult.reason);
+    placesLoaded.value = placesResult.status === 'fulfilled';
+    placesError.value = placesResult.status === 'rejected';
+    if (placesResult.status === 'fulfilled') places.value = placesResult.value.items;
   });
 }
 
@@ -112,6 +135,7 @@ function edit(item: Landmark) {
   clearError();
   fieldErrors.value = {};
   notice.value = '';
+  deleteConflict.value = false;
   selectedId.value = item.id;
   Object.assign(draft, { name: item.name, lat: String(item.location.lat), lng: String(item.location.lng) });
 }
@@ -181,6 +205,27 @@ async function cancelDelete() {
   deleteButton.value?.focus();
 }
 
+async function reportDeleteError(error: unknown, signal: AbortSignal) {
+  reportError(error);
+  if (!(error instanceof ApiError) || error.status !== 409 || error.code !== 'landmark_in_use') return;
+  confirmingDelete.value = false;
+  deleteConflict.value = true;
+  placesLoaded.value = false;
+  placesError.value = false;
+  await nextTick();
+  if (signal.aborted) return;
+  conflictTitle.value?.focus();
+  // 一覧の取得後に場所が付くこともある。設備を含む最新の全場所で案内する。
+  try {
+    const result = await adminGet('/places', { signal });
+    if (signal.aborted) return;
+    places.value = result.items;
+    placesLoaded.value = true;
+  } catch {
+    if (!signal.aborted) placesError.value = true;
+  }
+}
+
 function remove() {
   const item = selected.value;
   if (!confirmingDelete.value || !item) return;
@@ -190,7 +235,7 @@ function remove() {
     store.setAll(store.items.filter((entry) => entry.id !== item.id));
     resetForm();
     notice.value = '建物を削除しました。';
-  });
+  }, reportDeleteError);
 }
 
 onMounted(load);
@@ -209,14 +254,16 @@ onBeforeUnmount(() => controller?.abort());
         <button type="button" :disabled="locked" @click="load">一覧を読み込み直す</button>
         <button type="button" :disabled="locked || !loaded" @click="startNew">新しい建物</button>
       </div>
+      <p v-if="placesError" role="status">場所の件数を取得できませんでした。一覧を読み込み直してください。</p>
       <p v-if="loaded && !store.items.length">建物はまだ登録されていません。</p>
       <div v-else-if="loaded" class="table-scroll">
         <table>
-          <caption>登録済みの建物と建物の形・見取り図の状態</caption>
-          <thead><tr><th scope="col">名前</th><th scope="col">建物の形</th><th scope="col">見取り図のある階</th><th scope="col">操作</th></tr></thead>
+          <caption>登録済みの建物と場所の件数・建物の形・見取り図の状態</caption>
+          <thead><tr><th scope="col">名前</th><th scope="col">場所の件数</th><th scope="col">建物の形</th><th scope="col">見取り図のある階</th><th scope="col">操作</th></tr></thead>
           <tbody>
             <tr v-for="item in store.items" :key="item.id" :class="{ selected: item.id === selectedId }">
               <th scope="row">{{ item.name }}</th>
+              <td>{{ placesLoaded ? `${placeCounts.get(item.id) ?? 0}件` : '未取得' }}</td>
               <td :class="{ missing: item.footprint === null }">{{ item.footprint === null ? '形なし' : '形あり' }}</td>
               <td>{{ item.floors.length ? item.floors.map((plan) => `${plan.floor}階`).join('、') : '未登録' }}</td>
               <td><button type="button" :disabled="locked" :aria-label="`${item.name}を編集`" @click="edit(item)">編集</button></td>
@@ -228,6 +275,18 @@ onBeforeUnmount(() => controller?.abort());
 
     <section aria-labelledby="landmark-form-title">
       <h3 id="landmark-form-title">{{ selected ? '建物の更新' : '建物の登録' }}</h3>
+      <section v-if="deleteConflict && selected" aria-labelledby="delete-conflict-title">
+        <h3 id="delete-conflict-title" ref="conflictTitle" tabindex="-1">「{{ selected.name }}」は場所が付いているため削除できません</h3>
+        <p>次の場所を確認し、場所の管理画面で建物を空にするか、別の建物へ付け替えてください。</p>
+        <ul v-if="placesLoaded && relatedPlaces.length">
+          <li v-for="place in relatedPlaces" :key="place.id">
+            <RouterLink :to="{ name: 'card', params: { id: place.id } }">{{ place.name }}</RouterLink>
+          </li>
+        </ul>
+        <p v-else-if="placesLoaded">現在、この建物に付いている場所はありません。もう一度削除を試してください。</p>
+        <p v-else>{{ placesError ? '関連する場所を取得できませんでした。一覧を読み込み直してください。' : '関連する場所を読み込んでいます。' }}</p>
+        <RouterLink :to="{ name: 'admin-places' }">場所の管理画面を開く</RouterLink>
+      </section>
       <form ref="formElement" novalidate @submit.prevent="save">
         <fieldset :disabled="locked || !loaded">
           <legend>名前と位置</legend>
@@ -278,7 +337,8 @@ onBeforeUnmount(() => controller?.abort());
 
 <style scoped>
 .landmarks-admin { display: grid; gap: var(--admin-space-xl); color: var(--admin-text); font-family: var(--admin-font); font-size: var(--admin-body-size); font-weight: var(--admin-weight); }
-h2, h3, p { margin: 0; }
+h2, h3, p, ul { margin: 0; }
+ul { padding-inline-start: var(--admin-space-xl); }
 h2 { font-size: var(--admin-title-size); font-weight: var(--admin-bold); }
 h3 { font-size: var(--landmark-heading-size); font-weight: var(--admin-bold); }
 section { display: grid; gap: var(--admin-space-lg); min-width: 0; }
@@ -294,7 +354,8 @@ input, button { min-height: var(--admin-touch-target); padding: var(--admin-spac
 input { min-width: 0; box-sizing: border-box; width: 100%; color: var(--admin-text); background: var(--admin-bg); }
 button { justify-self: start; color: var(--admin-action); background: var(--admin-surface); font-weight: var(--admin-bold); cursor: pointer; }
 button:disabled, fieldset:disabled button { color: var(--admin-muted); cursor: default; }
-input:focus-visible, button:focus-visible { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
+a { color: var(--admin-action); }
+input:focus-visible, button:focus-visible, a:focus-visible, h3[tabindex]:focus { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
 .field-error { color: var(--admin-danger-text); }
 input[aria-invalid="true"] { border-color: var(--admin-danger); }
 .missing { color: var(--admin-danger-text); }
