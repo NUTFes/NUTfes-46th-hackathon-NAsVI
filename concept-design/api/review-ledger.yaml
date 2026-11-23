@@ -189,6 +189,7 @@ items:
       コード: 400 invalid_input・out_of_venue、401 unauthorized、403 not_stamp_owner、404 not_found・label_not_found、409 label_in_use・label_title_taken・landmark_in_use、
       413 payload_too_large、429 too_many_requests、500 internal_error、502 footprint_unavailable(API-34)。
       複数の項目が誤っていても、示すのは 1 項目だけ(まとめて出したい場面はあるが、今回は A で足りる。api/roadmap.md の 4)
+      追記(2026-11-23、利用者): application/problem+json の形は、このままにする(media type も項目も変えない)。RFC 9457 の標準の項目は使わず、独自の code・message・field を返す
     state: 確定
     placeholder: ""
     decided_by: sabo10p

@@ -1229,7 +1229,9 @@ components:
     Error:
       type: object
       required: [code, message]
-      description: エラーの形(API-15)
+      description: >-
+        エラーの形(API-15)。media type は application/problem+json だが、RFC 9457 の標準の項目(type・title・status・detail)は使わず、
+        独自の code・message・field を返す(標準の項目は省略できるので、形式としては誤りではない)。
       properties:
         code:
           type: string
