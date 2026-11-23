@@ -1,0 +1,230 @@
+{
+  "title": "impl/main の PR の状況",
+  "root": {
+    "id": "n1",
+    "label": "PR の状況(02:51:09 更新)/ 開いている・進行中 15 本(上限 20)",
+    "note": "60 秒おきに更新",
+    "children": [
+      {
+        "id": "n2",
+        "label": "実装中(PR 前)(3)",
+        "status": "doing",
+        "children": [
+          {
+            "id": "n3",
+            "label": "M-02 実装中",
+            "status": "doing",
+            "note": "feat/m-02"
+          },
+          {
+            "id": "n4",
+            "label": "M-03 実装中",
+            "status": "doing",
+            "note": "feat/m-03"
+          },
+          {
+            "id": "n5",
+            "label": "M-05 実装中",
+            "status": "doing",
+            "note": "feat/m-05"
+          }
+        ]
+      },
+      {
+        "id": "n6",
+        "label": "レビュー待ち(未レビュー)(2)",
+        "status": "doing",
+        "children": [
+          {
+            "id": "n7",
+            "label": "#135 M-04: 地図の現在地・行き先・経路の層",
+            "status": "idle",
+            "note": "CI 実行中 / feat/m-04"
+          },
+          {
+            "id": "n8",
+            "label": "#134 commitWithChange に payloadSql",
+            "status": "blocked",
+            "note": "CI 失敗 / fix/commit-with-change"
+          }
+        ]
+      },
+      {
+        "id": "n9",
+        "label": "修正中(指摘の対応)(1)",
+        "status": "doing",
+        "children": [
+          {
+            "id": "n10",
+            "label": "#128 W-03: 一覧のキャッシュと初回の全件取得",
+            "status": "blocked",
+            "note": "CI 通過 / feat/w-03"
+          }
+        ]
+      },
+      {
+        "id": "n11",
+        "label": "再レビュー待ち(修正を push 済み)(9)",
+        "status": "doing",
+        "children": [
+          {
+            "id": "n12",
+            "label": "#132 H-02: 負荷試験に ramp-up と JSON 出力を",
+            "status": "blocked",
+            "note": "CI 失敗 / feat/h-02"
+          },
+          {
+            "id": "n13",
+            "label": "#130 H-01 Hub: 順序の保証と遅い接続への対応",
+            "status": "idle",
+            "note": "CI 実行中 / feat/h-01"
+          },
+          {
+            "id": "n14",
+            "label": "#129 契約テスト: openapi と応答の一致を検証する(F-4",
+            "status": "blocked",
+            "note": "CI 失敗 / feat/f-4"
+          },
+          {
+            "id": "n15",
+            "label": "#127 W-08: 位置のサービス usePosition",
+            "status": "blocked",
+            "note": "CI 失敗 / feat/w-08"
+          },
+          {
+            "id": "n16",
+            "label": "#126 A-10: OSM の輪郭の取得と取り直し",
+            "status": "idle",
+            "note": "CI 未 / feat/a-10"
+          },
+          {
+            "id": "n17",
+            "label": "#124 見取り図の登録・削除と建物ごとの場所一覧を実装する(A-11",
+            "status": "blocked",
+            "note": "CI 失敗 / feat/a-11"
+          },
+          {
+            "id": "n18",
+            "label": "#123 W-04: /changes の EventSource ラ",
+            "status": "blocked",
+            "note": "CI 失敗 / feat/w-04"
+          },
+          {
+            "id": "n19",
+            "label": "#114 A-07: POST /stamps",
+            "status": "blocked",
+            "note": "CI 失敗 / feat/a-07"
+          },
+          {
+            "id": "n20",
+            "label": "#113 A-08: GET /stamps・DELETE /stam",
+            "status": "blocked",
+            "note": "CI 失敗 / feat/a-08"
+          }
+        ]
+      },
+      {
+        "id": "n21",
+        "label": "承認済み・merge 待ち(0)",
+        "status": "idle"
+      },
+      {
+        "id": "n22",
+        "label": "merge 済み(15)",
+        "status": "done",
+        "children": [
+          {
+            "id": "n23",
+            "label": "#125 A-09: 建物の CRUD",
+            "status": "done",
+            "note": "CI 通過 / feat/a-09"
+          },
+          {
+            "id": "n24",
+            "label": "#122 W-07: 距離・方角・見取り図・期限・混雑の純関数",
+            "status": "done",
+            "note": "CI 通過 / feat/w-07"
+          },
+          {
+            "id": "n25",
+            "label": "#121 W-05: ストア(Pinia)と出来事の適用",
+            "status": "done",
+            "note": "CI 通過 / feat/w-05"
+          },
+          {
+            "id": "n26",
+            "label": "#120 A-13: rateLimit を実装する",
+            "status": "done",
+            "note": "CI 通過 / feat/a-13"
+          },
+          {
+            "id": "n27",
+            "label": "#119 A-12: Cloudflare Access の JWT",
+            "status": "done",
+            "note": "CI 通過 / feat/a-12"
+          },
+          {
+            "id": "n28",
+            "label": "#118 W-06: 絞り込みの純関数",
+            "status": "done",
+            "note": "CI 通過 / feat/w-06"
+          },
+          {
+            "id": "n29",
+            "label": "#117 M-01 地図の投影と視点の核",
+            "status": "done",
+            "note": "CI 通過 / feat/m-01"
+          },
+          {
+            "id": "n30",
+            "label": "#116 W-02 Web: 端末内保存(IndexedDB)",
+            "status": "done",
+            "note": "CI 通過 / feat/w-02"
+          },
+          {
+            "id": "n31",
+            "label": "#115 A-06: DELETE /labels と場所への種類の付",
+            "status": "done",
+            "note": "CI 通過 / feat/a-06"
+          },
+          {
+            "id": "n32",
+            "label": "#112 A-05: GET・POST /labels",
+            "status": "done",
+            "note": "CI 通過 / feat/a-05"
+          },
+          {
+            "id": "n33",
+            "label": "#111 A-03: PATCH・DELETE /places/{pl",
+            "status": "done",
+            "note": "CI 通過 / feat/a-03"
+          },
+          {
+            "id": "n34",
+            "label": "#110 POST /places を実装する(A-02)",
+            "status": "done",
+            "note": "CI 通過 / feat/a-02"
+          },
+          {
+            "id": "n35",
+            "label": "#109 W-01 Web: API クライアント",
+            "status": "done",
+            "note": "CI 通過 / feat/w-01"
+          },
+          {
+            "id": "n36",
+            "label": "#108 A-04: GET /places/search を実装する",
+            "status": "done",
+            "note": "CI 通過 / feat/a-04"
+          },
+          {
+            "id": "n37",
+            "label": "#107 GET /places を実装する(A-01)",
+            "status": "done",
+            "note": "CI 通過 / feat/a-01"
+          }
+        ]
+      }
+    ]
+  }
+}
