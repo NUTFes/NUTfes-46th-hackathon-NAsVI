@@ -472,6 +472,9 @@ paths:
       security: []   # 来場者の操作。認証なし(API-12)
       x-request: showStamps
       tags: [stamps, places]
+      x-non-request-events:
+        placeRemoved: 場所の削除の知らせ(概念の要求ではない)
+        appVersionChanged: 版が変わった知らせ(概念の要求ではない)
       summary: スタンプ・場所の削除・版の変更を、リアルタイムで受け取る(Server-Sent Events)
       description: >-
         開いている間、スタンプが押された(stampPressed)・取り消された(stampRetracted)こと、
@@ -747,6 +750,7 @@ paths:
       description: >-
         既にあれば差し替える(何度送っても同じ結果)。
         概念の要求ではない(建物の付属データ。階ごとの見取り図は概念にしないと決めた。D-029)ので、x-request は付けない。
+      x-no-request: 建物の付属データ(D-029)
       x-needs-review: "API-7: 対応する要求が concepts.yaml に無い(setFloorPlan の仮置き)"
       security:
         - operatorAuth: []
@@ -792,6 +796,7 @@ paths:
       tags: [landmarks]
       summary: 階の見取り図を消す(運営)
       description: 概念の要求ではない(建物の付属データ。階ごとの見取り図は概念にしないと決めた。D-029)ので、x-request は付けない。
+      x-no-request: 建物の付属データ(D-029)
       x-needs-review: "API-7: 対応する要求が concepts.yaml に無い(removeFloorPlan の仮置き)"
       security:
         - operatorAuth: []
