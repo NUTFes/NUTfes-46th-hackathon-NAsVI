@@ -60,8 +60,10 @@ features:
 # g は使わない。後の写像(技術の選択、型構成)へそのまま渡す。
 passthrough:
   scale:
-    visitors_total: 10000         # 2 日間(前回の実績。利用者、2026-11-22・23。OQ-6)
-    concurrent: null              # ★未記入: 同時接続(SSE の配信の設計に効く)
+    visitors_total: 数千            # 実人数。見積もりでは仮に 5000 とする(利用者、2026-11-23。OQ-6)
+    visitors_gross: 10000         # 前回の延べ人数(2 日間。重複を含む。利用者、2026-11-22。API-21)
+    app_usage_rate: 4〜6割          # アプリの利用率の見込み(利用者、2026-11-23)
+    concurrent: 約 350(上限 約 630)  # 見積もり。doc/sse-sizing.md。f(画面を開く割合)は仮定
   constraints:
     deadline: 2週間                # ボードの「2週間で作れる範囲」から
     team_size: 5                   # 利用者、2026-11-23(OQ-6)
