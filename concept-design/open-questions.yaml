@@ -142,3 +142,11 @@ questions:
     answer: null
     note: どちらも設計の根拠が無い仮置き。端末が計算する値で、概念の状態には入れない(D-026)。デザインシステムの DestinationCard と、画面 V1-n の「着きました」が使っている。
 
+
+  - id: OQ-19
+    question: 場所の開催時間(hours)で、終了が開始より前のものと、保存する時刻の形式をどうするか
+    blocks: [api.places]
+    owner: チーム
+    status: resolved
+    answer: 終了が開始より前(end < start)は 400 invalid_input(field=hours)で拒否する。start・end は UTC の `.000Z` に直して保存し、応答もその形式で返す。
+    note: 実装の PR #110・#111 のレビュー(fore0111)で見つかった。UTC に揃えるので、start_at の文字列順がそのまま時刻順になる。openapi の例(+09:00)は、あとで Z 形式に直す。
