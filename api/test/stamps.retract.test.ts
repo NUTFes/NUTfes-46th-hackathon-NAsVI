@@ -11,12 +11,16 @@ const publish = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => 
 const hub = {
   idFromName: vi.fn(() => 'main-id'), get: vi.fn(() => ({ fetch: publish })),
 } as unknown as Env['HUB'];
+let testNumber = 0;
+let testIp: string;
 
 beforeAll(async () => {
   vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('External network is disabled in tests'))));
   await migrateTestDb();
 });
 beforeEach(async () => {
+  // Keep one source per test, including concurrent requests, without sharing limits across tests.
+  testIp = `198.51.100.${++testNumber}`;
   vi.clearAllMocks();
   await env.DB.batch([env.DB.prepare('DELETE FROM stamps'), env.DB.prepare('DELETE FROM changes')]);
 });
@@ -30,7 +34,7 @@ async function seedStamp(id = 'stamp', hash = proofHash, expiry = '2026-11-24T02
 
 function retract(id = 'stamp', value = proof) {
   return requestWithEnv(`/api/stamps/${encodeURIComponent(id)}`, {
-    method: 'DELETE', headers: { 'X-Stamp-Proof': value },
+    method: 'DELETE', headers: { 'X-Stamp-Proof': value, 'CF-Connecting-IP': testIp },
   }, { ...env, NOW: now, HUB: hub });
 }
 
@@ -75,7 +79,9 @@ it.each(['abd', proofHash, 'ABC', ''])('証 %s が一致しなければ 403 で�
 
 it('証ヘッダーがなければ 403 で変更しない', async () => {
   await seedStamp();
-  const response = await requestWithEnv('/api/stamps/stamp', { method: 'DELETE' }, { ...env, NOW: now, HUB: hub });
+  const response = await requestWithEnv('/api/stamps/stamp', {
+    method: 'DELETE', headers: { 'CF-Connecting-IP': testIp },
+  }, { ...env, NOW: now, HUB: hub });
   await expectProblem(response, 403, 'not_stamp_owner');
   await expectUnchanged();
 });
@@ -92,6 +98,14 @@ it('存在しない id は 404 で、他のスタンプと履歴を変更しな�
   await seedStamp();
   await expectProblem(await retract("missing' OR 1=1 --"), 404, 'not_found');
   await expectUnchanged();
+});
+
+it('同じ通信元から 1 分以内に 5 回取り消すと 6 回目は 429 を返す', async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse(now));
+  for (let i = 0; i < 5; i++) {
+    await expectProblem(await retract('missing'), 404, 'not_found');
+  }
+  await expectProblem(await retract('missing'), 429, 'too_many_requests');
 });
 
 it('取り消し済みの id は 404 で、出来事を重ねて記録しない', async () => {
