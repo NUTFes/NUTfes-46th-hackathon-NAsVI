@@ -7,6 +7,7 @@ import { fromXY } from '../domain/geo';
 import { useLandmarksStore, usePlacesStore } from '../stores';
 import type { Position } from '../types';
 import ArView from './ArView.vue';
+import arSource from './ArView.vue?raw';
 import CameraView from '../views/CameraView.vue';
 import { buildings, places } from './fixtures/buildings';
 
@@ -41,6 +42,10 @@ let stop: ReturnType<typeof vi.fn>;
 let stream: MediaStream;
 let ctx: CanvasRenderingContext2D;
 let network: ReturnType<typeof vi.fn>;
+let resize: (target: Element, width: number, height: number) => void;
+let observeSize: ReturnType<typeof vi.fn>;
+let unobserveSize: ReturnType<typeof vi.fn>;
+let disconnectSize: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -64,6 +69,15 @@ beforeEach(() => {
   vi.stubGlobal('IntersectionObserver', vi.fn(function (callback: IntersectionObserverCallback) {
     intersect = callback;
     return { observe: vi.fn(), disconnect };
+  }));
+  observeSize = vi.fn((target: Element) => resize(target, target.tagName === 'MAIN' ? 400 : 160, target.tagName === 'MAIN' ? 800 : 60));
+  unobserveSize = vi.fn();
+  disconnectSize = vi.fn();
+  vi.stubGlobal('ResizeObserver', vi.fn(function (callback: ResizeObserverCallback) {
+    resize = (target, width, height) => callback([{
+      target, borderBoxSize: [{ inlineSize: width, blockSize: height }], contentRect: new DOMRect(0, 0, width, height),
+    } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+    return { observe: observeSize, unobserve: unobserveSize, disconnect: disconnectSize };
   }));
   ctx = Object.fromEntries([
     'clearRect', 'save', 'restore', 'beginPath', 'arc', 'clip', 'fillRect', 'moveTo',
@@ -116,6 +130,8 @@ describe('R-02 モックの位置・向きによるコンポーネント表示',
     expect(video.srcObject).toBe(stream);
     expect(video.hasAttribute('playsinline')).toBe(true);
     expect(video.hasAttribute('muted')).toBe(true);
+    expect(video.getAttribute('aria-hidden')).toBe('true');
+    expect(video.hasAttribute('aria-label')).toBe(false);
     expect(wrapper.get('canvas').attributes('width')).toBe('240');
     expect(ctx.arc).toHaveBeenCalledWith(120, 120, 120, 0, Math.PI * 2);
     expect(ctx.clip).toHaveBeenCalled();
@@ -258,6 +274,17 @@ describe('R-02 拒否・非対応時の案内', () => {
     expect(wrapper.get('.ar-front').text()).toContain('北棟');
   });
 
+  it('HTTPS でカメラ API がない場合は非対応と案内する', async () => {
+    vi.stubGlobal('navigator', {});
+    vi.stubGlobal('isSecureContext', true);
+    vi.stubGlobal('location', { protocol: 'https:', search: '' });
+    const wrapper = mount(ArView, { props: props() });
+    await start(wrapper);
+    expect(wrapper.get('.ar-warning').text()).toContain('このブラウザはカメラの利用に対応していません');
+    expect(wrapper.get('.ar-warning').text()).not.toContain('HTTP では');
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
   it('カメラの機器エラーはユーザー拒否と区別する', async () => {
     getUserMedia.mockRejectedValue(new DOMException('busy', 'NotReadableError'));
     const wrapper = mount(ArView, { props: props() });
@@ -388,6 +415,148 @@ describe('R-02 ラベルの更新は Vue のリアクティブを通らない', 
     tick();
     expect(label.hidden).toBe(true);
     expect(updated).not.toHaveBeenCalled();
+  });
+});
+
+describe('R-02 ResizeObserver による寸法の保持', () => {
+  it('フレーム内でレイアウトや計算済みスタイルを読まない', async () => {
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => { throw new Error('rAF 内の寸法読み取りは禁止'); });
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(() => { throw new Error('offsetWidth 禁止'); });
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => { throw new Error('offsetHeight 禁止'); });
+    const style = vi.spyOn(window, 'getComputedStyle').mockImplementation(() => { throw new Error('rAF 内のスタイル読み取りは禁止'); });
+    const wrapper = mount(ArView, { props: props() });
+    await start(wrapper);
+    mocks.heading.value = 10;
+    tick();
+    tick();
+    expect(rect).not.toHaveBeenCalled();
+    expect(width).not.toHaveBeenCalled();
+    expect(height).not.toHaveBeenCalled();
+    expect(style).not.toHaveBeenCalled();
+    expect(wrapper.get('[data-place-id="north-event"]').element.hasAttribute('hidden')).toBe(false);
+  });
+
+  it('ラベルの border-box と画面のリサイズを次のフレームで反映し、非表示の 0 は寸法に使わない', async () => {
+    const wrapper = mount(ArView, { props: props() });
+    await start(wrapper);
+    const label = wrapper.get('[data-place-id="north-event"]').element as HTMLElement;
+    expect(observeSize).toHaveBeenCalledWith(wrapper.element, { box: 'border-box' });
+    expect(observeSize).toHaveBeenCalledWith(label, { box: 'border-box' });
+    expect(label.style.transform).toContain('translate(120px,');
+    resize(label, 200, 80);
+    tick();
+    expect(label.style.transform).toContain('translate(100px,');
+    const resized = label.style.transform;
+    resize(label, 0, 0);
+    tick();
+    expect(label.style.transform).toBe(resized);
+    resize(wrapper.element, 800, 400);
+    tick();
+    expect(label.style.transform).toContain('translate(300px,');
+    await wrapper.setProps({ places: [] });
+    tick();
+    expect(unobserveSize).toHaveBeenCalledWith(label);
+    wrapper.unmount();
+    expect(disconnectSize).toHaveBeenCalledOnce();
+  });
+
+  it('画面の初回寸法が届くまで描画を待つ', async () => {
+    const wrapper = mount(ArView, { props: props() });
+    resize(wrapper.element, 0, 0);
+    await start(wrapper);
+    expect(ctx.clearRect).not.toHaveBeenCalled();
+    resize(wrapper.element, 400, 800);
+    tick();
+    expect(ctx.clearRect).toHaveBeenCalled();
+    expect(wrapper.get('.ar-front').text()).toContain('北棟');
+  });
+});
+
+describe('R-02 最寄りテーマと映像上のコントラスト', () => {
+  it.each([
+    [undefined, '#130a22', '#1c1032', '#f4f0ff', '#5eead4'],
+    ['dark', '#130a22', '#1c1032', '#f4f0ff', '#5eead4'],
+    ['unknown', '#130a22', '#1c1032', '#f4f0ff', '#5eead4'],
+    ['light', '#f6f4fa', '#ffffff', '#1e0b3a', '#0f766e'],
+  ])('%s の解決済みトークンを DOM とミニマップで使う', async (theme, bg, surface, text, event) => {
+    const wrapper = mount(ArView, { props: props(), attrs: theme ? { 'data-theme': theme } : {} });
+    await start(wrapper);
+    const style = (wrapper.element as HTMLElement).style;
+    expect(style.getPropertyValue('--ar-bg')).toBe(bg);
+    expect(style.getPropertyValue('--ar-surface')).toBe(surface);
+    expect(style.getPropertyValue('--ar-text')).toBe(text);
+    expect(style.getPropertyValue('--ar-event')).toBe(event);
+    expect(ctx.fillStyle).toBe(text);
+  });
+
+  it('最寄りテーマを優先し、属性の変更・追加・削除に追随して、アンマウント時に監視を解放する', async () => {
+    const outer = document.createElement('div');
+    const inner = document.createElement('div');
+    outer.dataset.theme = 'light';
+    inner.dataset.theme = 'dark';
+    outer.append(inner);
+    document.body.append(outer);
+    const mutationDisconnect = vi.spyOn(MutationObserver.prototype, 'disconnect');
+    const wrapper = mount(ArView, { props: props(), attachTo: inner });
+    const style = (wrapper.element as HTMLElement).style;
+    const color = () => style.getPropertyValue('--ar-bg');
+    try {
+      await start(wrapper);
+      expect(color()).toBe('#130a22');
+      inner.removeAttribute('data-theme');
+      await vi.waitFor(() => expect(color()).toBe('#f6f4fa'));
+      tick();
+      expect(ctx.fillStyle).toBe('#1e0b3a');
+      inner.dataset.theme = 'unknown';
+      await vi.waitFor(() => expect(color()).toBe('#130a22'));
+      inner.dataset.theme = 'light';
+      await vi.waitFor(() => expect(color()).toBe('#f6f4fa'));
+      inner.dataset.theme = 'dark';
+      await vi.waitFor(() => expect(color()).toBe('#130a22'));
+      inner.removeAttribute('data-theme');
+      await vi.waitFor(() => expect(color()).toBe('#f6f4fa'));
+      outer.removeAttribute('data-theme');
+      await vi.waitFor(() => expect(color()).toBe('#130a22'));
+      wrapper.unmount();
+      expect(mutationDisconnect).toHaveBeenCalledOnce();
+    } finally {
+      outer.remove();
+    }
+  });
+
+  it.each(['dark', 'light'])('%s の映像上の文字は不透明な背景で 4.5:1 以上のコントラストを保つ', async theme => {
+    // Vitest は SFC の CSS を挿入しないので、本番のスタイルを DOM に載せる。
+    const stylesheet = document.createElement('style');
+    stylesheet.textContent = arSource.match(/<style>([\s\S]*)<\/style>/)![1];
+    document.head.append(stylesheet);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const wrapper = mount(ArView, { props: props(), attrs: { 'data-theme': theme }, attachTo: host });
+    await start(wrapper);
+    const style = (wrapper.element as HTMLElement).style;
+    const luminance = (hex: string) => {
+      const channels = hex.slice(1).match(/../g)!.map(value => Number.parseInt(value, 16) / 255)
+        .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    for (const [bg, fg] of [['surface', 'text'], ['event', 'event-on'], ['destination', 'destination-on'], ['danger-bg', 'danger-text'], ['action', 'action-on']]) {
+      const background = style.getPropertyValue(`--ar-${bg}`);
+      const foreground = style.getPropertyValue(`--ar-${fg}`);
+      expect(background).toMatch(/^#[\da-f]{6}$/i);
+      const a = luminance(background), b = luminance(foreground);
+      expect((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)).toBeGreaterThanOrEqual(4.5);
+    }
+    // 実際に映像に重なる札・照準・案内帯にも上記の背景と文字色が当たる。
+    try {
+      const computed = (selector: string) => window.getComputedStyle(wrapper.get(selector).element);
+      expect(computed('.ar-cross').backgroundColor).toBe(theme === 'dark' ? '#1c1032' : '#ffffff');
+      expect(computed('.ar-label--far').opacity).not.toBe('0.45');
+      expect(computed('.ar-label--far').backgroundColor).toBe(theme === 'dark' ? '#5eead4' : '#0f766e');
+    } finally {
+      wrapper.unmount();
+      host.remove();
+      stylesheet.remove();
+    }
   });
 });
 

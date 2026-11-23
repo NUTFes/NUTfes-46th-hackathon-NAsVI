@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { toXY } from '../domain/geo';
 import { useOrientation, type OrientationStatus } from '../services/orientation';
 import { usePosition } from '../services/position';
@@ -65,19 +65,25 @@ const guideText = ref<HTMLElement>();
 const minimap = ref<HTMLCanvasElement>();
 const started = ref(false);
 
-// design-system/tokens.json。意味トークンは既存のテーマがあれば引き継ぐ。
+// design-system/tokens.json の color.{dark,light}。
+// design-system/claude-design/tokens.css と同じ解決済み値を使う。
+const COLORS = {
+  '--ar-bg': { dark: '#130a22', light: '#f6f4fa' }, // color.{dark,light}.bg-page
+  '--ar-surface': { dark: '#1c1032', light: '#ffffff' }, // color.{dark,light}.bg-surface
+  '--ar-text': { dark: '#f4f0ff', light: '#1e0b3a' }, // color.{dark,light}.text-primary
+  '--ar-secondary': { dark: '#b4a9cf', light: '#5b5274' }, // color.{dark,light}.text-secondary
+  '--ar-event': { dark: '#5eead4', light: '#0f766e' }, // color.{dark,light}.event
+  '--ar-event-on': { dark: '#062a24', light: '#ffffff' }, // color.{dark,light}.event-on
+  '--ar-destination': { dark: '#ffd84a', light: '#facc15' }, // color.{dark,light}.destination
+  '--ar-destination-on': { dark: '#1e0b3a', light: '#1e0b3a' }, // color.{dark,light}.destination-on
+  '--ar-danger': { dark: '#f87171', light: '#dc2626' }, // color.{dark,light}.danger
+  '--ar-danger-bg': { dark: '#2d1520', light: '#fef2f2' }, // color.{dark,light}.danger-bg
+  '--ar-danger-text': { dark: '#fecaca', light: '#b91c1c' }, // color.{dark,light}.danger-text
+  '--ar-action': { dark: '#a78bfa', light: '#6d28d9' }, // color.{dark,light}.action-primary
+  '--ar-action-on': { dark: '#1e0b3a', light: '#ffffff' }, // color.{dark,light}.action-on-primary
+  '--ar-action-selected': { dark: '#a78bfa38', light: '#ede9fe' }, // color.{dark,light}.action-selected-bg
+} as const;
 const TOKENS = {
-  '--ar-bg': 'var(--bg-page, #130a22)', // color.dark.bg-page
-  '--ar-surface': 'var(--bg-surface, #1c1032)', // color.dark.bg-surface
-  '--ar-text': 'var(--text-primary, #f4f0ff)', // color.dark.text-primary
-  '--ar-secondary': 'var(--text-secondary, #b4a9cf)', // color.dark.text-secondary
-  '--ar-event': 'var(--event, #5eead4)', // color.dark.event
-  '--ar-event-on': 'var(--event-on, #062a24)', // color.dark.event-on
-  '--ar-destination': 'var(--destination, #ffd84a)', // color.dark.destination
-  '--ar-destination-on': 'var(--destination-on, #1e0b3a)', // color.dark.destination-on
-  '--ar-danger': 'var(--danger, #f87171)', // color.dark.danger
-  '--ar-action': 'var(--action-primary, #a78bfa)', // color.dark.action-primary
-  '--ar-action-on': 'var(--action-on-primary, #1e0b3a)', // color.dark.action-on-primary
   '--ar-space-1': '4px', // space.1
   '--ar-space-2': '8px', // space.2
   '--ar-space-3': '12px', // space.3
@@ -88,8 +94,15 @@ const TOKENS = {
   '--ar-bold': '700', // font.weight.bold
   '--ar-radius': '12px', // radius.lg
   '--ar-touch': '44px', // size.touch-target
-  '--ar-far-opacity': '0.45', // opacity.disabled (建物の奥の札)
+  '--ar-body-leading': '1.5', // claude-design/tokens.json type.groups body.lineHeight
 } as const;
+const theme = ref<'dark' | 'light'>('dark');
+const colors = computed(() => Object.fromEntries(
+  Object.entries(COLORS).map(([name, values]) => [name, values[theme.value]]),
+));
+function resolveColors() {
+  theme.value = root.value?.closest('[data-theme]')?.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+}
 let disposed = false;
 let inViewport = true;
 let frame: number | null = null;
@@ -101,6 +114,9 @@ let manualHeading = 0;
 let drag: { x: number; base: number; offset: number; delta: number } | null = null;
 let focal = 600;
 let cleanup = () => {};
+let resizeObserver: ResizeObserver | undefined;
+const viewportSize = { width: 0, height: 0 };
+const labelSizes = new Map<Element, { width: number; height: number }>();
 const labelNodes = new Map<string, { button: HTMLButtonElement; meta: HTMLElement }>();
 const visible = () => !disposed && started.value && !document.hidden && inViewport;
 const text = (element: HTMLElement | undefined, value: string) => {
@@ -165,7 +181,12 @@ function syncLabels() {
   const events = props.places.filter(place => place.kind === 'event');
   const ids = new Set(events.map(place => place.id));
   for (const [id, node] of labelNodes) {
-    if (!ids.has(id)) { node.button.remove(); labelNodes.delete(id); }
+    if (!ids.has(id)) {
+      resizeObserver?.unobserve(node.button);
+      labelSizes.delete(node.button);
+      node.button.remove();
+      labelNodes.delete(id);
+    }
   }
   for (const place of events) {
     let node = labelNodes.get(place.id);
@@ -181,6 +202,8 @@ function syncLabels() {
       labels.value!.append(button);
       node = { button, meta };
       labelNodes.set(place.id, node);
+      labelSizes.set(button, { width: Number.parseFloat(TOKENS['--ar-touch']), height: Number.parseFloat(TOKENS['--ar-touch']) });
+      resizeObserver?.observe(button, { box: 'border-box' });
     }
     text(node.button.firstElementChild as HTMLElement, place.name);
     node.button.hidden = true;
@@ -190,9 +213,11 @@ function syncLabels() {
 function draw() {
   frame = null;
   if (!visible()) return;
-  const rect = root.value!.getBoundingClientRect();
-  const W = rect.width;
-  const H = rect.height;
+  const { width: W, height: H } = viewportSize;
+  if (W <= 0 || H <= 0) {
+    frame = requestAnimationFrame(draw);
+    return;
+  }
   // PR #4 のラベル領域と size.touch-target から表示可能数を求める(P1 の上限制御)。
   const labelTop = 150;
   const labelBottom = H - 130;
@@ -249,8 +274,7 @@ function draw() {
       button.classList.toggle('ar-label--destination', isDestination);
       text(meta, `${distance(d)}${item.occluded ? ' · 建物の奥' : ''}`);
       const x = W / 2 + focal * Math.tan(azimuth * RAD);
-      const w = button.offsetWidth;
-      const h = button.offsetHeight;
+      const { width: w, height: h } = labelSizes.get(button)!;
       let y = Math.max(labelTop + h, Math.min(labelBottom, H / 2 - focal * Math.tan(Math.max(3, Math.min(28, Math.atan(10 / d) / RAD)) * RAD)));
       for (let i = 0; i < 6; i++) {
         const overlap = placed.find(other => Math.abs(other.x - x) < (other.w + w) / 2 + LABEL_GAP && y > other.y - other.h - LABEL_GAP && y - h < other.y + LABEL_GAP);
@@ -274,8 +298,7 @@ function draw() {
   frame = requestAnimationFrame(draw);
 }
 function drawMinimap(ctx: CanvasRenderingContext2D, pos: Position, heading: number, width: number) {
-  const style = getComputedStyle(root.value!);
-  const color = (name: string) => style.getPropertyValue(`--ar-${name}`).trim();
+  const color = (name: string) => colors.value[`--ar-${name}`];
   const center = MINI_SIZE / 2;
   const k = center / MINI_RADIUS_M;
   const [ox, oy] = toXY(pos.lat, pos.lng);
@@ -289,7 +312,7 @@ function drawMinimap(ctx: CanvasRenderingContext2D, pos: Position, heading: numb
   ctx.beginPath(); ctx.arc(center, center, center, 0, Math.PI * 2); ctx.clip();
   ctx.fillStyle = color('surface'); ctx.fillRect(0, 0, MINI_SIZE, MINI_SIZE);
   const half = Math.atan(width / 2 / focal);
-  ctx.fillStyle = color('action'); ctx.globalAlpha = 0.22; // color.dark.action-selected-bg の alpha
+  ctx.fillStyle = color('action-selected');
   ctx.beginPath(); ctx.moveTo(center, center); ctx.arc(center, center, MINI_SIZE, -Math.PI / 2 - half, -Math.PI / 2 + half); ctx.fill();
   ctx.globalAlpha = 1;
   for (const building of props.landmarks) {
@@ -331,26 +354,48 @@ function pointerUp() {
   drag = null;
 }
 onMounted(() => {
+  resolveColors();
+  const themeObserver = new MutationObserver(resolveColors);
+  // 最寄りのテーマの変更・追加・削除を追い、コンテンツの更新は監視しない。
+  for (let element = root.value; element; element = element.parentElement ?? undefined) {
+    themeObserver.observe(element, { attributes: true, attributeFilter: ['data-theme'] });
+  }
+  resizeObserver = new ResizeObserver(entries => {
+    for (const entry of entries) {
+      const box = entry.borderBoxSize[0];
+      const size = { width: box?.inlineSize ?? entry.contentRect.width, height: box?.blockSize ?? entry.contentRect.height };
+      if (entry.target === root.value) Object.assign(viewportSize, size);
+      // hidden による 0 は捨て、次に表示するときも直近の寸法を使う。
+      else if (size.width > 0 && size.height > 0 && labelSizes.has(entry.target)) labelSizes.set(entry.target, size);
+    }
+  });
+  resizeObserver.observe(root.value!, { box: 'border-box' });
   const observer = typeof IntersectionObserver === 'undefined' ? undefined : new IntersectionObserver(entries => {
     inViewport = entries.some(entry => entry.isIntersecting);
     syncVisibility();
   });
   observer?.observe(root.value!);
   document.addEventListener('visibilitychange', syncVisibility);
-  cleanup = () => { observer?.disconnect(); document.removeEventListener('visibilitychange', syncVisibility); };
+  cleanup = () => {
+    observer?.disconnect();
+    resizeObserver?.disconnect();
+    themeObserver.disconnect();
+    document.removeEventListener('visibilitychange', syncVisibility);
+  };
 });
 onBeforeUnmount(() => {
   disposed = true;
   syncVisibility();
   cleanup();
+  labelSizes.clear();
   labelNodes.clear();
   // 既存サービスの onScopeDispose が購読を解放する。
 });
 </script>
 
 <template>
-  <main ref="root" class="ar-view" :style="TOKENS" aria-label="カメラ">
-    <video ref="video" autoplay muted playsinline aria-label="背面カメラの映像" />
+  <main ref="root" class="ar-view" :style="{ ...TOKENS, ...colors }" aria-label="カメラ">
+    <video ref="video" autoplay muted playsinline aria-hidden="true" />
     <!-- このコンテナの子とフレームの表示内容は Vue の描画に載せない。 -->
     <div ref="labels" class="ar-labels" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="drag = null" @lostpointercapture="drag = null" />
     <div class="ar-cross" aria-hidden="true">＋</div>
@@ -394,17 +439,18 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
-.ar-view { position: fixed; inset: 0; width: 100%; height: 100dvh; overflow: hidden; background: var(--ar-bg); color: var(--ar-text); font-family: var(--ar-font); font-size: var(--ar-body); }
+.ar-view { position: fixed; inset: 0; width: 100%; height: 100dvh; overflow: hidden; background: var(--ar-bg); color: var(--ar-text); font-family: var(--ar-font); font-size: var(--ar-body); line-height: var(--ar-body-leading); }
 .ar-view [hidden] { display: none !important; }
 .ar-view video, .ar-labels { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ar-view video { object-fit: cover; }
 .ar-labels { overflow: hidden; touch-action: none; }
-.ar-cross { position: absolute; top: 50%; left: 50%; pointer-events: none; font-size: var(--ar-heading); }
+.ar-cross { position: absolute; top: 50%; left: 50%; padding: var(--ar-space-1); border-radius: var(--ar-radius); background: var(--ar-surface); color: var(--ar-text); pointer-events: none; font-size: var(--ar-heading); }
 .ar-top { position: absolute; top: env(safe-area-inset-top); left: 0; right: 35%; max-height: 60%; overflow: auto; padding: var(--ar-space-3); }
 .ar-top p { margin: 0 0 var(--ar-space-2); padding: var(--ar-space-2); background: var(--ar-surface); border-radius: var(--ar-radius); }
-.ar-warning { border: 1px solid var(--ar-danger); }
-.ar-orientation section { padding: var(--ar-space-2); border: 1px solid var(--ar-danger); border-radius: var(--ar-radius); background: var(--ar-surface); }
-.ar-orientation h2 { margin: 0 0 var(--ar-space-2); font-size: var(--ar-heading); font-weight: var(--ar-bold); }
+.ar-top .ar-warning { border: 1px solid var(--ar-danger); background: var(--ar-danger-bg); color: var(--ar-danger-text); }
+.ar-orientation section { padding: var(--ar-space-2); border: 1px solid var(--ar-danger); border-radius: var(--ar-radius); background: var(--ar-danger-bg); color: var(--ar-danger-text); }
+.ar-orientation p { padding: 0; background: transparent; }
+.ar-orientation h2 { margin: 0 0 var(--ar-space-2); color: var(--ar-text); font-size: var(--ar-heading); font-weight: var(--ar-bold); }
 .ar-orientation button { background: var(--ar-action); color: var(--ar-action-on); }
 .ar-minimap { position: absolute; top: calc(var(--ar-space-3) + env(safe-area-inset-top)); right: var(--ar-space-3); width: 28%; max-width: 120px; height: auto; border-radius: 50%; }
 .ar-bottom { position: absolute; bottom: env(safe-area-inset-bottom); left: 0; right: 0; display: grid; gap: var(--ar-space-2); padding: var(--ar-space-3); }
@@ -419,7 +465,7 @@ onBeforeUnmount(() => {
 .ar-start button { background: var(--ar-action); color: var(--ar-action-on); }
 .ar-labels .ar-label { position: absolute; left: 0; top: 0; max-width: 60%; display: grid; text-align: start; gap: var(--ar-space-1); border: 1px solid currentColor; background: var(--ar-event); color: var(--ar-event-on); }
 .ar-label span:first-child { font-weight: var(--ar-bold); }
-.ar-label--far { opacity: var(--ar-far-opacity); border-style: dashed !important; }
+.ar-label--far { border-style: dashed !important; } /* 映像上でも文字のコントラストを保つため、札全体は透過しない。 */
 .ar-labels .ar-label--destination { background: var(--ar-destination); color: var(--ar-destination-on); }
 .ar-view :focus-visible { outline: var(--ar-space-1) solid var(--ar-action); }
 </style>
