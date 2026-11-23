@@ -60,11 +60,17 @@ it('A-*・H-* が所有する API ソースをすべて置く', () => {
   }
 });
 
-it.each(stubs)('$method $path は 501 problem+json を返す', async op => {
+// 経路が登録されているかを見る。実装が入った操作は 200・400・404(not_found)などを返すので、
+// 「Hono 標準の 404(problem+json でない)」でないことだけを確かめる。
+const isUnregistered = (r: Response) => r.status === 404 && r.headers.get('content-type') !== 'application/problem+json';
+
+it.each(stubs)('$method $path は経路が登録されている', async op => {
   const response = await requestAsOperator(concretePath(op.path), { method: op.method });
-  expect(response.status).toBe(501);
-  expect(response.headers.get('content-type')).toBe('application/problem+json');
-  expect(await response.json()).toEqual({ code: 'internal_error', message: expect.stringContaining('未実装') });
+  expect(isUnregistered(response)).toBe(false);
+  if (response.status === 501) {
+    expect(response.headers.get('content-type')).toBe('application/problem+json');
+    expect(await response.json()).toEqual({ code: 'internal_error', message: expect.stringContaining('未実装') });
+  }
 });
 
 it.each(stubs.filter(op => op.operator))('$method $path は運営の迂回なしで 401', async op => {
@@ -75,7 +81,9 @@ it.each(stubs.filter(op => op.operator))('$method $path は運営の迂回なし
 });
 
 it.each(stubs.filter(op => !op.operator))('$method $path は認証不要', async op => {
-  expect((await request(concretePath(op.path), { method: op.method })).status).toBe(501);
+  const response = await request(concretePath(op.path), { method: op.method });
+  expect(response.status).not.toBe(401);
+  expect(isUnregistered(response)).toBe(false);
 });
 
 it('problem は独自の項目だけを返し、field は 400 のときだけ返す', async () => {
