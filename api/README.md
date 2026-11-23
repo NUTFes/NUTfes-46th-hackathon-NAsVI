@@ -27,7 +27,7 @@ npx -y pnpm@latest generate:types
 
 ## 再送の規則
 
-Hub は idFromName('global') の1個。接続をメモリの Set に保持し、
+Hub は idFromName('main') の1個。接続をメモリの Set に保持し、
 接続準備中の publish は一時キューに入れる。since 指定時だけ1回のSQLで
 MIN/MAXと `id > since` の行を同じスナップショットから昇順取得する。
 Last-Event-ID が存在すれば since より優先（不正値でもフォールバックしない）。
