@@ -16,8 +16,8 @@ corepack pnpm --filter api dev
 別ターミナルで次を**順番に**実行する。開発サーバーの再読み込みが入ると切断として記録されるため、試験中は API を編集しない。
 
 ```sh
-node tools/loadtest/sse.mjs --url http://127.0.0.1:8787 --clients 50 --emits 20 --interval 100 --duration 27000 --out /tmp/sse-50.json
-node tools/loadtest/sse.mjs --url http://127.0.0.1:8787 --clients 200 --emits 20 --interval 100 --duration 27000 --out /tmp/sse-200.json
+node tools/loadtest/sse.mjs --url http://127.0.0.1:8787 --clients 50 --ramp-step 50 --emits 20 --interval 100 --duration 27000 --out /tmp/sse-50.json
+node tools/loadtest/sse.mjs --url http://127.0.0.1:8787 --clients 200 --ramp-step 200 --emits 20 --interval 100 --duration 27000 --out /tmp/sse-200.json
 ```
 
 確認値は順に `receivedTotal: 1000` / `4000`、`received` の median・p95・max がすべて `20`、
@@ -40,14 +40,15 @@ node tools/loadtest/sse.mjs --url http://127.0.0.1:8787 --clients 700 --ramp-ste
 | 引数 | 既定値 | 意味 |
 | --- | --- | --- |
 | `--url` | `http://127.0.0.1:8787` | API の origin。パス指定は従来どおり無視し、`/changes` と `/dev/emit` を使う |
-| `--clients` | `50` | 接続を試みる総数。正の整数 |
+| `--clients` | `50` | 接続を試みる総数。1〜1000(定数 `MAX_CLIENTS`)。超える指定は断る |
 | `--emits` | `20` | emit の試行数。正の整数 |
 | `--interval` | `100` | emit の応答後、次の emit までの待機時間(ms)。0 可 |
 | `--duration` | `5000` | 最後の emit の応答後の観測時間(ms)。正の整数。全件受信しても短縮しない |
-| `--ramp-step` | clients と同じ | 1 段階で開始する接続数。省略時は従来どおり一斉接続 |
+| `--ramp-step` | clients の 10%(切り上げ、最小 1) | 1 段階で開始する接続数。一斉接続にしたいときだけ clients と同じ値を明示する |
 | `--ramp-interval` | `1000` | 段階間の待機時間(ms)。0 可。接続処理の開始にかかる時間は別途加わる |
 | `--timeout` | `15000` | 各接続の最初の SSE chunk まで、および各 emit の応答本文までの制限時間(ms) |
 | `--out` | なし | 標準出力と同じ JSON を保存するファイル。親ディレクトリは事前に作成する。既存ファイルは上書き |
+| `--allow-remote` | 無効 | 向け先が `127.0.0.1`・`localhost`・`[::1]` 以外のとき必須。無ければ終了コード 1 で断る。値は付けない |
 | `--verbose` | 無効 | `clients` にクライアント別の詳細を追加する。値は付けない |
 
 時間の引数は整数で、Node のタイマー上限 `2147483647` ms 以下。
@@ -58,7 +59,20 @@ node tools/loadtest/sse.mjs --url http://127.0.0.1:8787 --clients 700 --ramp-ste
 emit は HTTP 201 と一意な正の整数 `id` が必要で、それ以外や通信エラーは `emitFailures` に加えて次へ進む。
 失敗した emit がサーバーでは保存・配信済みの場合もあるが、成功応答の id だけを受信集計に使う。
 
-終了コードは正常なら 0、受信不足・切断・接続失敗・emit 失敗なら 1。
+### 安全策
+
+- 向け先がローカル以外のときは `--allow-remote` が必須。自分の管理する試験デプロイにだけ使う。
+- 非ローカルでは、1 秒あたりの新規接続数 `ramp-step × 1000 ÷ ramp-interval` が 100(定数 `MAX_CONNECTS_PER_SECOND`)を超える指定、`--ramp-interval 0` を断る。ローカルには適用しない。
+- 結果 JSON の `options.url` は、ローカルなら origin、ローカル以外ならホスト名を伏せた `https://<remote-host-hidden>` を出す。
+- `--out` が `/tmp`(または OS の一時ディレクトリ)の外のとき、標準エラーに警告する。本番由来の結果をリポジトリにコミットしない。
+
+### 受信の集計の仕様
+
+CLI が送った emit(payload の `sentAt` が自分の送信時刻と一致し、emit の応答 `id` が成功したもの)だけを数える。
+他者や他の経路の変更が同じ `/changes` に流れても、受信数・遅延・`missing`・`orderViolations` には含めない。
+したがって他者の emit が混じる環境でも、自分の emit の件数だけを評価できる。
+
+終了コードは正常なら 0、受信不足・切断・接続失敗・emit 失敗・`missing`・`orderViolations` があれば 1。
 実行中の通信失敗でも JSON を出す。引数の不正やファイル保存失敗は標準エラーへ出し、終了コード 1 とする。
 
 ## 本番相当の試験デプロイ後
@@ -79,9 +93,9 @@ CLI にトークンを渡す機能はない。試験用のデータを使用し�
 
 ```sh
 # 400、600、700 接続をそれぞれ別々に実行し、条件ごとに保存する
-node tools/loadtest/sse.mjs --url https://sse-trial.example.invalid --clients 400 --ramp-step 50 --ramp-interval 1000 --emits 120 --interval 1000 --duration 30000 --out /tmp/sse-trial-400.json
-node tools/loadtest/sse.mjs --url https://sse-trial.example.invalid --clients 600 --ramp-step 50 --ramp-interval 1000 --emits 120 --interval 1000 --duration 30000 --out /tmp/sse-trial-600.json
-node tools/loadtest/sse.mjs --url https://sse-trial.example.invalid --clients 700 --ramp-step 50 --ramp-interval 1000 --emits 120 --interval 1000 --duration 30000 --out /tmp/sse-trial-700.json
+node tools/loadtest/sse.mjs --allow-remote --url https://sse-trial.example.invalid --clients 400 --ramp-step 50 --ramp-interval 1000 --emits 120 --interval 1000 --duration 30000 --out /tmp/sse-trial-400.json
+node tools/loadtest/sse.mjs --allow-remote --url https://sse-trial.example.invalid --clients 600 --ramp-step 50 --ramp-interval 1000 --emits 120 --interval 1000 --duration 30000 --out /tmp/sse-trial-600.json
+node tools/loadtest/sse.mjs --allow-remote --url https://sse-trial.example.invalid --clients 700 --ramp-step 50 --ramp-interval 1000 --emits 120 --interval 1000 --duration 30000 --out /tmp/sse-trial-700.json
 ```
 
 Hub の接続数・CPU・D1 応答時間はデプロイ側で別途観測する。この CLI は受信側の数値のみを測る。
@@ -105,7 +119,8 @@ Hub の接続数・CPU・D1 応答時間はデプロイ側で別途観測する�
     "rampInterval": 1000,
     "timeout": 15000,
     "out": null,
-    "verbose": false
+    "verbose": false,
+    "allowRemote": false
   },
   "emitted": 20,
   "emitAttempts": 20,
@@ -116,6 +131,8 @@ Hub の接続数・CPU・D1 応答時間はデプロイ側で別途観測する�
   "received": { "median": 20, "p95": 20, "max": 20 },
   "latencyMs": { "median": 5, "p95": 12, "max": 25 },
   "disconnects": 0,
+  "missing": 0,
+  "orderViolations": 0,
   "allReceived": true,
   "rampStages": [
     { "stage": 1, "startedAtMs": 0, "attempted": 50, "connected": 50, "failures": 0 }
@@ -132,6 +149,8 @@ Hub の接続数・CPU・D1 応答時間はデプロイ側で別途観測する�
 | `received` | クライアントごとの受信数の median・p95・max。接続失敗したクライアントも 0 件として含む |
 | `latencyMs` | 今回の id を受信した時刻 − payload.sentAt (epoch ms) の median・p95・max。受信サンプルがなければ各値 null |
 | `disconnects` | 接続失敗を含む、意図しない切断の合計。再接続しないので各クライアント最大 1 件 |
+| `missing` | 接続できたクライアントが受け取れなかった、今回の emit の件数の合計(取りこぼし) |
+| `orderViolations` | クライアントが、すでに受け取った id より小さい id を後から受け取った件数の合計(順序の逆転) |
 | `allReceived` | 全接続の準備が成功し、指定した全 emit が成功し、全クライアントが全件受信したか。受信後の切断の有無は disconnects で別途確認 |
 | `rampStages` | stage は 1 始まり。startedAtMs は試験開始からその段階の接続開始までの実測 ms。attempted・connected・failures はその段階のみの数であり累積ではない |
 
@@ -149,6 +168,8 @@ Hub の接続数・CPU・D1 応答時間はデプロイ側で別途観測する�
   "received": 20,
   "latencyMs": { "median": 5, "p95": 12, "max": 25 },
   "disconnects": 0,
+  "missing": 0,
+  "orderViolations": 0,
   "error": null
 }
 ```

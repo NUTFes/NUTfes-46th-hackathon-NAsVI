@@ -1,9 +1,15 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { performance } from 'node:perf_hooks';
 
+// Safety limits for load generation.
+export const MAX_CLIENTS = 1000;
+export const MAX_CONNECTS_PER_SECOND = 100; // enforced for non-loopback targets
+const loopbackHosts = new Set(['127.0.0.1', 'localhost', '[::1]']);
+export const isLoopback = url => loopbackHosts.has(new URL(url).hostname);
+
 const defaults = {
   url: 'http://127.0.0.1:8787', clients: 50, emits: 20, interval: 100, duration: 5000,
-  rampStep: null, rampInterval: 1000, timeout: 15000, out: null, verbose: false,
+  rampStep: null, rampInterval: 1000, timeout: 15000, out: null, verbose: false, allowRemote: false,
 };
 const flags = {
   '--url': 'url', '--clients': 'clients', '--emits': 'emits', '--interval': 'interval',
@@ -13,15 +19,23 @@ const flags = {
 
 function normalizeOptions(input) {
   const options = { ...defaults, ...input };
-  options.rampStep ??= options.clients;
   const url = new URL(options.url);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid url: use http or https');
-  for (const key of ['clients', 'emits', 'interval', 'duration', 'rampStep', 'rampInterval', 'timeout']) {
+  for (const key of ['clients', 'emits', 'interval', 'duration', 'rampInterval', 'timeout']) {
     const min = ['interval', 'rampInterval'].includes(key) ? 0 : 1;
     if (!Number.isSafeInteger(options[key]) || options[key] < min) throw new Error(`Invalid ${key}`);
   }
   for (const key of ['interval', 'duration', 'rampInterval', 'timeout']) {
     if (options[key] > 2 ** 31 - 1) throw new Error(`Invalid ${key}: timer too large`);
+  }
+  if (options.clients > MAX_CLIENTS) throw new Error(`Invalid clients: max ${MAX_CLIENTS}`);
+  options.rampStep ??= Math.max(1, Math.ceil(options.clients / 10));
+  if (!Number.isSafeInteger(options.rampStep) || options.rampStep < 1) throw new Error('Invalid rampStep');
+  if (typeof options.allowRemote !== 'boolean') throw new Error('Invalid allowRemote');
+  if (!isLoopback(options.url)) {
+    if (!options.allowRemote) throw new Error('Refusing non-local url: pass --allow-remote to confirm the target is yours');
+    const perSecond = options.rampInterval === 0 ? Infinity : options.rampStep * 1000 / options.rampInterval;
+    if (perSecond > MAX_CONNECTS_PER_SECOND) throw new Error(`Too fast for a remote target: max ${MAX_CONNECTS_PER_SECOND} new connections per second (rampStep * 1000 / rampInterval)`);
   }
   if (options.out !== null && (typeof options.out !== 'string' || !options.out.trim())) throw new Error('Invalid out');
   if (typeof options.verbose !== 'boolean') throw new Error('Invalid verbose');
@@ -32,10 +46,11 @@ export function parseArgs(args) {
   const input = {};
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--verbose') { input.verbose = true; continue; }
+    if (args[i] === '--allow-remote') { input.allowRemote = true; continue; }
     const key = flags[args[i]];
     const value = args[++i];
     if (!key || value === undefined || value.startsWith('--')) {
-      throw new Error('Arguments: --url --clients --emits --interval --duration --ramp-step --ramp-interval --timeout --out <value>, --verbose');
+      throw new Error('Arguments: --url --clients --emits --interval --duration --ramp-step --ramp-interval --timeout --out <value>, --verbose, --allow-remote');
     }
     input[key] = ['url', 'out'].includes(key) ? value : (value.trim() ? Number(value) : NaN);
   }
@@ -48,11 +63,18 @@ export function summary(values) {
   return { median: at(0.5), p95: at(0.95), max: at(1) };
 }
 
+// Never print a remote hostname: results may be saved inside the repository.
+function reportOptions(options) {
+  const { allowRemote, ...rest } = options;
+  const url = new URL(options.url);
+  return { ...rest, url: isLoopback(options.url) ? url.origin : `${url.protocol}//<remote-host-hidden>`, allowRemote };
+}
+
 // Retain the prototype's origin-relative /changes and /dev/emit URLs.
 export async function runLoadTest(input = {}) {
   const options = normalizeOptions(input);
   const stats = Array.from({ length: options.clients }, () => ({
-    connected: false, received: new Map(), disconnects: 0, error: null,
+    connected: false, received: new Map(), disconnects: 0, error: null, lastId: 0, orderViolations: 0,
   }));
   const controllers = [];
   const tasks = [];
@@ -110,6 +132,8 @@ export async function runLoadTest(input = {}) {
               const payload = JSON.parse(data.join('\n'));
               if (payload && sentTimes.has(payload.sentAt) && !stat.received.has(id)) {
                 stat.received.set(id, Date.now() - payload.sentAt);
+                if (id < stat.lastId) stat.orderViolations++;
+                stat.lastId = Math.max(stat.lastId, id);
               }
             }
           }
@@ -188,15 +212,18 @@ export async function runLoadTest(input = {}) {
     .filter(([id]) => emitted.has(id)).map(([, latency]) => latency));
   const clients = stats.map((stat, i) => ({
     client: i + 1, connected: stat.connected, received: delays[i].length,
-    latencyMs: summary(delays[i]), disconnects: stat.disconnects, error: stat.error,
+    latencyMs: summary(delays[i]), disconnects: stat.disconnects,
+    missing: stat.connected ? emitted.size - delays[i].length : 0, orderViolations: stat.orderViolations, error: stat.error,
   }));
   const connected = clients.filter(client => client.connected).length;
   return {
-    options, emitted: emitted.size, emitAttempts, emitFailures, connected,
+    options: reportOptions(options), emitted: emitted.size, emitAttempts, emitFailures, connected,
     failures: options.clients - connected,
     receivedTotal: clients.reduce((n, client) => n + client.received, 0),
     received: summary(clients.map(client => client.received)), latencyMs: summary(delays.flat()),
     disconnects: clients.reduce((n, client) => n + client.disconnects, 0),
+    missing: clients.reduce((n, client) => n + client.missing, 0),
+    orderViolations: clients.reduce((n, client) => n + client.orderViolations, 0),
     allReceived: emitted.size === options.emits && clients.every(client => client.connected && client.received === options.emits),
     rampStages: stages,
     ...(options.verbose ? { clients } : {}),
