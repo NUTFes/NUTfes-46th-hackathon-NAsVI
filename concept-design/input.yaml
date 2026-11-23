@@ -59,11 +59,13 @@ features:
 
 # g は使わない。後の写像(技術の選択、型構成)へそのまま渡す。
 passthrough:
-  scale: {}                       # ★未記入: 想定来場者数、同時接続
+  scale:
+    visitors_total: 10000         # 2 日間(前回の実績。利用者、2026-11-22・23。OQ-6)
+    concurrent: null              # ★未記入: 同時接続(SSE の配信の設計に効く)
   constraints:
     deadline: 2週間                # ボードの「2週間で作れる範囲」から
-    team_size: null                # ★未記入(OQ-6)
-    judging_criteria: null         # ★未記入(OQ-6)
+    team_size: 5                   # 利用者、2026-11-23(OQ-6)
+    judging_criteria: なし          # 審査基準は考慮しない(利用者、2026-11-23。OQ-6)
   tech_preferences:
     # ボードの P1 の記述から推測。確認前の値。
     map: Leaflet または MapLibre   # ★要確認
