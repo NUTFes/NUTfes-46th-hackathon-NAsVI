@@ -55,12 +55,13 @@ export interface MyTag { id: string; title: string; builtin: boolean }  // 最�
 ### 8. 端末内保存(IndexedDB。W-02 が実装)
 DB 名 `nasvi`、版 1。ストア: `tags`(`MyTag`)、`tagLinks`(`{placeId, tagId}`)、`destination`(キー `current`)、`filter`(キー `current`)、`proofs`(`{stampId, proof, expiresAt}`)、`cache`(キー `places|stamps|landmarks|labels`、値と cursor)、`meta`(キーと値。方位の補正など)。使えないときはメモリで動く。
 
-### 9. 地図の層(`web/src/map/layers/types.ts`。基盤が置く)
+### 9. 地図の層(型は `web/src/map/layers/types.ts`、`project` の型 `ProjectFn` は `web/src/map/core/types.ts`。基盤が置く)
 ```ts
 export interface View { fx: number; fy: number; k: number; th: number; cy: number }
 export interface MapState { places: Place[]; stamps: Stamp[]; landmarks: Landmark[]; position: Position|null; destination: Destination|null; filter: FilterState; now: number }
 export interface Layer { name: string; draw(ctx: CanvasRenderingContext2D, view: View, state: MapState, t: number): void; hitTest?(x: number, y: number): { kind: 'place'|'building'; id: string }|null }
-export function project(view: View, W: number, H: number, x: number, y: number, z?: number): [number, number, number]  // M-01 が実装。[X, Y, 奥行き]
+// project は `web/src/map/core/` に M-01 が実装する(型 ProjectFn は基盤が置いた)
+export function project(view: View, W: number, H: number, x: number, y: number, z?: number): [number, number, number]  // [X, Y, 奥行き]
 ```
 `layers/index.ts` は、各層(buildings・labels・route・me・stamps)を、この順に読み込む。各層は自分のファイルだけを置き換える。
 
