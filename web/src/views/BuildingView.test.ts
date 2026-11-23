@@ -91,7 +91,7 @@ describe('BuildingView', () => {
     expect(buttons.map((button) => button.attributes('aria-label'))).toEqual([
       '地下1階、企画 1 件', '1階、企画 2 件', '2階、企画 2 件', '3階、企画 1 件', '4階、企画 0 件',
     ]);
-    expect(wrapper.get('nav [aria-pressed="true"]').attributes('aria-label')).toBe('1階、企画 2 件');
+    expect(wrapper.get('nav [aria-selected="true"]').attributes('aria-label')).toBe('1階、企画 2 件');
     expect(buttons[4].text()).toBe('4階');
     expect(wrapper.findAll('li').map((row) => row.text())).toEqual([
       '企画 1f企画 · 図書館棟 · 1階', '企画 no-floor企画 · 図書館棟 · 1階',
@@ -102,6 +102,40 @@ describe('BuildingView', () => {
     expect(wrapper.get('path').attributes('d')).toBe(floorPlan(1).plan.d);
   });
 
+  it('階をtablistとtabで表し、選択状態と対応するパネルを伝える', async () => {
+    const { wrapper } = await render();
+    const tablist = wrapper.get('[role="tablist"]');
+    expect(tablist.attributes('aria-label')).toBe('階');
+    const tabs = tablist.findAll('[role="tab"]');
+    expect(tabs).toHaveLength(5);
+    expect(tabs.map((tab) => tab.attributes('aria-selected'))).toEqual(['false', 'true', 'false', 'false', 'false']);
+    expect(tabs.map((tab) => tab.attributes('tabindex'))).toEqual(['-1', '0', '-1', '-1', '-1']);
+    expect(tabs.every((tab) => tab.attributes('aria-pressed') === undefined)).toBe(true);
+    expect(tabs.every((tab) => tab.attributes('aria-controls') === wrapper.get('[role="tabpanel"]').attributes('id'))).toBe(true);
+    await tabs[2].trigger('click');
+    expect(tabs.map((tab) => tab.attributes('aria-selected'))).toEqual(['false', 'false', 'true', 'false', 'false']);
+    expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe(tabs[2].attributes('id'));
+    expect(wrapper.get('[role="tabpanel"]').find('svg').exists()).toBe(true);
+    expect(wrapper.get('[role="tabpanel"]').findAll('li')).toHaveLength(2);
+  });
+
+  it('矢印キーとHome・Endで階の選択とフォーカスを移し、端では折り返す', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    hosts.push(host);
+    const { wrapper } = await render(building.id, host);
+    const tabs = wrapper.findAll<HTMLButtonElement>('[role="tab"]');
+    tabs[1].element.focus();
+    for (const [key, index] of [
+      ['ArrowRight', 2], ['ArrowLeft', 1], ['Home', 0], ['ArrowLeft', 4], ['ArrowRight', 0], ['End', 4],
+    ] as const) {
+      await wrapper.get('[role="tab"][aria-selected="true"]').trigger('keydown', { key });
+      expect(document.activeElement).toBe(tabs[index].element);
+      expect(wrapper.get('[role="tab"][aria-selected="true"]').element).toBe(tabs[index].element);
+      expect(wrapper.findAll('[role="tab"][tabindex="0"]')).toHaveLength(1);
+    }
+  });
+
   it('階を切り替えると見取り図・印・一覧が変わり、設備や他の建物を含めない', async () => {
     const { wrapper } = await render();
     await wrapper.get('nav [aria-label="2階、企画 2 件"]').trigger('click');
@@ -109,7 +143,7 @@ describe('BuildingView', () => {
     expect(wrapper.findAll('li button').map((row) => row.text())).toEqual([
       '企画 2f-a企画 · 図書館棟 · 2階', '企画 2f-b企画 · 図書館棟 · 2階',
     ]);
-    expect(wrapper.findAll('circle').map((marker) => marker.attributes('aria-label')))
+    expect(wrapper.findAll('circle[role="button"]').map((marker) => marker.attributes('aria-label')))
       .toEqual(['企画 2f-a', '企画 2f-b']);
     expect(wrapper.text()).not.toContain('設備');
     expect(wrapper.text()).not.toContain('parking');
@@ -126,7 +160,7 @@ describe('BuildingView', () => {
     expect(suggestions).toHaveLength(4);
     const next = suggestions.find((button) => button.text().startsWith('2階'))!;
     await next.trigger('click');
-    expect(wrapper.get('nav [aria-pressed="true"]').attributes('aria-label')).toBe('2階、企画 2 件');
+    expect(wrapper.get('nav [aria-selected="true"]').attributes('aria-label')).toBe('2階、企画 2 件');
     expect(wrapper.findAll('li')).toHaveLength(2);
     expect(wrapper.text()).not.toContain('この階に企画はありません');
   });
@@ -156,7 +190,7 @@ describe('BuildingView', () => {
     usePlacesStore().setAll([event('late', null)]);
     await nextTick();
     expect(wrapper.get('h1').text()).toBe(building.name);
-    expect(wrapper.get('nav [aria-pressed="true"]').attributes('aria-label')).toBe('1階、企画 1 件');
+    expect(wrapper.get('nav [aria-selected="true"]').attributes('aria-label')).toBe('1階、企画 1 件');
     expect(wrapper.get('li').text()).toContain('企画 late');
     expect(wrapper.text()).not.toContain('企画がありません');
   });
@@ -171,7 +205,7 @@ describe('BuildingView', () => {
     ]);
     const { wrapper } = await render();
     expect(wrapper.findAll('nav button')).toHaveLength(1);
-    expect(wrapper.get('nav [aria-pressed="true"]').attributes('aria-label')).toBe('1階、企画 1 件');
+    expect(wrapper.get('nav [aria-selected="true"]').attributes('aria-label')).toBe('1階、企画 1 件');
     expect(wrapper.get('.building__events h2').text()).toBe('1階の企画 1 件');
     expect(wrapper.findAll('li').map((row) => row.text())).toEqual(['企画 no-floor企画 · 図書館棟 · 1階']);
     expect(wrapper.text()).toContain('この階の見取り図はありません');
@@ -192,7 +226,7 @@ describe('BuildingView', () => {
     useLandmarksStore().setAll([{ ...building, floors: [floorPlan(2), floorPlan(-1)] }]);
     usePlacesStore().setAll([event('2f', 2), event('b1', -1)]);
     const { wrapper } = await render();
-    expect(wrapper.get('nav [aria-pressed="true"]').attributes('aria-label')).toBe('地下1階、企画 1 件');
+    expect(wrapper.get('nav [aria-selected="true"]').attributes('aria-label')).toBe('地下1階、企画 1 件');
     expect(wrapper.get('li').text()).toContain('企画 b1');
   });
 
@@ -221,12 +255,12 @@ describe('BuildingView', () => {
     await wrapper.get('nav [aria-label="2階、企画 2 件"]').trigger('click');
     usePlacesStore().upsert(event('new', 2));
     await nextTick();
-    expect(wrapper.get('nav [aria-pressed="true"]').attributes('aria-label')).toBe('2階、企画 3 件');
+    expect(wrapper.get('nav [aria-selected="true"]').attributes('aria-label')).toBe('2階、企画 3 件');
     expect(wrapper.findAll('li')).toHaveLength(3);
     useLandmarksStore().setAll([building, { ...building, id: 'other', name: '別棟' }]);
     await router.push('/buildings/other');
     await nextTick();
     expect(wrapper.get('h1').text()).toBe('別棟');
-    expect(wrapper.get('nav [aria-pressed="true"]').attributes('aria-label')).toBe('1階、企画 0 件');
+    expect(wrapper.get('nav [aria-selected="true"]').attributes('aria-label')).toBe('1階、企画 0 件');
   });
 });

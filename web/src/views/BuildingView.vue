@@ -43,6 +43,20 @@ function floorLabel(floor: number) {
 function selectFloor(floor: number) {
   selection.value = { buildingId: buildingId.value, floor };
 }
+function moveFloor(event: KeyboardEvent, floor: number) {
+  const index = floors.value.findIndex((item) => item.floor === floor);
+  let next: number;
+  switch (event.key) {
+    case 'ArrowRight': next = (index + 1) % floors.value.length; break;
+    case 'ArrowLeft': next = (index - 1 + floors.value.length) % floors.value.length; break;
+    case 'Home': next = 0; break;
+    case 'End': next = floors.value.length - 1; break;
+    default: return;
+  }
+  event.preventDefault();
+  selectFloor(floors.value[next].floor);
+  (event.currentTarget as HTMLElement).parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+}
 function openPlace(id: string) {
   void router.push({ name: 'card', params: { id } });
 }
@@ -52,48 +66,60 @@ function openPlace(id: string) {
   <main ref="root" class="building" :style="buildingTokens">
     <template v-if="building">
       <h1>{{ building.name }}</h1>
-      <nav class="building__floors" aria-label="階">
+      <nav class="building__floors" role="tablist" aria-label="階">
         <button
           v-for="item in floors"
           :key="item.floor"
           type="button"
-          :aria-pressed="item.floor === currentFloor"
+          role="tab"
+          :id="`building-floor-${item.floor}`"
+          :aria-selected="item.floor === currentFloor"
+          :tabindex="item.floor === currentFloor ? 0 : -1"
+          aria-controls="building-floor-panel"
           :aria-label="`${floorLabel(item.floor)}、企画 ${item.count} 件`"
           @click="selectFloor(item.floor)"
+          @keydown="moveFloor($event, item.floor)"
         >
           {{ floorLabel(item.floor) }}
           <span v-if="item.count > 0">{{ item.count }} 件</span>
         </button>
       </nav>
 
-      <FloorPlan :plan="plan" :places="currentPlaces" @select="openPlace" />
-      <p v-if="!plan" class="building__note">この階の見取り図はありません</p>
+      <div
+        id="building-floor-panel"
+        :role="currentFloor !== undefined ? 'tabpanel' : undefined"
+        :aria-labelledby="currentFloor !== undefined ? `building-floor-${currentFloor}` : undefined"
+        tabindex="0"
+      >
+        <FloorPlan :plan="plan" :places="currentPlaces" @select="openPlace" />
+        <p v-if="!plan" class="building__note">この階の見取り図はありません</p>
 
-      <section class="building__events" aria-label="この階の企画">
-        <h2 v-if="currentFloor !== undefined">{{ floorLabel(currentFloor) }}の企画 {{ currentPlaces.length }} 件</h2>
-        <div v-if="currentPlaces.length === 0" class="building__empty">
-          <h2>{{ events.length === 0 ? 'この建物には企画がありません' : 'この階に企画はありません' }}</h2>
-          <p v-if="otherFloors.length">企画のある階を選んでください。</p>
-          <div v-if="otherFloors.length" class="building__suggestions">
-            <button
-              v-for="item in otherFloors"
-              :key="item.floor"
-              type="button"
-              @click="selectFloor(item.floor)"
-            >
-              {{ floorLabel(item.floor) }}の企画を見る（{{ item.count }} 件）
-            </button>
+        <section class="building__events" aria-label="この階の企画">
+          <h2 v-if="currentFloor !== undefined">{{ floorLabel(currentFloor) }}の企画 {{ currentPlaces.length }} 件</h2>
+          <div v-if="currentPlaces.length === 0" class="building__empty">
+            <h2>{{ events.length === 0 ? 'この建物には企画がありません' : 'この階に企画はありません' }}</h2>
+            <p v-if="otherFloors.length">企画のある階を選んでください。</p>
+            <div v-if="otherFloors.length" class="building__suggestions">
+              <button
+                v-for="item in otherFloors"
+                :key="item.floor"
+                type="button"
+                @click="selectFloor(item.floor)"
+              >
+                {{ floorLabel(item.floor) }}の企画を見る（{{ item.count }} 件）
+              </button>
+            </div>
           </div>
-        </div>
-        <ul v-else class="building__list">
-          <li v-for="place in currentPlaces" :key="place.id">
-            <button type="button" class="building__row" @click="openPlace(place.id)">
-              <span class="building__name">{{ place.name }}</span>
-              <span class="building__note">企画 · {{ building.name }} · {{ floorLabel(currentFloor!) }}</span>
-            </button>
-          </li>
-        </ul>
-      </section>
+          <ul v-else class="building__list">
+            <li v-for="place in currentPlaces" :key="place.id">
+              <button type="button" class="building__row" @click="openPlace(place.id)">
+                <span class="building__name">{{ place.name }}</span>
+                <span class="building__note">企画 · {{ building.name }} · {{ floorLabel(currentFloor!) }}</span>
+              </button>
+            </li>
+          </ul>
+        </section>
+      </div>
     </template>
     <!-- ストアは未取得と該当なしを区別できないため、建物を参照できるまで空にする。 -->
   </main>
@@ -151,7 +177,7 @@ button {
   flex-shrink: 0;
 }
 
-button[aria-pressed='true'],
+button[aria-selected='true'],
 .building__suggestions button {
   background: var(--building-action-primary);
   color: var(--building-action-on-primary);

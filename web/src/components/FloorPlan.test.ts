@@ -109,11 +109,37 @@ describe('FloorPlan', () => {
     expect(wrapper.emitted('select')).toEqual([[place.id]]);
   });
 
+  it.each([
+    { viewBox: '-20 10 240 120', width: 390 },
+    { viewBox: '0 0 1200 600', width: 240 },
+    { viewBox: '0 0 240 120', width: 120 },
+  ])('viewBox=$viewBox、表示幅 $width px に縮小しても押下領域を44px以上に保つ', ({ viewBox, width }) => {
+    const wrapper = mount(FloorPlan, {
+      props: { plan: { ...plan, plan: { ...plan.plan, viewBox } }, places: [place] },
+    });
+    const marker = wrapper.get('.floor-plan__marker');
+    const target = wrapper.get('circle[role="button"]');
+    expect(target.attributes('cx')).toBe(marker.attributes('cx'));
+    expect(target.attributes('cy')).toBe(marker.attributes('cy'));
+    expect(target.attributes('r')).toBe(marker.attributes('r'));
+    expect(marker.attributes('aria-hidden')).toBe('true');
+    expect(marker.attributes('pointer-events')).toBe('none');
+    expect(target.attributes('fill')).toBe('transparent');
+    expect(target.attributes('stroke')).toBe('transparent');
+    expect(target.attributes('pointer-events')).toBe('all');
+    expect(target.attributes('vector-effect')).toBe('non-scaling-stroke');
+    const scale = width / Number(viewBox.split(' ')[2]);
+    // vector-effect により、線幅は viewBox の倍率の影響を受けない。
+    const diameter = 2 * Number(target.attributes('r')) * scale + Number(target.attributes('stroke-width'));
+    expect(diameter).toBeGreaterThanOrEqual(44);
+    expect(wrapper.get('svg').attributes('overflow')).toBe('visible');
+  });
+
   it('plan が無いとき SVG と印を出さない', async () => {
     const wrapper = mount(FloorPlan, { props: { plan: undefined, places: [place] } });
     expect(wrapper.find('svg').exists()).toBe(false);
     await wrapper.setProps({ plan });
-    expect(wrapper.findAll('circle')).toHaveLength(1);
+    expect(wrapper.findAll('circle[role="button"]')).toHaveLength(1);
     await wrapper.setProps({ plan: undefined });
     expect(wrapper.find('svg').exists()).toBe(false);
   });
@@ -122,7 +148,7 @@ describe('FloorPlan', () => {
     const others = (['info', 'wc', 'rest', 'trash', 'parking'] as const)
       .map((kind) => ({ ...place, id: kind, kind }));
     const wrapper = mount(FloorPlan, { props: { plan, places: [place, ...others] } });
-    expect(wrapper.findAll('circle')).toHaveLength(1);
+    expect(wrapper.findAll('circle[role="button"]')).toHaveLength(1);
     expect(wrapper.get('[role="button"]').attributes('aria-label')).toBe(place.name);
   });
 

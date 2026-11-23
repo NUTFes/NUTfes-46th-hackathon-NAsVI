@@ -95,25 +95,44 @@ const markers = computed(() => {
     class="floor-plan"
     :style="buildingTokens"
     :viewBox="plan.plan.viewBox"
+    overflow="visible"
     role="group"
     :aria-label="description"
   >
     <title>{{ description }}</title>
     <path class="floor-plan__shape" :d="plan.plan.d" />
-    <circle
+    <g
       v-for="marker in markers"
       :key="marker.id"
-      class="floor-plan__marker"
-      :cx="marker.x"
-      :cy="marker.y"
-      :r="parseFloat(buildingTokens['--building-space-3'])"
-      role="button"
-      tabindex="0"
-      :aria-label="marker.name"
-      @click="emit('select', marker.id)"
-      @keydown.enter.prevent="emit('select', marker.id)"
-      @keydown.space.prevent="emit('select', marker.id)"
-    />
+      class="floor-plan__marker-group"
+    >
+      <circle
+        class="floor-plan__marker"
+        :cx="marker.x"
+        :cy="marker.y"
+        :r="parseFloat(buildingTokens['--building-space-3'])"
+        aria-hidden="true"
+        pointer-events="none"
+      />
+      <!-- 非拡縮の透明な線で、viewBox の縮小後も直径44 CSS px以上を確保する。 -->
+      <circle
+        class="floor-plan__target"
+        :cx="marker.x"
+        :cy="marker.y"
+        :r="parseFloat(buildingTokens['--building-space-3'])"
+        fill="transparent"
+        stroke="transparent"
+        :stroke-width="parseFloat(buildingTokens['--building-touch-target'])"
+        vector-effect="non-scaling-stroke"
+        pointer-events="all"
+        role="button"
+        tabindex="0"
+        :aria-label="marker.name"
+        @click="emit('select', marker.id)"
+        @keydown.enter.prevent="emit('select', marker.id)"
+        @keydown.space.prevent="emit('select', marker.id)"
+      />
+    </g>
   </svg>
 </template>
 
@@ -137,11 +156,17 @@ const markers = computed(() => {
   stroke: var(--building-map-ring);
   stroke-width: var(--building-space-1);
   vector-effect: non-scaling-stroke;
+}
+
+.floor-plan__target {
   cursor: pointer;
 }
 
-.floor-plan__marker:focus-visible {
+.floor-plan__target:focus-visible {
   outline: none;
+}
+
+.floor-plan__marker-group:focus-within .floor-plan__marker {
   stroke: var(--building-action-primary);
 }
 </style>
