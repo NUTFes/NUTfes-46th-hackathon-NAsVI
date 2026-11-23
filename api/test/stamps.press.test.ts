@@ -22,6 +22,13 @@ const savedConfig = {
 const publish = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }));
 const externalFetch = vi.fn(() => Promise.reject(new Error('External network is disabled in tests')));
 let bindings: Env;
+// Keep advancing across tests because rate-limit counters outlive beforeEach.
+// Reserve 192.0.2.1 for the logging test and 203.0.113.254 for enforcement.
+let requestNumber = 0;
+
+function pressHeaders() {
+  return { 'Content-Type': 'application/json', 'CF-Connecting-IP': `198.51.100.${++requestNumber}` };
+}
 
 beforeAll(async () => {
   vi.stubGlobal('fetch', externalFetch);
@@ -54,7 +61,7 @@ afterAll(() => { vi.unstubAllGlobals(); });
 
 function press(body: unknown = input, overrides: Partial<Env> = {}): Promise<Response> {
   return requestWithEnv('/api/stamps', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    method: 'POST', headers: pressHeaders(), body: JSON.stringify(body),
   }, { ...bindings, ...overrides });
 }
 
@@ -93,13 +100,32 @@ it('毎分5件の rateLimit を適用し、ミドルウェアが拒否したら�
   const app = new Hono<AppEnv>().basePath('/api');
   register(app);
   const response = await app.request('/api/stamps', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+    method: 'POST', headers: pressHeaders(), body: JSON.stringify(input),
   }, bindings);
   expect(limit).toHaveBeenCalledWith({ key: 'stamp-press', limit: 5, windowSec: 60 });
   expect(response.status).toBe(429);
   expect(response.headers.get('content-type')).toBe('application/problem+json');
   expect(await response.json()).toEqual({ code: 'too_many_requests', message: expect.any(String) });
   await expectNoWrites();
+});
+
+it('同じ通信元から毎分5回までは201、6回目は Retry-After 付きの429を返す', async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+  const init = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.254' },
+    body: JSON.stringify(input),
+  };
+  for (let i = 0; i < 5; i++) {
+    expect((await requestWithEnv('/api/stamps', init, bindings)).status).toBe(201);
+  }
+  const response = await requestWithEnv('/api/stamps', init, bindings);
+  expect(response.status).toBe(429);
+  expect(await response.json()).toMatchObject({ code: 'too_many_requests' });
+  expect(response.headers.get('Retry-After')).toBe('60');
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM stamps').first('n')).toBe(5);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM changes').first('n')).toBe(5);
+  expect(publish).toHaveBeenCalledTimes(5);
 });
 
 it('proof は毎回異なる32バイトのランダム値を表す正規の base64url', async () => {
@@ -240,7 +266,7 @@ it.each([
 
 it.each(['', '{', 'null', '[]', '42', '"food"', '{"kind":"food","at":{"lat":1e999,"lng":138.7788}}'])('壊れた JSON・オブジェクト以外・非有限値も400で何も保存しない: %s', async body => {
   const response = await requestWithEnv('/api/stamps', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
+    method: 'POST', headers: pressHeaders(), body,
   }, bindings);
   expect(response.status).toBe(400);
   expect(response.headers.get('content-type')).toBe('application/problem+json');
@@ -349,7 +375,7 @@ it('実行コンテキストがあれば Hub への publish は waitUntil に回
   const ctx = { waitUntil: (p: Promise<unknown>) => { waited.push(p); }, passThroughOnException: () => {} } as unknown as ExecutionContext;
   const { default: app } = await import('../src/app');
   const response = await app.fetch(new Request('http://local/api/stamps', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+    method: 'POST', headers: pressHeaders(), body: JSON.stringify(input),
   }), bindings, ctx);
   expect(response.status).toBe(201);
   expect(waited).toHaveLength(1);
