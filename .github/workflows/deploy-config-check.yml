@@ -48,6 +48,7 @@ jobs:
                   'ENABLE_DEV_EMIT': 'false',
                   'ACCESS_TEAM_DOMAIN': f'REPLACE_WITH_{name.upper()}_ACCESS_TEAM_DOMAIN',
                   'ACCESS_AUD': f'REPLACE_WITH_{name.upper()}_ACCESS_AUD',
+                  'OSM_CONTACT': f'REPLACE_WITH_{name.upper()}_OSM_CONTACT',
               }
               assert env['d1_databases'] == [{
                   'binding': 'DB', 'database_name': f'nasvi-{name}',
@@ -93,25 +94,31 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.22.1
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - name: オフラインで依存を復元し両環境を dry-run
+      - name: 資格情報なしで依存をインストール
         shell: bash
         run: |
-          # Runner setup/cache restore above uses GitHub infrastructure. The checks
-          # below have no external network, no Cloudflare credentials and no deploy.
-          # Reuse the pnpm cache populated by ci.yml; fail on a cold/incomplete cache.
-          sudo unshare --net --setgid="$(id -g)" --setuid="$(id -u)" \
-            env -i PATH="$PATH" CI=true COREPACK_ENABLE_NETWORK=0 \
-              WRANGLER_SEND_METRICS=false \
-              XDG_CONFIG_HOME="$RUNNER_TEMP/d01-config" \
-              WRANGLER_LOG_PATH="$RUNNER_TEMP/d01-logs" \
-              D01_OUT="$RUNNER_TEMP/scratch-d01-out" \
-              D01_STORE="$(pnpm store path --silent)" \
-              "$(command -v bash)" --noprofile --norc <<'BASH'
+          mkdir -p "$RUNNER_TEMP/d01-install-home" "$RUNNER_TEMP/d01-install-config"
+          env -i PATH="$PATH" CI=true COREPACK_ENABLE_NETWORK=0 \
+            HOME="$RUNNER_TEMP/d01-install-home" \
+            XDG_CONFIG_HOME="$RUNNER_TEMP/d01-install-config" \
+            WRANGLER_SEND_METRICS=false \
+            pnpm install --frozen-lockfile
+      - name: Cloudflare 資格情報なしで両環境を dry-run
+        shell: bash
+        run: |
+          # Clear inherited variables and use empty config directories so neither
+          # CLOUDFLARE_* nor saved Wrangler login credentials reach the dry-run.
+          mkdir -p "$RUNNER_TEMP/d01-dry-home" "$RUNNER_TEMP/d01-dry-config"
+          env -i PATH="$PATH" CI=true COREPACK_ENABLE_NETWORK=0 \
+            HOME="$RUNNER_TEMP/d01-dry-home" \
+            XDG_CONFIG_HOME="$RUNNER_TEMP/d01-dry-config" \
+            WRANGLER_SEND_METRICS=false \
+            WRANGLER_LOG_PATH="$RUNNER_TEMP/d01-logs" \
+            D01_OUT="$RUNNER_TEMP/scratch-d01-out" \
+            "$(command -v bash)" --noprofile --norc <<'BASH'
           set -euo pipefail
-          if ! pnpm install --offline --frozen-lockfile --ignore-scripts --store-dir "$D01_STORE"; then
-            echo 'Offline dependency restore failed. Populate the pnpm cache via the existing CI before retrying.'
+          if env | grep -q '^CLOUDFLARE_'; then
+            echo 'Cloudflare environment variables must not reach the dry-run'
             exit 1
           fi
           for environment in production preview; do

@@ -15,7 +15,8 @@
       "vars": {
         "ENABLE_DEV_EMIT": "false",
         "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_PRODUCTION_ACCESS_TEAM_DOMAIN",
-        "ACCESS_AUD": "REPLACE_WITH_PRODUCTION_ACCESS_AUD"
+        "ACCESS_AUD": "REPLACE_WITH_PRODUCTION_ACCESS_AUD",
+        "OSM_CONTACT": "REPLACE_WITH_PRODUCTION_OSM_CONTACT"
       },
       "d1_databases": [{ "binding": "DB", "database_name": "nasvi-production", "database_id": "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID", "migrations_dir": "migrations" }],
       "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "Hub" }] },
@@ -28,7 +29,8 @@
       "vars": {
         "ENABLE_DEV_EMIT": "false",
         "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_PREVIEW_ACCESS_TEAM_DOMAIN",
-        "ACCESS_AUD": "REPLACE_WITH_PREVIEW_ACCESS_AUD"
+        "ACCESS_AUD": "REPLACE_WITH_PREVIEW_ACCESS_AUD",
+        "OSM_CONTACT": "REPLACE_WITH_PREVIEW_OSM_CONTACT"
       },
       "d1_databases": [{ "binding": "DB", "database_name": "nasvi-preview", "database_id": "REPLACE_WITH_PREVIEW_D1_DATABASE_ID", "migrations_dir": "migrations" }],
       "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "Hub" }] },
