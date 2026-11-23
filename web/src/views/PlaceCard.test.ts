@@ -69,7 +69,7 @@ describe('場所のカード', () => {
     expect(wrapper.get('.eyebrow').text()).toBe('総合研究棟・2階・企画');
     expect(wrapper.get('.description').text()).toBe('整理券が必要です。');
     expect(wrapper.get('.hours').text()).toBe('2026/11/28 10:00〜16:00\n2026/11/29 10:00〜16:00');
-    expect(wrapper.get('.distance strong').text()).toBe('111 m');
+    expect(wrapper.get('.distance strong').text()).toBe('111m');
     expect(wrapper.get('.distance').text()).toContain('直線');
     expect(calculate).toHaveBeenCalledWith(position.position.value, place.location);
     expect(wrapper.text()).not.toContain('37.4252');
@@ -128,13 +128,14 @@ describe('場所のカード', () => {
     await flushPromises();
     expect(await storage.tagLinks.list(place.id)).toEqual([{ placeId: place.id, tagId: tag.id }]);
     expect(button.attributes('aria-pressed')).toBe('true');
-    expect(button.text()).toContain('✓');
+    expect(button.get('svg').attributes('data-icon')).toBe(tag.id === 'favorite' ? 'star' : 'bookmark');
+    expect(button.get('svg').attributes('data-filled')).toBe('true');
 
     await button.trigger('click');
     await flushPromises();
     expect(await storage.tagLinks.list(place.id)).toEqual([]);
     expect(button.attributes('aria-pressed')).toBe('false');
-    expect(button.text()).not.toContain('✓');
+    expect(button.get('svg').attributes('data-filled')).toBeUndefined();
     expect(await storage.destination.get()).toBeNull();
   });
 
@@ -194,7 +195,7 @@ describe('場所のカード', () => {
     const { wrapper } = await openCard();
     position.setManually(place.location.lat, place.location.lng, 8);
     await flushPromises();
-    expect(wrapper.get('.distance strong').text()).toBe('0 m');
+    expect(wrapper.get('.distance strong').text()).toBe('0m');
   });
 
   it.each(['info', 'wc', 'rest', 'trash'] as const)('設備 %s を facility として表示する(D-030)', async kind => {
@@ -366,5 +367,14 @@ describe('場所のカード', () => {
     await flushPromises();
     await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('map'));
     expect(await storage.destination.get()).toEqual({ placeId: 'another-place' });
+  });
+
+  it('閉じるは名前付きの IconButton で、位置指定はカード自身が持たない(M3・M4)', async () => {
+    const { wrapper } = await openCard();
+    const close = wrapper.get('button.close');
+    expect(close.attributes('aria-label')).toBe('閉じる');
+    expect(close.find('svg').attributes('data-icon')).toBe('close');
+    expect(wrapper.get('.go svg').attributes('data-icon')).toBe('navigation');
+    expect(wrapper.get('.place-card').attributes('style')).not.toContain('position');
   });
 });
