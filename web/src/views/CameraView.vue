@@ -38,6 +38,7 @@ async function stopGuide() {
       <RouterLink :to="{ name: 'map' }">地図</RouterLink>
       <RouterLink :to="{ name: 'list' }">企画一覧</RouterLink>
     </nav>
+    <template #location-help><RouterLink :to="{ name: 'noloc' }">位置の設定を確認する</RouterLink></template>
     <template #fallback><RouterLink :to="{ name: 'map' }">地図に戻る</RouterLink></template>
   </ArView>
 </template>

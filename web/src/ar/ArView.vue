@@ -1,10 +1,53 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { toXY } from '../domain/geo';
-import { useOrientation } from '../services/orientation';
+import { useOrientation, type OrientationStatus } from '../services/orientation';
 import { usePosition } from '../services/position';
 import type { Destination, Landmark, Place, Position } from '../types';
 import { DEFAULT_LONG_FOV_DEG, describePlaces, describeTarget, pickFront, wrap180 } from './geometry';
+
+// 決定根拠のない仮置き。PR #4 通常版由来の値で、実機での調整が必要。
+const POSITION_ACCURACY_WARNING_M = 25;
+const VENUE_DISTANCE_WARNING_M = 900;
+const MAX_LABEL_AZIMUTH_DEG = 62;
+const MAX_OCCLUDED_DISTANCE_M = 250;
+const MAX_HIDDEN_LABELS = 3;
+const DEFAULT_FOV_DEG = DEFAULT_LONG_FOV_DEG; // 65°。R-01 と同じ既定値。
+const FOV_QUERY_PARAM = 'fov'; // ?fov による端末ごとの上書きも仮置き。
+const MAX_FOV_DEG = 180;
+const RAD = Math.PI / 180;
+const MINI_SIZE = 240;
+const MINI_RADIUS_M = 130;
+const LABEL_GAP = 4; // space.1
+const LABEL_STACK_GAP = 6; // space.1-5
+
+// S-06 と同じ status ごとの案内。位置用コンポーネントから文言は公開されていない。
+const ORIENTATION_HEADINGS: Record<OrientationStatus, string> = {
+  idle: '向きの利用を選べます',
+  asking: '向きの許可を確認しています',
+  granted: '',
+  denied: '向きの利用が許可されていません',
+  unavailable: '向きを取得できません',
+  timeout: '向きの取得に時間がかかっています',
+};
+const ORIENTATION_MESSAGES = {
+  idle: '向きを利用すると、端末を向けた方向に企画を表示できます。',
+  asking: '端末やブラウザの許可画面を確認してください。向きの取得を待っています。',
+  granted: '',
+  denied: '再依頼ボタンを押しても、許可画面が再表示されず反応がない場合があります。その場合は端末やブラウザの設定で許可を変更してください。',
+  unavailable: '端末やブラウザが方位センサーに対応しているか確認し、HTTPS で開いてください。',
+  timeout: '端末を動かして、もう一度試してください。',
+  ios: 'iOS（Safari）: Safari の「モーションと画面の向きのアクセス」の設定が表示される場合は許可してください。拒否した場合は、このページを開き直して「向きの利用を許可」から再依頼してください。',
+  android: 'Android（Chrome）: このサイトのアドレスバー左側→「権限」→「モーション センサー」で利用を許可してください。',
+  settings: '設定の項目名は端末やバージョンによって異なります。変更後、このページに戻って再依頼してください。',
+  fallback: '左右にドラッグして向きを合わせられます。地図・企画一覧も、このまま使えます。',
+} as const;
+const CAMERA_MESSAGES = {
+  insecure: 'カメラを利用できません。HTTP ではカメラを使えないため、HTTPS で開いてください。方向と距離は表示できます。',
+  unsupported: 'このブラウザはカメラの利用に対応していません。方向と距離は表示できます。',
+  denied: 'カメラの利用が許可されていません。端末やブラウザの設定でカメラを許可してください。方向と距離は表示できます。',
+  failed: 'カメラを起動できません。ほかのアプリで使用中でないか、端末やブラウザの設定を確認してください。方向と距離は表示できます。',
+} as const;
 
 const props = defineProps<{ places: Place[]; landmarks: Landmark[]; destination: Destination | null }>();
 const emit = defineEmits<{ select: [id: string]; building: [id: string]; stop: [] }>();
@@ -47,13 +90,6 @@ const TOKENS = {
   '--ar-touch': '44px', // size.touch-target
   '--ar-far-opacity': '0.45', // opacity.disabled (建物の奥の札)
 } as const;
-// PR #4 通常版の表示値。新たなセンサー・認識方式は導入しない。
-const RAD = Math.PI / 180;
-const MINI_SIZE = 240;
-const MINI_RADIUS_M = 130;
-const MAX_HIDDEN_LABELS = 3;
-const LABEL_GAP = 4; // space.1
-const LABEL_STACK_GAP = 6; // space.1-5
 let disposed = false;
 let inViewport = true;
 let frame: number | null = null;
@@ -79,6 +115,11 @@ function releaseCamera() {
 }
 async function openCamera() {
   if (!visible() || stream || cameraPending) return;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    cameraMessage = window.isSecureContext === false || location.protocol === 'http:'
+      ? CAMERA_MESSAGES.insecure : CAMERA_MESSAGES.unsupported;
+    return;
+  }
   cameraPending = true;
   try {
     const acquired = await navigator.mediaDevices.getUserMedia({
@@ -91,8 +132,9 @@ async function openCamera() {
       video.value!.srcObject = acquired;
       cameraMessage = '';
     }
-  } catch {
-    cameraMessage = 'カメラを起動できません。ブラウザの設定を確認してください。方向と距離は表示できます。';
+  } catch (error) {
+    cameraMessage = error instanceof Error && error.name === 'NotAllowedError'
+      ? CAMERA_MESSAGES.denied : CAMERA_MESSAGES.failed;
   } finally {
     cameraPending = false;
   }
@@ -103,6 +145,10 @@ function start() {
   position.allow();
   started.value = true;
   syncVisibility();
+}
+function requestOrientation() {
+  if (orientation.status.value === 'timeout' || orientation.status.value === 'unavailable') orientation.refuse();
+  void orientation.allow();
 }
 function syncVisibility() {
   if (visible()) {
@@ -153,8 +199,8 @@ function draw() {
   const maxLabels = Math.max(1, Math.floor((labelBottom - labelTop) / Number.parseFloat(TOKENS['--ar-touch'])));
   const vw = video.value!.videoWidth || W;
   const vh = video.value!.videoHeight || H;
-  const fovParam = Number(new URLSearchParams(location.search).get('fov'));
-  const fov = fovParam > 0 && fovParam < 180 ? fovParam : DEFAULT_LONG_FOV_DEG;
+  const fovParam = Number(new URLSearchParams(location.search).get(FOV_QUERY_PARAM));
+  const fov = fovParam > 0 && fovParam < MAX_FOV_DEG ? fovParam : DEFAULT_FOV_DEG;
   if (W > 0 && H > 0) focal = Math.max(vw, vh) * Math.max(W / vw, H / vh) / 2 / Math.tan(fov / 2 * RAD);
   const events = syncLabels();
   const pos = position.report();
@@ -165,15 +211,16 @@ function draw() {
   text(sensor.value, `${usable ? `位置誤差 ±${Number.isFinite(pos.accuracy) ? Math.round(pos.accuracy) : '不明'} m` :
     position.status.value === 'denied' ? '位置情報を許可してください' : '現在地を確認中'} ／ ${
     sensed === null ? '向きが分かりません。左右にドラッグして向きを合わせてください' : `方位 ${Math.round(sensed)}°`}`);
-  const far = usable && Math.hypot(...toXY(pos.lat, pos.lng)) > 900;
+  const far = usable && Math.hypot(...toXY(pos.lat, pos.lng)) > VENUE_DISTANCE_WARNING_M;
   text(warning.value, [cameraMessage, far ? '会場から離れています。方向と距離のみ表示します。' :
-    usable && pos.accuracy > 25 ? '位置の誤差が大きいです。屋外の開けた場所で確認してください。' : ''].filter(Boolean).join(' '));
+    usable && pos.accuracy > POSITION_ACCURACY_WARNING_M ? '位置の誤差が大きいです。屋外の開けた場所で確認してください。' : ''].filter(Boolean).join(' '));
   warning.value!.hidden = !warning.value!.textContent;
   frontId = null;
   guide.value!.hidden = true;
   const ctx = minimap.value!.getContext('2d');
   ctx?.clearRect(0, 0, MINI_SIZE, MINI_SIZE);
   if (usable) {
+    // この版は正面の建物の有無による 2 状態。recognized-low の閾値は未決。
     const hit = pickFront(pos, heading, props.landmarks);
     frontId = hit?.building.id ?? null;
     const buildingEvents = events.filter(place => place.landmarkId === frontId);
@@ -193,8 +240,8 @@ function draw() {
       const span = item.span ?? [0, 0];
       const margin = Math.min(4, (span[1] - span[0]) / 2);
       const azimuth = Math.max(c + span[0] + margin, Math.min(c + span[1] - margin, 0));
-      if (!Number.isFinite(d) || Math.abs(azimuth) > 62 || (item.place.landmarkId === null && d < 20)
-        || shown >= maxLabels || (!isDestination && item.occluded && (d > 250 || hiddenShown >= MAX_HIDDEN_LABELS))) continue;
+      if (!Number.isFinite(d) || Math.abs(azimuth) > MAX_LABEL_AZIMUTH_DEG || (item.place.landmarkId === null && d < 20)
+        || shown >= maxLabels || (!isDestination && item.occluded && (d > MAX_OCCLUDED_DISTANCE_M || hiddenShown >= MAX_HIDDEN_LABELS))) continue;
       if (item.occluded && !isDestination) hiddenShown++;
       shown++;
       button.hidden = false;
@@ -310,6 +357,22 @@ onBeforeUnmount(() => {
     <div class="ar-top">
       <p ref="sensor" />
       <p ref="warning" class="ar-warning" hidden role="status" />
+      <slot v-if="started && position.status.value === 'denied'" name="location-help" />
+      <div class="ar-orientation" role="status" aria-live="polite" aria-atomic="true">
+        <section v-if="started && orientation.status.value !== 'granted'">
+          <h2>{{ ORIENTATION_HEADINGS[orientation.status.value] }}</h2>
+          <p>{{ ORIENTATION_MESSAGES[orientation.status.value] }}</p>
+          <template v-if="orientation.status.value === 'denied'">
+            <p>{{ ORIENTATION_MESSAGES.ios }}</p>
+            <p>{{ ORIENTATION_MESSAGES.android }}</p>
+            <p>{{ ORIENTATION_MESSAGES.settings }}</p>
+          </template>
+          <p>{{ ORIENTATION_MESSAGES.fallback }}</p>
+          <button type="button" :disabled="orientation.status.value === 'asking'" @click="requestOrientation">
+            {{ orientation.status.value === 'asking' ? '確認中…' : orientation.status.value === 'timeout' || orientation.status.value === 'unavailable' ? 'もう一度試す' : '向きの利用を許可' }}
+          </button>
+        </section>
+      </div>
     </div>
     <canvas ref="minimap" class="ar-minimap" :width="MINI_SIZE" :height="MINI_SIZE" role="img" aria-label="現在地を中心に向いている方向を上にした周辺のミニマップ" />
     <div class="ar-bottom">
@@ -337,9 +400,12 @@ onBeforeUnmount(() => {
 .ar-view video { object-fit: cover; }
 .ar-labels { overflow: hidden; touch-action: none; }
 .ar-cross { position: absolute; top: 50%; left: 50%; pointer-events: none; font-size: var(--ar-heading); }
-.ar-top { position: absolute; top: env(safe-area-inset-top); left: 0; right: 35%; padding: var(--ar-space-3); pointer-events: none; }
+.ar-top { position: absolute; top: env(safe-area-inset-top); left: 0; right: 35%; max-height: 60%; overflow: auto; padding: var(--ar-space-3); }
 .ar-top p { margin: 0 0 var(--ar-space-2); padding: var(--ar-space-2); background: var(--ar-surface); border-radius: var(--ar-radius); }
 .ar-warning { border: 1px solid var(--ar-danger); }
+.ar-orientation section { padding: var(--ar-space-2); border: 1px solid var(--ar-danger); border-radius: var(--ar-radius); background: var(--ar-surface); }
+.ar-orientation h2 { margin: 0 0 var(--ar-space-2); font-size: var(--ar-heading); font-weight: var(--ar-bold); }
+.ar-orientation button { background: var(--ar-action); color: var(--ar-action-on); }
 .ar-minimap { position: absolute; top: calc(var(--ar-space-3) + env(safe-area-inset-top)); right: var(--ar-space-3); width: 28%; max-width: 120px; height: auto; border-radius: 50%; }
 .ar-bottom { position: absolute; bottom: env(safe-area-inset-bottom); left: 0; right: 0; display: grid; gap: var(--ar-space-2); padding: var(--ar-space-3); }
 .ar-view button, .ar-view a { box-sizing: border-box; min-height: var(--ar-touch); padding: var(--ar-space-2) var(--ar-space-3); border: 0; border-radius: var(--ar-radius); font: inherit; cursor: pointer; }

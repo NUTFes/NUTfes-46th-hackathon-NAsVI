@@ -15,7 +15,9 @@ const mocks = vi.hoisted(() => ({
   heading: null as unknown as ReturnType<typeof ref<number | null>>,
   offset: null as unknown as ReturnType<typeof ref<number>>,
   status: null as unknown as ReturnType<typeof ref<string>>,
+  orientationStatus: null as unknown as ReturnType<typeof ref<string>>,
   allowPosition: vi.fn(), allowOrientation: vi.fn(), setOffset: vi.fn(),
+  refuseOrientation: vi.fn(),
   getDestination: vi.fn(), clearDestination: vi.fn(),
 }));
 vi.mock('../services/position', () => ({ usePosition: () => ({
@@ -23,7 +25,7 @@ vi.mock('../services/position', () => ({ usePosition: () => ({
 }) }));
 vi.mock('../services/orientation', () => ({ useOrientation: () => ({
   heading: mocks.heading, offset: mocks.offset, report: () => mocks.heading.value,
-  allow: mocks.allowOrientation, setOffset: mocks.setOffset,
+  status: mocks.orientationStatus, allow: mocks.allowOrientation, refuse: mocks.refuseOrientation, setOffset: mocks.setOffset,
 }) }));
 vi.mock('../storage', () => ({ getStorage: async () => ({ destination: {
   get: mocks.getDestination, clear: mocks.clearDestination,
@@ -46,6 +48,8 @@ beforeEach(() => {
   mocks.heading = ref(0);
   mocks.offset = ref(0);
   mocks.status = ref('granted');
+  mocks.orientationStatus = ref('granted');
+  window.history.replaceState(null, '', '/');
   mocks.getDestination.mockResolvedValue(null);
   mocks.clearDestination.mockResolvedValue(undefined);
   mocks.setOffset.mockResolvedValue(true);
@@ -187,11 +191,11 @@ describe('R-02 モックの位置・向きによるコンポーネント表示',
   });
 
   it('カメラ拒否でも方向表示が動き、向きがなくても左右ドラッグで方向を合わせられる', async () => {
-    getUserMedia.mockRejectedValue(new Error('denied'));
+    getUserMedia.mockRejectedValue(new DOMException('denied', 'NotAllowedError'));
     mocks.heading.value = null;
     const wrapper = mount(ArView, { props: props() });
     await start(wrapper);
-    expect(wrapper.get('.ar-warning').text()).toContain('カメラを起動できません');
+    expect(wrapper.get('.ar-warning').text()).toContain('カメラの利用が許可されていません');
     expect(wrapper.get('.ar-front').text()).toContain('北棟');
     const overlay = wrapper.get('.ar-labels').element;
     pointer(overlay, 'pointerdown', 0);
@@ -239,6 +243,126 @@ describe('R-02 モックの位置・向きによるコンポーネント表示',
     expect(shown).toBeGreaterThan(0);
     expect(shown).toBeLessThan(many.length);
     expect(wrapper.get('[data-place-id="event-39"]').element.hasAttribute('hidden')).toBe(false);
+  });
+});
+
+describe('R-02 拒否・非対応時の案内', () => {
+  it('HTTP で mediaDevices がない場合は HTTPS へ誘導する', async () => {
+    vi.stubGlobal('navigator', {});
+    vi.stubGlobal('isSecureContext', false);
+    const wrapper = mount(ArView, { props: props() });
+    await start(wrapper);
+    expect(wrapper.get('.ar-warning').text()).toContain('HTTP ではカメラを使えないため、HTTPS で開いてください');
+    expect(wrapper.get('.ar-warning').text()).not.toContain('許可されていません');
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(wrapper.get('.ar-front').text()).toContain('北棟');
+  });
+
+  it('カメラの機器エラーはユーザー拒否と区別する', async () => {
+    getUserMedia.mockRejectedValue(new DOMException('busy', 'NotReadableError'));
+    const wrapper = mount(ArView, { props: props() });
+    await start(wrapper);
+    expect(wrapper.get('.ar-warning').text()).toContain('ほかのアプリで使用中でないか');
+    expect(wrapper.get('.ar-warning').text()).not.toContain('許可されていません');
+  });
+
+  it.each([
+    ['idle', '向きの利用を選べます', '向きを利用すると', '向きの利用を許可'],
+    ['asking', '向きの許可を確認しています', '端末やブラウザの許可画面を確認', '確認中…'],
+    ['denied', '向きの利用が許可されていません', '許可画面が再表示されず反応がない', '向きの利用を許可'],
+    ['unavailable', '向きを取得できません', '方位センサーに対応しているか', 'もう一度試す'],
+    ['timeout', '向きの取得に時間がかかっています', '端末を動かして', 'もう一度試す'],
+  ])('方位の %s に合った見出し・次の操作を表示する', async (status, heading, message, action) => {
+    mocks.orientationStatus.value = status;
+    mocks.heading.value = null;
+    const wrapper = mount(ArView, { props: props() });
+    await start(wrapper);
+    const banner = wrapper.get('.ar-orientation');
+    expect(banner.attributes('role')).toBe('status');
+    expect(banner.attributes('aria-live')).toBe('polite');
+    expect(banner.get('h2').text()).toBe(heading);
+    expect(banner.text()).toContain(message);
+    expect(banner.text()).toContain('左右にドラッグ');
+    const button = banner.get('button');
+    expect(button.text()).toBe(action);
+    expect(button.element.disabled).toBe(status === 'asking');
+    mocks.allowOrientation.mockClear();
+    await button.trigger('click');
+    expect(mocks.allowOrientation).toHaveBeenCalledTimes(status === 'asking' ? 0 : 1);
+    expect(mocks.refuseOrientation).toHaveBeenCalledTimes(['unavailable', 'timeout'].includes(status) ? 1 : 0);
+  });
+
+  it('方位拒否では iOS・Android の設定手順を表示し、許可後は案内を消す', async () => {
+    mocks.orientationStatus.value = 'denied';
+    const wrapper = mount(ArView, { props: props() });
+    await start(wrapper);
+    expect(wrapper.get('.ar-orientation').text()).toContain('iOS（Safari）');
+    expect(wrapper.get('.ar-orientation').text()).toContain('モーションと画面の向きのアクセス');
+    expect(wrapper.get('.ar-orientation').text()).toContain('Android（Chrome）');
+    expect(wrapper.get('.ar-orientation').text()).toContain('「権限」→「モーション センサー」');
+    expect(wrapper.get('.ar-orientation').text()).toContain('設定の項目名は端末やバージョンによって異なります');
+    mocks.orientationStatus.value = 'granted';
+    await nextTick();
+    expect(wrapper.find('.ar-orientation section').exists()).toBe(false);
+  });
+});
+
+describe('R-02 仮置きの閾値', () => {
+  it('位置誤差 25 m を超えると警告し、会場から 900 m を超えると距離の案内に変わる', async () => {
+    const wrapper = mount(ArView, { props: props() });
+    await start(wrapper);
+    mocks.position.value = { ...fromXY(0, 0), accuracy: 25, takenAt: 1 };
+    tick();
+    expect(wrapper.get('.ar-warning').element.hasAttribute('hidden')).toBe(true);
+    mocks.position.value = { ...fromXY(0, 0), accuracy: 25.1, takenAt: 2 };
+    tick();
+    expect(wrapper.get('.ar-warning').text()).toContain('位置の誤差が大きい');
+    mocks.position.value = { ...fromXY(899, 0), accuracy: 5, takenAt: 3 };
+    tick();
+    expect(wrapper.get('.ar-warning').element.hasAttribute('hidden')).toBe(true);
+    mocks.position.value = { ...fromXY(901, 0), accuracy: 5, takenAt: 4 };
+    tick();
+    expect(wrapper.get('.ar-warning').text()).toContain('会場から離れています');
+  });
+
+  it('方位差 62° を超えるラベルを非表示にする', async () => {
+    const at = (degrees: number) => fromXY(100 * Math.sin(degrees * Math.PI / 180), 100 * Math.cos(degrees * Math.PI / 180));
+    const wrapper = mount(ArView, { props: { ...props(), landmarks: [], places: [
+      { ...places[0], id: 'inside', landmarkId: null, location: at(61.9) },
+      { ...places[0], id: 'outside', landmarkId: null, location: at(62.1) },
+    ] } });
+    await start(wrapper);
+    expect(wrapper.get('[data-place-id="inside"]').element.hasAttribute('hidden')).toBe(false);
+    expect(wrapper.get('[data-place-id="outside"]').element.hasAttribute('hidden')).toBe(true);
+  });
+
+  it('遮蔽ラベルは 250 m 以内で 3 枚まで表示し、行き先は制限から除く', async () => {
+    const obscured = [30, 40, 50, 60, 249, 251, 300].map((y, index) => ({
+      ...places[1], id: `hidden-${index}`, location: fromXY(0, y),
+    }));
+    const wrapper = mount(ArView, { props: { ...props(), places: obscured } });
+    await start(wrapper);
+    const shown = () => wrapper.findAll('.ar-label').filter(label => !label.element.hasAttribute('hidden')).map(label => label.attributes('data-place-id'));
+    expect(shown()).toEqual(['hidden-0', 'hidden-1', 'hidden-2']);
+    await wrapper.setProps({ places: obscured.slice(4), destination: { placeId: 'hidden-6' } });
+    tick();
+    expect(shown()).toEqual(['hidden-4', 'hidden-6']);
+  });
+
+  it.each(['', '?fov=65', '?fov=0', '?fov=180', '?fov=-1', '?fov=invalid'])('%s は既定の画角 65° を使う', async search => {
+    window.history.replaceState(null, '', `/${search}`);
+    const wrapper = mount(ArView, { props: props() });
+    await start(wrapper);
+    const label = wrapper.get('[data-place-id="north-event"]').element as HTMLElement;
+    mocks.heading.value = 40;
+    tick();
+    const withQuery = label.style.transform;
+    window.history.replaceState(null, '', '/?fov=65');
+    tick();
+    expect(label.style.transform).toBe(withQuery);
+    window.history.replaceState(null, '', '/?fov=90');
+    tick();
+    expect(label.style.transform).not.toBe(withQuery);
   });
 });
 
@@ -321,7 +445,7 @@ describe('R-02 CameraView の既存ストア・保存・経路との接続', () 
     useLandmarksStore(pinia).setAll(buildings);
     const router = createRouter({ history: createMemoryHistory(), routes: [
       { path: '/camera', name: 'camera', component: CameraView },
-      ...['card', 'building', 'map', 'list'].map(name => ({ path: `/${name}/:id?`, name, component: { template: '<div />' } })),
+      ...['card', 'building', 'map', 'list', 'noloc'].map(name => ({ path: `/${name}/:id?`, name, component: { template: '<div />' } })),
     ] });
     await router.push('/camera');
     const wrapper = mount(CameraView, { global: { plugins: [pinia, router] } });
@@ -341,5 +465,13 @@ describe('R-02 CameraView の既存ストア・保存・経路との接続', () 
     expect(router.currentRoute.value).toMatchObject({ name: 'building', params: { id: 'north' } });
     expect(wrapper.get('nav').text()).toContain('地図');
     expect(wrapper.get('nav').text()).toContain('企画一覧');
+    mocks.position.value = null;
+    mocks.status.value = 'denied';
+    await nextTick();
+    const locationLink = wrapper.findAll('a').find(link => link.text() === '位置の設定を確認する')!;
+    expect(locationLink.attributes('href')).toBe('/noloc');
+    await locationLink.trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.name).toBe('noloc');
   });
 });
