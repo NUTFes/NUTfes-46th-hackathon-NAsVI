@@ -1,8 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
+import tokenSource from '../../../../design-system/tokens.json?raw';
 import { fromXY, toXY } from '../../domain/geo';
 import type { Landmark, Place } from '../../types';
-import { project } from '../core';
-import buildings, { buildingHeight, buildingHighlight, canvasSize, pointInPolygon, sortByDepth } from './buildings';
+import { project, TILT } from '../core';
+import buildings, { buildingHeight, buildingHighlight, canvasSize, mapColors, pointInPolygon, resolveColors, sortByDepth } from './buildings';
 import type { Layer, MapState, View } from './types';
 
 const view: View = { fx: 0, fy: 0, k: 2, th: 0, cy: 300 };
@@ -32,18 +36,78 @@ function state(overrides: Partial<MapState> = {}): MapState {
 function canvas(dpr = 1) {
   const fills: unknown[] = [];
   const widths: number[] = [];
+  const alphas: number[] = [];
+  const strokes: unknown[] = [];
   const fill = vi.fn();
   const stroke = vi.fn();
   const ctx = {
     canvas: { width: 400 * dpr, height: 600 * dpr },
     getTransform: () => ({ a: dpr, b: 0 }),
     save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), closePath: vi.fn(),
-    moveTo: vi.fn(), lineTo: vi.fn(), fill, stroke,
+    moveTo: vi.fn(), lineTo: vi.fn(), ellipse: vi.fn(), fill, stroke,
   } as unknown as CanvasRenderingContext2D;
-  fill.mockImplementation(() => { fills.push(ctx.fillStyle); });
-  stroke.mockImplementation(() => { widths.push(ctx.lineWidth); });
-  return { ctx, fills, widths };
+  fill.mockImplementation(() => { fills.push(ctx.fillStyle); alphas.push(ctx.globalAlpha); });
+  stroke.mockImplementation(() => { widths.push(ctx.lineWidth); strokes.push(ctx.strokeStyle); });
+  return { ctx, fills, widths, alphas, strokes };
 }
+
+describe('mapColors / resolveColors', () => {
+  it('トークン名をキーとし、両テーマの値が design-system の出典と一致する', () => {
+    expect(Object.keys(mapColors).sort()).toEqual([
+      'destination', 'destination-border', 'destination-on', 'event', 'event-on',
+      'parking', 'parking-on', 'facility', 'facility-on', 'map-ring', 'bg-surface', 'border-subtle',
+    ].sort());
+    const tokens = JSON.parse(tokenSource);
+    // Vitest は CSS import を空にするため、出典のファイルを直接読む。
+    const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)),
+      '../../../../design-system/claude-design/tokens.css'), 'utf8');
+    for (const theme of ['dark', 'light'] as const) {
+      for (const [key, colors] of Object.entries(mapColors)) {
+        const value: string | { hex: string } = tokens.color[theme][key].$value;
+        if (typeof value === 'string') {
+          const [, , hue, shade] = value.slice(1, -1).split('.');
+          expect(colors[theme]).toBe(tokens.color.palette[hue][shade].$value.hex);
+          expect(css).toContain(`--${hue === 'white' ? 'white' : `${hue}-${shade}`}: ${colors[theme]};`);
+        } else {
+          // border-subtle は alpha を含むトークン。Canvas 用定数には hex だけを保存する。
+          expect(colors[theme]).toBe(value.hex);
+        }
+        expect(colors[theme]).toMatch(/^#[0-9a-f]{6}$/);
+      }
+    }
+  });
+
+  it.each(['dark', 'light'] as const)('最寄りの data-theme=%s を解決し、描き直し時に切り替える', (theme) => {
+    const { ctx, fills } = canvas();
+    const outer = document.createElement('div');
+    outer.setAttribute('data-theme', theme === 'light' ? 'dark' : 'light');
+    const inner = document.createElement('div');
+    inner.setAttribute('data-theme', theme);
+    const element = document.createElement('canvas');
+    outer.append(inner);
+    inner.append(element);
+    Object.defineProperty(ctx, 'canvas', { value: element });
+    const expected = Object.fromEntries(Object.entries(mapColors).map(([key, values]) => [key, values[theme]]));
+    expect(resolveColors(ctx)).toEqual(expected);
+    buildings.draw(ctx, view, state({ places: [place('event')] }), 0);
+    expect(fills[4]).toBe(mapColors.event[theme]);
+    const next = theme === 'dark' ? 'light' : 'dark';
+    inner.setAttribute('data-theme', next);
+    buildings.draw(ctx, view, state({ places: [place('event')] }), 1);
+    expect(fills[9]).toBe(mapColors.event[next]);
+  });
+
+  it.each([undefined, null, '', 'unknown', 'dark'])('closest の結果が %s ならダークにする', (theme) => {
+    const { ctx } = canvas();
+    if (theme !== undefined) {
+      ctx.canvas.closest = vi.fn().mockReturnValue(theme === null ? null : { getAttribute: () => theme });
+    }
+    expect(resolveColors(ctx)).toEqual(Object.fromEntries(
+      Object.entries(mapColors).map(([key, values]) => [key, values.dark]),
+    ));
+    if (theme !== undefined) expect(ctx.canvas.closest).toHaveBeenCalledWith('[data-theme]');
+  });
+});
 
 describe('buildingHeight', () => {
   it('外積和の半分を面積とし、モックの固定値で高さを求める', () => {
@@ -125,13 +189,19 @@ describe('buildingHighlight', () => {
 });
 
 describe('buildings Layer', () => {
+  it('初回 draw 前は当たり判定が空', async () => {
+    vi.resetModules();
+    const { default: fresh } = await import('./buildings');
+    expect(fresh.hitTest!(200, 300)).toBeNull();
+  });
+
   it('Layer 型を満たし、スタブ ctx で壁 4 面と屋根を描く', () => {
     expectTypeOf(buildings).toMatchTypeOf<Layer>();
     expect(buildings.name).toBe('buildings');
     const { ctx, fills } = canvas();
     expect(() => buildings.draw(ctx, view, state(), 0)).not.toThrow();
     expect(fills).toEqual([
-      ...Array(4).fill('rgba(70,30,140,.36)'), 'rgba(60,30,120,.9)',
+      ...Array(5).fill(mapColors['bg-surface'].dark),
     ]);
     expect(ctx.closePath).toHaveBeenCalledTimes(5);
   });
@@ -144,9 +214,114 @@ describe('buildings Layer', () => {
     const hgt = buildingHeight(data.landmarks[0].footprint!.map((p) => toXY(p.lat, p.lng)));
     const [x, y] = project(view, 400, 600, 0, 0, hgt);
     expect(buildings.hitTest!(x, y)).toEqual({ kind: 'building', id: 'a' });
-    // 地面の下端は屋根に入らない(壁だけでは選べない)。
-    const [bx, by] = project(view, 400, 600, 0, -20);
-    expect(buildings.hitTest!(bx, by)).toBeNull();
+    // 地面の下端は屋根に入らないが、壁の辺として選べる。
+    const edge = data.landmarks[0].footprint!.slice(0, 2).map((p) =>
+      project(view, 400, 600, ...toXY(p.lat, p.lng)));
+    const bx = (edge[0][0] + edge[1][0]) / 2;
+    const by = (edge[0][1] + edge[1][1]) / 2;
+    expect(buildings.hitTest!(bx, by)).toEqual({ kind: 'building', id: 'a' });
+  });
+
+  it.each([0, Math.PI / 2, Math.PI])('回転 %s でも屋根の外にある壁の内側・辺が当たる', (th) => {
+    const { ctx } = canvas();
+    const rotated = { ...view, th };
+    const data = state();
+    buildings.draw(ctx, rotated, data, 0);
+    const points = data.landmarks[0].footprint!.map((p) => toXY(p.lat, p.lng));
+    const hgt = buildingHeight(points);
+    const top = points.map(([x, y]): [number, number] => {
+      const [px, py] = project(rotated, 400, 600, x, y, hgt);
+      return [px, py];
+    });
+    const base = points.map(([x, y]) => project(rotated, 400, 600, x, y));
+    const front = base.reduce((best, p, i) => p[1] > base[best][1] ? i : best, 0);
+    const next = (front + 1) % base.length;
+    const x = (base[front][0] + base[next][0]) / 2;
+    const y = (base[front][1] + base[next][1]) / 2;
+    // 最前面の頂点から壁の中へ少し進む。屋根だけの実装では当たらない。
+    const bx = base[front][0] * 0.9 + x * 0.1;
+    const by = base[front][1] * 0.9 + y * 0.1;
+    expect(pointInPolygon(bx, by - 1, top)).toBe(false);
+    expect(buildings.hitTest!(bx, by - 1)).toEqual({ kind: 'building', id: 'a' });
+    expect(buildings.hitTest!(base[front][0], base[front][1])).toEqual({ kind: 'building', id: 'a' });
+    expect(buildings.hitTest!(base[front][0], base[front][1] + 1)).toBeNull();
+  });
+
+  it.each([1, 2, 3])('輪郭なしでは企画の location に高さなしの印を描き、円内だけ建物を返す (DPR=%s)', (dpr) => {
+    const { ctx, fills, strokes } = canvas(dpr);
+    const event = place('event', { location: fromXY(60, -30), labelIds: ['show'] });
+    const data = state({ landmarks: [{ ...landmark('a'), footprint: null }], places: [event] });
+    buildings.draw(ctx, view, data, 0);
+    const [wx, wy] = toXY(event.location.lat, event.location.lng);
+    const [x, y] = project(view, 400, 600, wx, wy);
+    expect(ctx.ellipse).toHaveBeenCalledExactlyOnceWith(x, y, 8, 8 * TILT, 0, 0, Math.PI * 2);
+    expect(fills).toEqual([mapColors.event.dark]);
+    expect(strokes).toEqual([mapColors['map-ring'].dark]);
+    expect(ctx.closePath).not.toHaveBeenCalled();
+    expect(buildings.hitTest!(x, y)).toEqual({ kind: 'building', id: 'a' });
+    expect(buildings.hitTest!(x + 8, y)).toEqual({ kind: 'building', id: 'a' });
+    expect(buildings.hitTest!(x + 8.1, y)).toBeNull();
+    expect(buildings.hitTest!(x, y + 7.9 * TILT)).toEqual({ kind: 'building', id: 'a' });
+    expect(buildings.hitTest!(x, y + 8.1 * TILT)).toBeNull();
+    expect(buildings.hitTest!(200, 300)).toBeNull();
+    buildings.draw(ctx, view, { ...data, filter: { labelIds: ['hidden'], tagIds: [] } }, 1);
+    expect(buildings.hitTest!(x, y)).toBeNull();
+    buildings.draw(ctx, view, data, 2);
+    buildings.draw(ctx, { ...view, fx: 1000 }, data, 3);
+    expect(buildings.hitTest!(x, y)).toBeNull();
+    buildings.draw(ctx, view, data, 4);
+    buildings.draw(ctx, view, state({ landmarks: [] }), 5);
+    expect(buildings.hitTest!(x, y)).toBeNull();
+  });
+
+  it('輪郭なしの建物内に行き先があれば企画の印を強調し、絞り込み外の行き先も描く', () => {
+    const { ctx, fills, strokes } = canvas();
+    const data = state({
+      landmarks: [{ ...landmark('a'), footprint: null }],
+      places: [place('shown', { labelIds: ['show'] }),
+        place('dest', { labelIds: ['hidden'], location: fromXY(60, 0) })],
+      destination: { placeId: 'dest' }, filter: { labelIds: ['show'], tagIds: ['ignored'] },
+    });
+    buildings.draw(ctx, view, data, 0);
+    expect(fills).toEqual([mapColors.destination.dark, mapColors.destination.dark]);
+    expect(strokes).toEqual(Array(2).fill(mapColors['destination-border'].dark));
+    expect(buildings.hitTest!(320, 300)).toEqual({ kind: 'building', id: 'a' });
+  });
+
+  it.each(['info', 'wc', 'rest', 'trash', 'parking'] as const)('輪郭なしでも %s の印を buildings では重複描画しない', (kind) => {
+    const { ctx, fills } = canvas();
+    buildings.draw(ctx, view, state({
+      landmarks: [{ ...landmark('a'), footprint: null }], places: [place(kind, { kind })],
+      destination: { placeId: kind },
+    }), 0);
+    expect(fills).toEqual([]);
+    expect(buildings.hitTest!(200, 300)).toBeNull();
+  });
+
+  it.each([false, true])('通常終了・描画例外でも save/restore が対応し、alpha・色・線幅を復元する (例外=%s)', (fail) => {
+    const { ctx } = canvas();
+    const before = { globalAlpha: 0.63, fillStyle: '#123456', strokeStyle: '#abcdef', lineWidth: 7 };
+    Object.assign(ctx, before);
+    const stack: typeof before[] = [];
+    vi.mocked(ctx.save).mockImplementation(() => { stack.push({
+      globalAlpha: ctx.globalAlpha, fillStyle: String(ctx.fillStyle),
+      strokeStyle: String(ctx.strokeStyle), lineWidth: ctx.lineWidth,
+    }); });
+    vi.mocked(ctx.restore).mockImplementation(() => { Object.assign(ctx, stack.pop()); });
+    if (fail) vi.mocked(ctx.fill).mockImplementationOnce(() => { throw new Error('描画失敗'); });
+    const draw = () => buildings.draw(ctx, view, state(), 0);
+    if (fail) expect(draw).toThrow('描画失敗');
+    else expect(draw).not.toThrow();
+    expect(ctx.save).toHaveBeenCalledTimes(1);
+    expect(ctx.restore).toHaveBeenCalledTimes(1);
+    expect(stack).toEqual([]);
+    expect(ctx).toMatchObject(before);
+  });
+
+  it('解決済み hex と描画時の alpha を分けて壁・屋根を描く', () => {
+    const { ctx, alphas } = canvas();
+    buildings.draw(ctx, view, state(), 0);
+    expect(alphas).toEqual([0.36, 0.36, 0.36, 0.36, 0.9]);
   });
 
   it('奥から描き、重なった屋根は手前の建物を選ぶ', () => {
@@ -158,13 +333,13 @@ describe('buildings Layer', () => {
       places: [place('near-event', { landmarkId: 'near' }), place('far-event', { landmarkId: 'far' })],
       destination: { placeId: 'far-event' },
     }), 0);
-    expect(fills[4]).toBe('#ffd84a');
-    expect(fills[9]).toBe('#10b981');
+    expect(fills[4]).toBe(mapColors.destination.dark);
+    expect(fills[9]).toBe(mapColors.event.dark);
     const [x, y] = project(view, 400, 600, 0, 0, buildingHeight(square));
     expect(buildings.hitTest!(x, y)).toEqual({ kind: 'building', id: 'near' });
   });
 
-  it('null の輪郭は描かず、描き直すたびに以前の屋根を捨てる', () => {
+  it('企画のない null の輪郭は描かず、描き直すたびに以前の当たり判定を捨てる', () => {
     const { ctx, fills } = canvas();
     buildings.draw(ctx, view, state(), 0);
     const [x, y] = project(view, 400, 600, 0, 0, buildingHeight(square));
@@ -186,7 +361,7 @@ describe('buildings Layer', () => {
       places: [place('hidden', { labelIds: ['other'] }), place('facility', { kind })],
       destination: { placeId: 'facility' }, filter: { labelIds: ['selected'], tagIds: [] },
     }), 0);
-    expect(fills[4]).toBe('rgba(60,30,120,.9)');
+    expect(fills[4]).toBe(mapColors['bg-surface'].dark);
   });
 
   it('labelIds で絞り、MapState にリンクのない tagIds は適用しない', () => {
@@ -194,10 +369,10 @@ describe('buildings Layer', () => {
     const data = state({ places: [place('event', { labelIds: ['selected'] })],
       filter: { labelIds: ['selected'], tagIds: ['unknown-tag'] } });
     buildings.draw(ctx, view, data, 0);
-    expect(fills[4]).toBe('#10b981');
+    expect(fills[4]).toBe(mapColors.event.dark);
     fills.length = 0;
     buildings.draw(ctx, view, { ...data, filter: { labelIds: ['other'], tagIds: [] } }, 1);
-    expect(fills[4]).toBe('rgba(60,30,120,.9)');
+    expect(fills[4]).toBe(mapColors['bg-surface'].dark);
   });
 
   it.each([[0.5, 0.6], [2, 0.9], [10, 1.3]])('倍率 %s の線幅は %s', (k, expected) => {

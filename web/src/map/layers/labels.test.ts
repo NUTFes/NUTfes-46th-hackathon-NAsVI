@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { fromXY, toXY } from '../../domain/geo';
 import type { Landmark, Place } from '../../types';
 import { project, TILT } from '../core';
-import { buildingHeight } from './buildings';
+import buildings, { buildingHeight, mapColors } from './buildings';
 import labels, { hitLabel, placeLabels, rectsOverlap } from './labels';
 import type { LabelCandidate, LabelHit, Rect } from './labels';
 import type { Layer, MapState, View } from './types';
@@ -39,7 +39,7 @@ function canvas(dpr = 1) {
     canvas: { width: 400 * dpr, height: 600 * dpr },
     getTransform: () => ({ a: dpr, b: 0 }),
     save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(),
-    moveTo: vi.fn(), lineTo: vi.fn(), ellipse: vi.fn(), roundRect: vi.fn(),
+    moveTo: vi.fn(), lineTo: vi.fn(), ellipse: vi.fn(), roundRect: vi.fn(), rect: vi.fn(),
     fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn(),
     measureText: vi.fn((text: string) => ({ width: text.length * 10 })),
   } as unknown as CanvasRenderingContext2D;
@@ -110,6 +110,15 @@ describe('placeLabels', () => {
   it('空なら配置しない', () => {
     expect(placeLabels([], 2, 400, 600)).toEqual([]);
   });
+
+  it.each([
+    { textWidth: NaN }, { textWidth: Infinity }, { textWidth: -1 },
+    { x: NaN }, { y: NaN }, { depth: NaN }, { x: Infinity },
+  ])('不正な値のラベル %j は行き先でも飛ばし、正常なラベルを残す', (bad) => {
+    expect(placeLabels([
+      candidate('bad', { ...bad, isDestination: true }), candidate('valid'),
+    ], 2, 400, 600).map((p) => p.placeId)).toEqual(['valid']);
+  });
 });
 
 describe('hitLabel', () => {
@@ -130,6 +139,106 @@ describe('hitLabel', () => {
 });
 
 describe('labels Layer', () => {
+  it('初回 draw 前はラベルも印も当たらない', async () => {
+    vi.resetModules();
+    const { default: fresh } = await import('./labels');
+    expect(fresh.hitTest!(200, 275)).toBeNull();
+    expect(fresh.hitTest!(200, 300)).toBeNull();
+  });
+
+  it('roundRect がなくても rect の path で同じ吹き出し・タップ範囲を使う', () => {
+    const ctx = canvas();
+    Object.defineProperty(ctx, 'roundRect', { value: undefined });
+    expect(() => labels.draw(ctx, view, state({ places: [place('企画')] }), 0)).not.toThrow();
+    expect(ctx.rect).toHaveBeenCalledExactlyOnceWith(183, 264, 34, 22);
+    expect(ctx.fillText).toHaveBeenCalledWith('企画', 200, 275.5);
+    expect(labels.hitTest!(200, 275)).toEqual({ kind: 'place', id: '企画' });
+    // 44px に広げず、既存の labelHits の矩形を保つ。
+    expect(labels.hitTest!(200, 263.9)).toBeNull();
+  });
+
+  it('measureText が NaN のラベルを飛ばし、他のラベルは描画・選択できる', () => {
+    const ctx = canvas();
+    vi.mocked(ctx.measureText).mockImplementation((text) => ({
+      width: text === 'bad' ? NaN : 40,
+    }) as TextMetrics);
+    expect(() => labels.draw(ctx, view, state({ places: [
+      place('bad'), place('valid', { location: fromXY(60, 0) }),
+    ], destination: { placeId: 'bad' } }), 0)).not.toThrow();
+    expect(ctx.roundRect).toHaveBeenCalledTimes(1);
+    expect(ctx.fillText).toHaveBeenCalledExactlyOnceWith('valid', expect.closeTo(320, 8), 275.5);
+    expect(labels.hitTest!(200, 265)).toBeNull();
+    expect(labels.hitTest!(320, 275)).toEqual({ kind: 'place', id: 'valid' });
+    expect(ctx.save).toHaveBeenCalledTimes(1);
+    expect(ctx.restore).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['dark', 'light'] as const)('テーマ %s の企画・駐車場・設備と行き先に対応する色・文字色・縁を使う', (theme) => {
+    for (const kind of ['event', 'parking', 'info', 'wc', 'rest', 'trash'] as const) {
+      for (const isDestination of [false, true]) {
+        const ctx = canvas();
+        ctx.canvas.closest = vi.fn().mockReturnValue({ getAttribute: () => theme });
+        const fills: { color: unknown; alpha: number }[] = [];
+        const strokes: unknown[] = [];
+        const texts: unknown[] = [];
+        vi.mocked(ctx.fill).mockImplementation(() => { fills.push({ color: ctx.fillStyle, alpha: ctx.globalAlpha }); });
+        vi.mocked(ctx.stroke).mockImplementation(() => { strokes.push(ctx.strokeStyle); });
+        vi.mocked(ctx.fillText).mockImplementation(() => { texts.push(ctx.fillStyle); });
+        labels.draw(ctx, view, state({ places: [place('p', { kind })],
+          destination: isDestination ? { placeId: 'p' } : null }), 0);
+        const token = isDestination ? 'destination' : kind === 'event' ? 'event' : kind === 'parking' ? 'parking' : 'facility';
+        expect(fills).toEqual([
+          { color: mapColors[token][theme], alpha: isDestination ? 0.3 : 0.18 },
+          { color: mapColors[token][theme], alpha: 1 },
+          { color: mapColors[token][theme], alpha: isDestination ? 1 : 0.94 },
+        ]);
+        expect(texts).toEqual([mapColors[`${token}-on`][theme]]);
+        const border = mapColors[isDestination ? 'destination-border' : 'map-ring'][theme];
+        expect(strokes).toEqual(isDestination ? [border, mapColors.destination[theme], border, border] : [border, border, border]);
+      }
+    }
+  });
+
+  it.each([false, true])('通常終了・描画例外でも save/restore が対応し、Canvas 状態を復元する (例外=%s)', (fail) => {
+    const ctx = canvas();
+    const before = {
+      globalAlpha: 0.63, fillStyle: '#123456', strokeStyle: '#abcdef', lineWidth: 7,
+      font: '10px serif', textAlign: 'left' as CanvasTextAlign, textBaseline: 'top' as CanvasTextBaseline,
+    };
+    Object.assign(ctx, before);
+    const stack: typeof before[] = [];
+    vi.mocked(ctx.save).mockImplementation(() => { stack.push({
+      globalAlpha: ctx.globalAlpha, fillStyle: String(ctx.fillStyle), strokeStyle: String(ctx.strokeStyle),
+      lineWidth: ctx.lineWidth, font: ctx.font, textAlign: ctx.textAlign, textBaseline: ctx.textBaseline,
+    }); });
+    vi.mocked(ctx.restore).mockImplementation(() => { Object.assign(ctx, stack.pop()); });
+    if (fail) vi.mocked(ctx.fillText).mockImplementationOnce(() => { throw new Error('描画失敗'); });
+    const draw = () => labels.draw(ctx, view, state({ places: [place('p')] }), 0);
+    if (fail) expect(draw).toThrow('描画失敗');
+    else expect(draw).not.toThrow();
+    expect(ctx.save).toHaveBeenCalledTimes(1);
+    expect(ctx.restore).toHaveBeenCalledTimes(1);
+    expect(stack).toEqual([]);
+    expect(ctx).toMatchObject(before);
+  });
+
+  it('輪郭なしのラベル・波紋は企画の location に置き、印の建物判定を遮らない', () => {
+    const ctx = canvas();
+    const building = { ...landmark(), footprint: null };
+    const event = place('indoor', { landmarkId: 'a', location: fromXY(60, -30) });
+    const data = state({ landmarks: [building], places: [event], destination: { placeId: event.id } });
+    const [wx, wy] = toXY(event.location.lat, event.location.lng);
+    const [x, y] = project(view, 400, 600, wx, wy);
+    buildings.draw(ctx, view, data, 800);
+    labels.draw(ctx, view, data, 800);
+    expect(ctx.ellipse).toHaveBeenCalledTimes(2); // buildings の印 1 個と labels の波紋 1 個。
+    expect(ctx.ellipse).toHaveBeenLastCalledWith(x, y, 33, 33 * TILT, 0, 0, 7);
+    expect(ctx.fillText).toHaveBeenCalledExactlyOnceWith('indoor', x, y - 35 + 0.5);
+    expect(labels.hitTest!(x, y)).toBeNull();
+    expect(buildings.hitTest!(x, y)).toEqual({ kind: 'building', id: 'a' });
+    expect(labels.hitTest!(x, y - 35)).toEqual({ kind: 'place', id: 'indoor' });
+  });
+
   it('Layer 型を満たし、空や印・ラベルのある状態をスタブ ctx で描ける', () => {
     expectTypeOf(labels).toMatchTypeOf<Layer>();
     expect(labels.name).toBe('labels');
