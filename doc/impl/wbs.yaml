@@ -679,6 +679,7 @@ tasks:
   - M-01
   owns:
   - web/src/map/layers/stamps.ts
+  - web/src/map/layers/stamps.test.ts
   reads:
   - doc/impl/contracts.md
   - doc/tech-stack.md
