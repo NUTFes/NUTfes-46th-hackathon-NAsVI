@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import FilterBand from '../components/FilterBand.vue';
 import FilterChips from '../components/FilterChips.vue';
@@ -21,6 +21,7 @@ const labels = useLabelsStore();
 const landmarks = useLandmarksStore();
 const { position } = usePosition(); // 許可の要求や位置・方位の送信は行わない。
 const keyword = ref('');
+const appliedKeyword = ref('');
 const searchInput = ref<HTMLInputElement>();
 const filter = ref<FilterState>({ labelIds: [], tagIds: [] });
 const tags = ref<MyTag[]>([]);
@@ -30,6 +31,12 @@ const ready = ref(false);
 const busy = ref(false);
 const error = ref('');
 let storage: StorageRepositories | undefined;
+// 入力の待ち時間と上限。文字数は API と同じ Unicode コードポイント数。
+const SEARCH_DEBOUNCE_MS = 300;
+const SEARCH_MAX_LENGTH = 50;
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+let composing = false;
+let queryWrite: { value: string | undefined } | undefined;
 
 // design-system/claude-design/tokens.css。色・余白・文字はここで固定する。
 const TOKENS = {
@@ -59,9 +66,61 @@ const TOKENS = {
   '--view-action-weight': '700', // typography.action / font.weight.bold
 } as const;
 
+function limitKeyword(value: string) {
+  return [...value].slice(0, SEARCH_MAX_LENGTH).join('');
+}
+function cancelSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = undefined;
+}
+async function replaceQuery(value: string) {
+  const q = value || undefined;
+  if (route.query.q === q) return;
+  const write = { value: q };
+  queryWrite = write;
+  try {
+    // 端末内の経路だけを変更する。他のクエリとハッシュは保ち、履歴は増やさない。
+    await router.replace({ query: { ...route.query, q }, hash: route.hash });
+  } catch {
+    error.value = '検索語を URL に反映できませんでした。もう一度お試しください。';
+  } finally {
+    if (queryWrite === write) queryWrite = undefined;
+  }
+}
+function applyKeyword() {
+  appliedKeyword.value = keyword.value;
+  void replaceQuery(keyword.value);
+}
+function onInput(event: Event) {
+  const input = event.target as HTMLInputElement;
+  keyword.value = input.value;
+  if (composing || (event as InputEvent).isComposing) return;
+  keyword.value = limitKeyword(input.value);
+  input.value = keyword.value;
+  cancelSearch();
+  searchTimer = setTimeout(() => {
+    searchTimer = undefined;
+    applyKeyword();
+  }, SEARCH_DEBOUNCE_MS);
+}
+function startComposition() {
+  composing = true;
+  cancelSearch();
+}
+function endComposition(event: CompositionEvent) {
+  composing = false;
+  onInput(event);
+}
 watch(() => route.query.q, value => {
-  keyword.value = typeof value === 'string' ? value : '';
+  // 自分の replace が完了する前に次の入力が始まっても、その入力を戻さない。
+  if (queryWrite && value === queryWrite.value) return;
+  cancelSearch();
+  composing = false;
+  keyword.value = limitKeyword(typeof value === 'string' ? value : '');
+  appliedKeyword.value = keyword.value;
+  if (typeof value === 'string' && value !== keyword.value) void replaceQuery(keyword.value);
 }, { immediate: true });
+onBeforeUnmount(cancelSearch);
 
 onMounted(async () => {
   try {
@@ -83,7 +142,7 @@ const activeLabels = computed(() => [
   ...filter.value.labelIds.map(id => labels.items.find(label => label.id === id)?.title ?? '削除された種類'),
   ...filter.value.tagIds.map(id => tags.value.find(tag => tag.id === id)?.title ?? '削除されたタグ'),
 ]);
-const word = computed(() => keyword.value.trim());
+const word = computed(() => appliedKeyword.value.trim());
 const normalizedWord = computed(() => word.value.normalize('NFKC').toLowerCase());
 const results = computed(() => {
   if (!ready.value) return [];
@@ -169,7 +228,10 @@ async function toggleTag(place: Place, tag: 'wantToGo' | 'favorite', on: boolean
 }
 function openPlace(placeId: string) { void router.push({ name: 'card', params: { id: placeId } }); }
 function clearKeyword() {
+  cancelSearch();
+  composing = false;
   keyword.value = '';
+  applyKeyword();
   searchInput.value?.focus();
 }
 </script>
@@ -180,7 +242,10 @@ function clearKeyword() {
     <div class="place-view__search" role="search">
       <label class="place-view__search-label">
         <span>企画・場所を検索</span>
-        <input ref="searchInput" v-model="keyword" type="search" placeholder="企画・場所を検索" autocomplete="off">
+        <input
+          ref="searchInput" :value="keyword" type="search" placeholder="企画・場所を検索" autocomplete="off"
+          @input="onInput" @compositionstart="startComposition" @compositionend="endComposition"
+        >
       </label>
       <button v-if="keyword" type="button" @click="clearKeyword">検索語を消す</button>
     </div>

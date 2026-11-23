@@ -46,8 +46,10 @@ beforeEach(async () => {
   ] });
   await router.push('/search?q=カード');
   await router.isReady();
+  vi.useFakeTimers();
 });
 afterEach(async () => {
+  vi.useRealTimers();
   position.dispose();
   await storage.close();
   expect(fetchMock).not.toHaveBeenCalled();
@@ -61,6 +63,153 @@ async function render() {
 }
 
 describe('検索結果', () => {
+  it('最後の入力から300ms後に検索・件数・強調とURLを一度だけ更新する', async () => {
+    const wrapper = await render();
+    const replace = vi.spyOn(router, 'replace');
+    const input = wrapper.get('input');
+    await input.setValue('屋');
+    await vi.advanceTimersByTimeAsync(299);
+    expect(wrapper.get('.place-view__count').text()).toBe('『カード』の検索結果・3 件');
+    expect(wrapper.findAll('mark').map(mark => mark.text())).toEqual(['カード', 'カード', 'カード']);
+    await input.setValue('屋台');
+    await vi.advanceTimersByTimeAsync(299);
+    expect(replace).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await flushPromises();
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(router.currentRoute.value.query.q).toBe('屋台');
+    expect(wrapper.get('.place-view__count').text()).toBe('『屋台』の検索結果・1 件');
+    expect(wrapper.get('mark').text()).toBe('屋台');
+  });
+
+  it('IME変換開始で待機中の検索を止め、compositionendだけで確定語を反映する', async () => {
+    const wrapper = await render();
+    const input = wrapper.get('input');
+    await input.setValue('屋');
+    await vi.advanceTimersByTimeAsync(100);
+    await input.trigger('compositionstart');
+    input.element.value = 'たい';
+    await input.trigger('input', { isComposing: true });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(router.currentRoute.value.query.q).toBe('カード');
+    expect(wrapper.findAllComponents(PlaceRow)).toHaveLength(3);
+    input.element.value = '体験';
+    await input.trigger('compositionend');
+    await vi.advanceTimersByTimeAsync(299);
+    expect(wrapper.findAllComponents(PlaceRow)).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(1);
+    await flushPromises();
+    expect(wrapper.findAllComponents(PlaceRow).map(row => row.props('placeId'))).toEqual(['cards']);
+    expect(router.currentRoute.value.query.q).toBe('体験');
+  });
+
+  it.each(['あ'.repeat(50), '😀'.repeat(50)])('貼り付けも50コードポイントに制限して検索・URLに使う: %s', async value => {
+    usePlacesStore(pinia).setAll([place('limit', value)]);
+    const wrapper = await render();
+    await wrapper.get('input').setValue(`${value}超過`);
+    expect(wrapper.get('input').element.value).toBe(value);
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
+    expect(router.currentRoute.value.query.q).toBe(value);
+    expect(wrapper.findAllComponents(PlaceRow).map(row => row.props('placeId'))).toEqual(['limit']);
+    expect(wrapper.get('mark').text()).toBe(value);
+  });
+
+  it('IME変換中は文字を切らず、確定時に50文字に制限する', async () => {
+    const wrapper = await render();
+    const input = wrapper.get('input');
+    const value = 'あ'.repeat(51);
+    await input.trigger('compositionstart');
+    input.element.value = value;
+    await input.trigger('input', { isComposing: true });
+    expect(input.element.value).toBe(value);
+    await input.trigger('compositionend');
+    expect(input.element.value).toBe('あ'.repeat(50));
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
+    expect(router.currentRoute.value.query.q).toBe('あ'.repeat(50));
+  });
+
+  it('URLからの検索語も50文字に制限してreplaceで補正する', async () => {
+    const value = 'あ'.repeat(50);
+    usePlacesStore(pinia).setAll([place('limit', value)]);
+    await router.replace({ query: { q: `${value}超過`, keep: '残す' }, hash: '#results' });
+    const wrapper = await render();
+    expect(wrapper.get('input').element.value).toBe(value);
+    expect(wrapper.findAllComponents(PlaceRow).map(row => row.props('placeId'))).toEqual(['limit']);
+    expect(router.currentRoute.value.query).toEqual({ q: value, keep: '残す' });
+    expect(router.currentRoute.value.hash).toBe('#results');
+  });
+
+  it('q以外のクエリ・ハッシュを保ち、入力や削除では履歴を増やさない', async () => {
+    await router.push('/list');
+    await router.push('/search?q=カード&keep=1#results');
+    const wrapper = await render();
+    const push = vi.spyOn(router, 'push');
+    await wrapper.get('input').setValue('屋台');
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
+    expect(router.currentRoute.value.query).toEqual({ q: '屋台', keep: '1' });
+    expect(router.currentRoute.value.hash).toBe('#results');
+    await wrapper.get('.place-view__search button').trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.query).toEqual({ keep: '1' });
+    expect(router.currentRoute.value.hash).toBe('#results');
+    expect(push).not.toHaveBeenCalled();
+    router.back();
+    await flushPromises();
+    expect(router.currentRoute.value.name).toBe('list');
+  });
+
+  it('外部からのq変更は待機中の入力を取り消して即座に反映する', async () => {
+    const wrapper = await render();
+    await wrapper.get('input').setValue('屋台');
+    await router.push('/search?q=体験');
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
+    expect(router.currentRoute.value.query.q).toBe('体験');
+    expect(wrapper.get('input').element.value).toBe('体験');
+    expect(wrapper.findAllComponents(PlaceRow).map(row => row.props('placeId'))).toEqual(['cards']);
+  });
+
+  it('消去操作とアンマウントで待機中の検索を取り消す', async () => {
+    const wrapper = await render();
+    await wrapper.get('input').setValue('屋台');
+    await wrapper.get('.place-view__search button').trigger('click');
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
+    expect(router.currentRoute.value.query.q).toBeUndefined();
+    expect(wrapper.findAllComponents(PlaceRow)).toHaveLength(0);
+    const replace = vi.spyOn(router, 'replace');
+    await wrapper.get('input').setValue('体験');
+    wrapper.unmount();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['前ＡＢＣ後', 'abc', 'ＡＢＣ'], ['前abc後', 'ＡＢＣ', 'abc'],
+    ['前ｶﾞﾗｽ後', 'ガラス', 'ｶﾞﾗｽ'], ['前ガラス後', 'ｶﾞﾗｽ', 'ガラス'],
+    ['前100%_後', '%_', '%_'],
+  ])('入力と名前を正規化しリテラルとして検索・強調する: %s / %s', async (name, query, mark) => {
+    usePlacesStore(pinia).setAll([place('match', name), place('other', '別の企画')]);
+    const wrapper = await render();
+    await wrapper.get('input').setValue(query);
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
+    expect(wrapper.findAllComponents(PlaceRow).map(row => row.props('placeId'))).toEqual(['match']);
+    expect(wrapper.get('mark').text()).toBe(mark);
+  });
+
+  it('空白だけの確定語を空の検索として扱う', async () => {
+    const wrapper = await render();
+    await wrapper.get('input').setValue('　 ');
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
+    expect(wrapper.findAllComponents(PlaceRow)).toHaveLength(0);
+    expect(wrapper.get('.place-view__empty h2').text()).toBe('企画・場所の名前を入力してください');
+  });
+
   it('検索語・一致した名前・建物・階・件数を示し、設備は検索に出さない', async () => {
     const wrapper = await render();
     expect(wrapper.get('h1').text()).toBe('検索結果');
@@ -89,9 +238,11 @@ describe('検索結果', () => {
     expect(wrapper.findAllComponents(PlaceRow)).toHaveLength(3);
   });
 
-  it('入力のたびに部分一致の結果が更新され、ストア更新や経路の検索語にも追従する', async () => {
+  it('入力確定後に部分一致の結果が更新され、ストア更新や経路の検索語にも追従する', async () => {
     const wrapper = await render();
     await wrapper.get('input').setValue('屋台');
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
     expect(wrapper.findAllComponents(PlaceRow).map(row => row.props('placeId'))).toEqual(['food']);
     usePlacesStore(pinia).upsert(place('new', '屋台の企画'));
     await flushPromises();
@@ -137,6 +288,8 @@ describe('検索結果', () => {
   it('絞り込みなしの一致なしは別の言葉・一覧へ案内し、入力を消して再入力に戻れる', async () => {
     const wrapper = await render();
     await wrapper.get('input').setValue('見つからない');
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
     const actions = wrapper.get('.place-view__empty').findAll('button, a');
     expect(actions.map(action => action.text())).toEqual(['別の言葉で探す', '一覧から探す']);
     await actions[0].trigger('click');
