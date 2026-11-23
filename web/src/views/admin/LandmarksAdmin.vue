@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import { adminGet, adminSend, ApiError } from '../../admin/client';
 import { useAdminFeedback } from '../../admin/feedback';
 import { adminTokens } from '../../admin/tokens';
+import { toXY } from '../../domain/geo';
 import { useLandmarksStore } from '../../stores/landmarks';
 import type { Landmark } from '../../types';
 
@@ -18,6 +19,24 @@ const busy = ref(false);
 const notice = ref('');
 const selectedId = ref<string | null>(null);
 const selected = computed(() => store.items.find((item) => item.id === selectedId.value) ?? null);
+// API の輪郭を北が上の確認用図形にする。頂点を操作する入力は設けない。
+const shape = computed(() => {
+  const footprint = selected.value?.footprint;
+  if (!footprint) return null;
+  const points = footprint.map(({ lat, lng }) => {
+    const [x, y] = toXY(lat, lng);
+    return [x, -y];
+  });
+  const minX = Math.min(...points.map(([x]) => x));
+  const minY = Math.min(...points.map(([, y]) => y));
+  const width = Math.max(1, Math.max(...points.map(([x]) => x)) - minX);
+  const height = Math.max(1, Math.max(...points.map(([, y]) => y)) - minY);
+  const padding = Math.max(width, height) / 10;
+  return {
+    viewBox: `${minX - padding} ${minY - padding} ${width + padding * 2} ${height + padding * 2}`,
+    d: `M ${points.map((point) => point.join(' ')).join(' L ')} Z`,
+  };
+});
 const draft = reactive({ name: '', lat: '' as string | number, lng: '' as string | number });
 const confirmingDelete = ref(false);
 const locked = computed(() => busy.value || confirmingDelete.value);
@@ -102,6 +121,17 @@ function save() {
   });
 }
 
+function reloadFootprint() {
+  const item = selected.value;
+  if (locked.value || !item) return;
+  return perform((signal) => adminSend('POST', '/landmarks/{landmarkId}/footprint', {
+    params: { landmarkId: item.id }, signal,
+  }), (updated) => {
+    store.setAll(store.items.map((entry) => entry.id === item.id ? updated : entry));
+    notice.value = '建物の形を読み込み直しました。';
+  });
+}
+
 async function askDelete() {
   if (locked.value || !selected.value) return;
   confirmingDelete.value = true;
@@ -175,8 +205,20 @@ onBeforeUnmount(() => controller?.abort());
           <button type="submit">{{ selected ? '更新する' : '登録する' }}</button>
         </fieldset>
       </form>
-      <p>建物の形は OpenStreetMap から取得します。</p>
-      <p v-if="selected?.footprint === null" class="missing">形なし（カメラの正面に出ない）</p>
+      <section aria-labelledby="landmark-shape-title">
+        <h3 id="landmark-shape-title">建物の形（確認用）</h3>
+        <p>建物の形は OpenStreetMap から取得します。輪郭は編集できません。</p>
+        <template v-if="selected">
+          <svg v-if="shape" class="shape-preview" :viewBox="shape.viewBox" role="img" :aria-label="`${selected.name}の建物の形（北が上）`">
+            <path :d="shape.d" />
+          </svg>
+          <p v-else class="missing">形なし（カメラの正面に出ない）</p>
+          <p>保存済みの位置で形を取得します。位置を変えたら先に更新してください。</p>
+          <button type="button" :disabled="locked" @click="reloadFootprint">形を読み込み直す</button>
+        </template>
+        <p v-else>建物の登録後に形を確認できます。</p>
+        <p class="attribution">© OpenStreetMap contributors（ODbL）</p>
+      </section>
       <button v-if="selected" ref="deleteButton" type="button" class="danger" :disabled="locked" @click="askDelete">建物を削除</button>
       <section v-if="confirmingDelete && selected" role="alertdialog" aria-labelledby="delete-title" aria-describedby="delete-effects" class="delete-confirm" @keydown.esc.prevent="cancelDelete">
         <h3 id="delete-title">「{{ selected.name }}」を削除しますか？</h3>
@@ -210,6 +252,9 @@ button { justify-self: start; color: var(--admin-action); background: var(--admi
 button:disabled, fieldset:disabled button { color: var(--admin-muted); cursor: default; }
 input:focus-visible, button:focus-visible { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
 .missing { color: var(--admin-danger-text); }
+.shape-preview { box-sizing: border-box; width: 100%; aspect-ratio: 2; padding: var(--admin-space-lg); border: thin solid var(--admin-border); border-radius: var(--admin-radius); background: var(--admin-surface); }
+.shape-preview path { fill: var(--admin-selected); stroke: var(--admin-action); vector-effect: non-scaling-stroke; }
+.attribution { color: var(--admin-muted); }
 .danger, .delete-confirm { border: thin solid var(--admin-danger); color: var(--admin-danger-text); background: var(--admin-danger-bg); }
 .delete-confirm { padding: var(--admin-space-lg); border-radius: var(--admin-radius); }
 </style>

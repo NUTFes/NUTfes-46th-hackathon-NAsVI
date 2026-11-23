@@ -2,8 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
-import AdminLayout from './AdminLayout.vue';
-import LandmarksAdmin from './LandmarksAdmin.vue';
+import { routes } from '../../router';
 import { useLandmarksStore } from '../../stores/landmarks';
 import type { Landmark } from '../../types';
 
@@ -40,9 +39,7 @@ async function render(items: Landmark[] = [building()], initialResponse?: Promis
   const pinia = createPinia();
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/admin', component: AdminLayout, children: [
-      { path: 'landmarks', component: LandmarksAdmin },
-    ] }],
+    routes,
   });
   await router.push('/admin/landmarks');
   await router.isReady();
@@ -249,5 +246,95 @@ describe('建物の削除', () => {
     expect(wrapper.get('[role="alertdialog"]').text()).toContain('付け替えてください');
     expect(store.items).toEqual([original]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('建物の形の確認と読み込み直し', () => {
+  it('輪郭を北が上の確認用画像にし、出典を表示する', async () => {
+    const { wrapper } = await render();
+    await editFirst(wrapper);
+    const image = wrapper.get('main svg[role="img"]');
+    expect(image.attributes('aria-label')).toBe('A棟の建物の形（北が上）');
+    expect(image.get('path').attributes('d')).toMatch(/^M .+ L .+ L .+ Z$/);
+    const vertices = image.get('path').attributes('d')!.slice(2, -2).split(' L ').map((point) => point.split(' ').map(Number));
+    // 北にある2頂点は、南の頂点より図の上に来る。
+    expect(vertices[1][1]).toBeLessThan(vertices[0][1]);
+    expect(vertices[2][1]).toBe(vertices[1][1]);
+    expect(wrapper.text()).toContain('© OpenStreetMap contributors（ODbL）');
+    expect(wrapper.text()).toContain('輪郭は編集できません');
+    expect(wrapper.findAll('main input').map((input) => input.attributes('name'))).toEqual(['name', 'lat', 'lng']);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('輪郭のない建物でも取り直せ、本文なしの専用 POST の結果を反映する', async () => {
+    const original = building({ id: '棟/a', footprint: null, floors: [floor] });
+    const updated = { ...original, footprint };
+    const { wrapper, store } = await render([original]);
+    await editFirst(wrapper);
+    expect(wrapper.find('main svg').exists()).toBe(false);
+    expect(wrapper.text()).toContain('形なし（カメラの正面に出ない）');
+    fetchMock.mockResolvedValueOnce(json(updated));
+    await button(wrapper, '形を読み込み直す').trigger('click');
+    await flushPromises();
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/landmarks/${encodeURIComponent(original.id)}/footprint`, expect.objectContaining({
+      method: 'POST', credentials: 'include', body: undefined,
+    }));
+    expect(store.items).toEqual([updated]);
+    expect(wrapper.get('tbody').text()).toContain('形あり');
+    expect(wrapper.get('tbody').text()).toContain('1階');
+    expect(wrapper.find('main svg[role="img"]').exists()).toBe(true);
+    expect(wrapper.get('main [role="status"]').text()).toBe('建物の形を読み込み直しました。');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([true, false])('502 でも元の輪郭と見取り図を保つ（輪郭あり=%s）', async (hasShape) => {
+    const original = building({ footprint: hasShape ? footprint : null, floors: [floor] });
+    const { wrapper, store } = await render([original]);
+    await editFirst(wrapper);
+    const previousPath = hasShape ? wrapper.get('main svg path').attributes('d') : undefined;
+    fetchMock.mockResolvedValueOnce(json({ code: 'footprint_unavailable', message: 'この位置の建物の輪郭が地図データに見つかりません' }, 502));
+    await button(wrapper, '形を読み込み直す').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain('footprint_unavailable');
+    expect(store.items).toEqual([original]);
+    expect(wrapper.find('main svg[role="img"]').exists()).toBe(hasShape);
+    if (hasShape) expect(wrapper.get('main svg path').attributes('d')).toBe(previousPath);
+    expect(wrapper.find('main [role="status"]').exists()).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('通信失敗では保存済みの輪郭と入力を保ち、手動再試行でエラーを消す', async () => {
+    const original = building();
+    const { wrapper, store } = await render([original]);
+    await editFirst(wrapper);
+    await fill(wrapper, '保存前の名前', '37.4', '138.7');
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await button(wrapper, '形を読み込み直す').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain('通信に失敗しました');
+    expect(store.items).toEqual([original]);
+    fetchMock.mockResolvedValueOnce(json(building({ footprint: [...footprint].reverse() })));
+    await button(wrapper, '形を読み込み直す').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect((wrapper.get('#landmark-name').element as HTMLInputElement).value).toBe('保存前の名前');
+    expect((wrapper.get('#landmark-lat').element as HTMLInputElement).value).toBe('37.4');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.slice(1).every(([, options]) => options?.body === undefined)).toBe(true);
+  });
+
+  it('取り直し中は二重実行と対象の切り替えを防ぐ', async () => {
+    const { wrapper } = await render([building(), building({ id: 'lm-b', name: 'B棟' })]);
+    await editFirst(wrapper);
+    let complete!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => { complete = resolve; }));
+    await button(wrapper, '形を読み込み直す').trigger('click');
+    await button(wrapper, '形を読み込み直す').trigger('click');
+    expect(wrapper.findAll('tbody button').every((item) => item.attributes('disabled') !== undefined)).toBe(true);
+    expect(button(wrapper, '建物を削除').attributes('disabled')).toBeDefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    complete(json(building()));
+    await flushPromises();
+    expect(button(wrapper, '形を読み込み直す').attributes('disabled')).toBeUndefined();
   });
 });
