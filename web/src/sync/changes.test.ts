@@ -63,6 +63,7 @@ beforeEach(() => {
   // 注入を忘れた場合も実ネットワークに出さない。
   vi.stubGlobal('fetch', fetchMock);
   vi.stubGlobal('EventSource', FakeEventSource);
+  vi.stubEnv('VITE_API_BASE', undefined);
 });
 
 afterEach(() => {
@@ -70,10 +71,30 @@ afterEach(() => {
   vi.clearAllTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.useRealTimers();
 });
 
 describe('connectChanges のイベント', () => {
+  it.each([
+    [undefined, '/api'],
+    ['', '/api'],
+    ['/api/', '/api'],
+    ['/custom/api///', '/custom/api'],
+    ['https://example.com/api///', 'https://example.com/api'],
+    ['/', ''],
+  ])('VITE_API_BASE=%s を接続・プローブ・再接続に使う', async (base, expected) => {
+    vi.stubEnv('VITE_API_BASE', base);
+    const since = 'a b&?/';
+    start({ since });
+    expect(latest().url).toBe(`${expected}/changes?since=${encodeURIComponent(since)}`);
+    latest().emit('placeAdded', '{}', '121');
+    await fail();
+    expect(fetchMock.mock.calls[0][0]).toBe(`${expected}/changes?since=121`);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(latest().url).toBe(`${expected}/changes?since=121`);
+  });
+
   it('since で接続し、既知の全 type の data を JSON として渡す', () => {
     start();
     expect(latest().url).toBe('/api/changes?since=120');
@@ -179,18 +200,82 @@ describe('再接続の待ち', () => {
     }
   });
 
-  it('open で失敗回数をリセットする', async () => {
+  it('open 直後の切断が続いても指数的な待ちを維持する', async () => {
+    start();
+    for (const [index, delay] of [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 60_000].entries()) {
+      latest().emit('open');
+      await vi.advanceTimersByTimeAsync(100);
+      await fail();
+      // error は安定判定のタイマーを解除し、再接続タイマーだけを残す。
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(FakeEventSource.instances).toHaveLength(index + 1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeEventSource.instances).toHaveLength(index + 2);
+    }
+  });
+
+  it('open から30秒未満の切断では失敗回数をリセットしない', async () => {
+    start();
+    await fail();
+    await vi.advanceTimersByTimeAsync(1_000);
+    latest().emit('open');
+    await vi.advanceTimersByTimeAsync(29_999);
+    await fail();
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeEventSource.instances).toHaveLength(3);
+  });
+
+  it('open から30秒接続が続いたら失敗回数をリセットする', async () => {
     start();
     await fail();
     await vi.advanceTimersByTimeAsync(1_000);
     await fail();
     await vi.advanceTimersByTimeAsync(2_000);
     latest().emit('open');
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(vi.getTimerCount()).toBe(0);
     await fail();
     await vi.advanceTimersByTimeAsync(999);
     expect(FakeEventSource.instances).toHaveLength(3);
     await vi.advanceTimersByTimeAsync(1);
     expect(FakeEventSource.instances).toHaveLength(4);
+  });
+
+  it.each([
+    'stampPressed', 'stampRetracted', 'placeAdded', 'placeUpdated', 'placeRemoved',
+    'appVersionChanged',
+  ])('%s の受信で失敗回数をリセットし、安定判定タイマーを解除する', async (type) => {
+    start();
+    await fail();
+    await vi.advanceTimersByTimeAsync(1_000);
+    latest().emit('open');
+    expect(vi.getTimerCount()).toBe(1);
+    latest().emit(type, '{}', '121');
+    expect(vi.getTimerCount()).toBe(0);
+    await fail();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeEventSource.instances).toHaveLength(3);
+  });
+
+  it('不正・未知のイベントでは失敗回数をリセットしない', async () => {
+    start();
+    await fail();
+    await vi.advanceTimersByTimeAsync(1_000);
+    latest().emit('open');
+    latest().emit('placeAdded', 'broken', '121');
+    latest().emit('placeAdded', '{}', 'invalid');
+    latest().emit('futureChange', '{}', '121');
+    latest().emit('message', '{}', '121');
+    await fail();
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeEventSource.instances).toHaveLength(3);
   });
 
   it('古い接続の error・open・イベント・resync は無視する', async () => {
@@ -215,9 +300,10 @@ describe('再接続の待ち', () => {
 
 describe('429 のプローブ', () => {
   it.each([
-    ['20', 20_000],
+    ['20', 25_000],
     ['1', 6_000],
-  ])('Retry-After=%s 秒を通常の待ちの下限とする', async (seconds, delay) => {
+    ['0', 6_000],
+  ])('指数的な待ちと Retry-After=%s 秒の大きい方に揺らぎを足す', async (seconds, delay) => {
     random.mockReturnValue(0.5);
     fetchMock.mockResolvedValue(new Response(null, { status: 429, headers: { 'Retry-After': seconds } }));
     start();
@@ -270,6 +356,28 @@ describe('429 のプローブ', () => {
 });
 
 describe('visibility と close', () => {
+  it.each(['hidden', 'close'] as const)('%s で安定判定タイマーを解除する', async (action) => {
+    const connection = start();
+    await fail();
+    await vi.advanceTimersByTimeAsync(1_000);
+    latest().emit('open');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(vi.getTimerCount()).toBe(1);
+    if (action === 'hidden') visibility.setVisibility('hidden');
+    else connection.close();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    if (action === 'hidden') {
+      visibility.setVisibility('visible');
+      await fail();
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(FakeEventSource.instances).toHaveLength(3);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeEventSource.instances).toHaveLength(4);
+    }
+  });
+
   it('hidden で閉じ、visible で最後の id から一度だけ接続する', () => {
     start();
     const source = latest();

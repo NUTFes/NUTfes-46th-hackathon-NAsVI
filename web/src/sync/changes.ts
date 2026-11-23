@@ -30,6 +30,7 @@ export interface ConnectChangesOptions {
 const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 60_000;
 const JITTER_MS = 10_000;
+const STABLE_CONNECTION_MS = 30_000;
 
 /** resync 後は一覧を取り直し、新しい cursor で呼び直す。 */
 export function connectChanges({
@@ -42,14 +43,24 @@ export function connectChanges({
   let cursor = String(since);
   let source: EventSourceLike | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let stableTimer: ReturnType<typeof setTimeout> | undefined;
   let probe: AbortController | undefined;
   let failures = 0;
   let closed = false;
 
-  const url = () => `/api/changes?since=${encodeURIComponent(cursor)}`;
+  const base = (import.meta.env.VITE_API_BASE || '/api').replace(/\/+$/, '');
+  const url = () => `${base}/changes?since=${encodeURIComponent(cursor)}`;
   const isHidden = () => visibility.visibilityState === 'hidden';
 
+  function resetFailures() {
+    failures = 0;
+    clearTimeout(stableTimer);
+    stableTimer = undefined;
+  }
+
   function closeSource() {
+    clearTimeout(stableTimer);
+    stableTimer = undefined;
     const previous = source;
     source = undefined;
     previous?.close();
@@ -72,7 +83,7 @@ export function connectChanges({
   }
 
   async function scheduleReconnect() {
-    const delay = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** failures) + random() * JITTER_MS;
+    const delay = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** failures);
     failures += 1;
     const controller = new AbortController();
     probe = controller;
@@ -103,7 +114,7 @@ export function connectChanges({
     timer = setTimeout(() => {
       timer = undefined;
       connect();
-    }, Math.max(delay, retryAfterMs));
+    }, Math.max(delay, retryAfterMs) + random() * JITTER_MS);
   }
 
   function connect() {
@@ -111,7 +122,11 @@ export function connectChanges({
     const current = new EventSourceCtor(url());
     source = current;
     current.addEventListener('open', () => {
-      if (source === current) failures = 0;
+      if (source !== current || closed || stableTimer !== undefined) return;
+      // 接続直後の切断が続く間は、指数的な待ちを維持する。
+      stableTimer = setTimeout(() => {
+        if (source === current && !closed) resetFailures();
+      }, STABLE_CONNECTION_MS);
     });
     current.addEventListener('error', () => {
       if (source !== current || closed) return;
@@ -132,6 +147,7 @@ export function connectChanges({
           return;
         }
         cursor = message.lastEventId;
+        resetFailures();
         onEvent({ id, type, payload });
       });
     }
