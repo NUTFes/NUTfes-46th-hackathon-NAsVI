@@ -279,3 +279,37 @@ describe('有効なスタンプ', () => {
     expect(activeStamps(now - 1)).toEqual([]);
   });
 });
+
+describe('レビュー対応', () => {
+  it('削除のあとに届いた古い placeUpdated で場所が復活しない', () => {
+    applyChange({ id: 1, type: 'placeAdded', payload: place });
+    applyChange({ id: 3, type: 'placeRemoved', payload: { id: place.id } });
+    applyChange({ id: 2, type: 'placeUpdated', payload: updatedPlace });
+    expect(usePlacesStore().items).toEqual([]);
+  });
+
+  it('不正な payload は無視する', () => {
+    const before = snapshot();
+    applyChange({ type: 'stampPressed', payload: { id: 'x' } });
+    applyChange({ type: 'stampRetracted', payload: null });
+    applyChange({ type: 'placeAdded', payload: 'bad' });
+    applyChange({ type: 'placeRemoved', payload: {} });
+    applyChange({ type: 'appVersionChanged', payload: { version: 1 } });
+    expect(snapshot()).toBe(before);
+  });
+
+  it('expiresAt が読めないスタンプは期限切れ扱い', () => {
+    const store = useStampsStore();
+    store.setAll([{ ...stamp, expiresAt: 'not-a-date' }]);
+    expect(store.activeStamps(0)).toEqual([]);
+  });
+
+  it('適用済み id は上限つきで、reset で空になる', () => {
+    const changes = useChangesStore();
+    for (let i = 1; i <= 1005; i++) applyChange({ id: i, type: 'stampRetracted', payload: { id: 's' } });
+    expect(changes.appliedChangeIds.size).toBe(1000);
+    expect(changes.appliedChangeIds.has(1)).toBe(false);
+    changes.resetAppliedChangeIds();
+    expect(changes.appliedChangeIds.size).toBe(0);
+  });
+});

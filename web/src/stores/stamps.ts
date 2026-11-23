@@ -3,7 +3,8 @@ import type { Stamp } from '../types';
 
 // domain/stamps.ts が実装されるまで、API の expiresAt で判定する。
 function isExpired(stamp: Stamp, now: number): boolean {
-  return Date.parse(stamp.expiresAt) <= now;
+  const expiresAt = Date.parse(stamp.expiresAt);
+  return Number.isNaN(expiresAt) || expiresAt <= now; // 読めない日付は期限切れ扱い
 }
 
 export const useStampsStore = defineStore('stamps', {

@@ -18,6 +18,17 @@ export interface ChangeEvent {
   payload: unknown;
 }
 
+const MAX_APPLIED_IDS = 1000;
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+const hasId = (v: unknown): v is { id: string } => isObject(v) && typeof v.id === 'string';
+const isStamp = (v: unknown): v is Stamp =>
+  hasId(v) && typeof (v as Record<string, unknown>).expiresAt === 'string';
+const isPlace = (v: unknown): v is Place =>
+  hasId(v) && typeof (v as Record<string, unknown>).name === 'string';
+const hasVersion = (v: unknown): v is { version: string } =>
+  isObject(v) && typeof v.version === 'string';
+
 export const useChangesStore = defineStore('changes', {
   state: () => ({
     version: null as string | null,
@@ -31,20 +42,26 @@ export const useChangesStore = defineStore('changes', {
       // payload は OpenAPI /changes の各イベントの形。cursor・順序の管理は sync 層が担う。
       switch (event.type) {
         case 'stampPressed':
-          useStampsStore().upsert(event.payload as Stamp);
+          if (!isStamp(event.payload)) return;
+          useStampsStore().upsert(event.payload);
           break;
         case 'stampRetracted':
-          useStampsStore().remove((event.payload as { id: string }).id);
+          if (!hasId(event.payload)) return;
+          useStampsStore().remove(event.payload.id);
           break;
         case 'placeAdded':
         case 'placeUpdated':
-          usePlacesStore().upsert(event.payload as Place);
+          if (!isPlace(event.payload)) return;
+          usePlacesStore().upsert(event.payload);
           break;
         case 'placeRemoved':
-          usePlacesStore().remove((event.payload as { id: string }).id);
+          // 行き先の解除(D-026・API-5)と tagLinks の整理(API-31)は保存層に依存するため、W-09(つなぎ込み)の仕事。
+          if (!hasId(event.payload)) return;
+          usePlacesStore().remove(event.payload.id);
           break;
         case 'appVersionChanged': {
-          const { version } = event.payload as { version: string };
+          if (!hasVersion(event.payload)) return;
+          const { version } = event.payload;
           if (this.version !== version) {
             this.version = version;
             this.versionChanged = true;
@@ -55,7 +72,17 @@ export const useChangesStore = defineStore('changes', {
           return;
       }
 
-      if (event.id !== undefined) this.appliedChangeIds.add(event.id);
+      if (event.id !== undefined) {
+        this.appliedChangeIds.add(event.id);
+        // 上限を超えたら古い順に捨てる(Set は挿入順)
+        while (this.appliedChangeIds.size > MAX_APPLIED_IDS) {
+          this.appliedChangeIds.delete(this.appliedChangeIds.values().next().value as number);
+        }
+      }
+    },
+    // サーバーの id が巻き戻ったとき(resync 後の取り直し)に呼ぶ。呼ぶのは W-09。
+    resetAppliedChangeIds() {
+      this.appliedChangeIds.clear();
     },
     acknowledgeVersionChange() {
       this.versionChanged = false;
