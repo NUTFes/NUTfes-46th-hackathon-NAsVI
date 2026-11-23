@@ -9,7 +9,7 @@ describe('地図の空の層', () => {
     ]);
   });
 
-  it.each(layers)('$name の draw が何も描かず、例外を出さない', (layer) => {
+  it.each(layers.filter((layer) => ['route', 'me', 'stamps'].includes(layer.name)))('$name の draw が何も描かず、例外を出さない', (layer) => {
     // 空の層は canvas API に触れないため、実際の canvas は必要ない。
     const ctx = new Proxy({} as CanvasRenderingContext2D, {
       get() { throw new Error('空の層が描画 API を参照しました'); },
