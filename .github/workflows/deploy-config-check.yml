@@ -1,0 +1,122 @@
+name: deploy-config-check
+
+on:
+  pull_request:
+    paths:
+      - api/**
+      - doc/deploy.md
+      - .github/workflows/deploy-config-check.yml
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  COREPACK_ENABLE_NETWORK: '0'
+  WRANGLER_SEND_METRICS: 'false'
+  CI: 'true'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: 環境・プレースホルダ・Hub の検査
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          config = json.loads(Path('api/wrangler.jsonc').read_text())
+          environments = config['env']
+          assert set(environments) == {'production', 'preview'}
+          # The original local database is the only non-placeholder ID allowed.
+          assert config['d1_databases'][0]['database_id'] == '-'.join(['0' * n for n in (8, 4, 4, 4, 12)])
+          for name, env in environments.items():
+              assert set(env) == {'name', 'workers_dev', 'preview_urls', 'vars', 'd1_databases', 'durable_objects', 'migrations'}
+              assert env['name'] == f'nasvi-api-{name}'
+              assert env['workers_dev'] is False and env['preview_urls'] is False
+              assert env['vars'] == {
+                  'ENABLE_DEV_EMIT': 'false',
+                  'ACCESS_TEAM_DOMAIN': f'REPLACE_WITH_{name.upper()}_ACCESS_TEAM_DOMAIN',
+                  'ACCESS_AUD': f'REPLACE_WITH_{name.upper()}_ACCESS_AUD',
+              }
+              assert env['d1_databases'] == [{
+                  'binding': 'DB', 'database_name': f'nasvi-{name}',
+                  'database_id': f'REPLACE_WITH_{name.upper()}_D1_DATABASE_ID',
+                  'migrations_dir': 'migrations',
+              }]
+              assert env['durable_objects'] == {'bindings': [{'name': 'HUB', 'class_name': 'Hub'}]}
+              assert env['migrations'] == [{'tag': 'v1', 'new_sqlite_classes': ['Hub']}]
+
+          # Reject credentials/IDs anywhere in the configuration, including new keys.
+          def check_ids(value):
+              if isinstance(value, dict):
+                  for key, item in value.items():
+                      if re.search(r'token|secret|password|api_key', key, re.I):
+                          raise AssertionError('credential key in wrangler config')
+                      if key.endswith('_id') or key == 'ACCESS_AUD':
+                          assert isinstance(item, str)
+                          assert re.fullmatch(r'REPLACE_WITH_[A-Z0-9_]+', item) or (
+                              key == 'database_id' and item == config['d1_databases'][0]['database_id']
+                          )
+                      check_ids(item)
+              elif isinstance(value, list):
+                  for item in value:
+                      check_ids(item)
+          check_ids(config)
+          print('Environment, placeholder and SQLite Hub checks passed')
+          PY
+          # Scan documentation and workflow examples as well; never print a matched secret.
+          # The all-zero local database UUID is deliberately preserved from the base config.
+          test -f doc/deploy.md
+          test -f .github/workflows/deploy-config-check.yml
+          { grep -hEo '[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}|[[:xdigit:]]{32,}|[A-Za-z0-9_-]{40,}' \
+              api/wrangler.jsonc doc/deploy.md .github/workflows/deploy-config-check.yml || true; } \
+            | { grep -vE '^0{8}-0{4}-0{4}-0{4}-0{12}$|^REPLACE_WITH_[A-Z0-9_]+$' || true; } \
+            > "$RUNNER_TEMP/d01-literal-ids"
+          if [ -s "$RUNNER_TEMP/d01-literal-ids" ]; then
+            echo 'Unexpected ID/token-like literal in deployment files'
+            exit 1
+          fi
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.1
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: オフラインで依存を復元し両環境を dry-run
+        shell: bash
+        run: |
+          # Runner setup/cache restore above uses GitHub infrastructure. The checks
+          # below have no external network, no Cloudflare credentials and no deploy.
+          # Reuse the pnpm cache populated by ci.yml; fail on a cold/incomplete cache.
+          sudo unshare --net --setgid="$(id -g)" --setuid="$(id -u)" \
+            env -i PATH="$PATH" CI=true COREPACK_ENABLE_NETWORK=0 \
+              WRANGLER_SEND_METRICS=false \
+              XDG_CONFIG_HOME="$RUNNER_TEMP/d01-config" \
+              WRANGLER_LOG_PATH="$RUNNER_TEMP/d01-logs" \
+              D01_OUT="$RUNNER_TEMP/scratch-d01-out" \
+              D01_STORE="$(pnpm store path --silent)" \
+              "$(command -v bash)" --noprofile --norc <<'BASH'
+          set -euo pipefail
+          if ! pnpm install --offline --frozen-lockfile --ignore-scripts --store-dir "$D01_STORE"; then
+            echo 'Offline dependency restore failed. Populate the pnpm cache via the existing CI before retrying.'
+            exit 1
+          fi
+          for environment in production preview; do
+            pnpm --filter api exec wrangler deploy --dry-run \
+              --env "$environment" --outdir "$D01_OUT/$environment"
+            test -s "$D01_OUT/$environment/index.js"
+          done
+          BASH
