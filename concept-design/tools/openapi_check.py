@@ -9,6 +9,9 @@
   - 概念との対応: concepts.yaml の `Request.*` 同期ごとに、操作が対応しているか
       操作に `x-request: <要求名>` を付ける。対応させない要求は、トップレベルの
       `x-excluded-requests: {要求名: 理由}` に書く
+      概念の要求ではない操作(例: 建物の付属データの登録)には `x-no-request: 理由` を付ける。
+      概念の要求に対応する操作の中に、要求でない出来事(例: 配信の placeRemoved)が混ざるときは、
+      `x-non-request-events: {出来事名: 理由}` で宣言する。どれも、理由が空なら ERROR。説明文に書くだけでは、検査は通らない
   - 要確認: `x-needs-review: "API-n: 理由"` が台帳(review-ledger.yaml)の項目を指し、その項目が確定していないか。
       台帳が「確定」なのに印が残っている、「仮置き」なのに仮置きの内容がない、「確定」なのに決定者・日付がない、を検出する
   - 名前: 同じ語が userId と user_id のように揺れていないか。camelCase と snake_case が混在していないか
@@ -156,8 +159,25 @@ def check_coverage(doc, concepts_path):
     covered = {}
     for p, m, op in operations(doc):
         r = op.get("x-request")
+        nr = op.get("x-no-request")
+        ev = op.get("x-non-request-events")
+        if ev is not None:
+            if r is None:
+                err(f"{m.upper()} {p}: x-non-request-events は x-request と一緒に使う(概念の要求に対応する操作の中の、要求でない出来事を宣言する)")
+            if not isinstance(ev, dict) or not ev:
+                err(f"{m.upper()} {p}: x-non-request-events は {{出来事名: 理由}} の形で書く")
+            else:
+                for k, why in ev.items():
+                    if not str(why).strip():
+                        err(f"{m.upper()} {p}: x-non-request-events の `{k}` に理由がない")
+        if nr is not None:
+            if r is not None:
+                err(f"{m.upper()} {p}: x-request と x-no-request は同時に付けない")
+            elif not str(nr).strip():
+                err(f"{m.upper()} {p}: x-no-request に理由がない")
+            continue
         if r is None:
-            warn(f"{m.upper()} {p}: x-request がない(どの要求に対応するか分からない。画面にない操作を足していないか確認)")
+            warn(f"{m.upper()} {p}: x-request がない(どの要求に対応するか分からない。概念の要求でない操作なら、`x-no-request: 理由` を付ける)")
             continue
         if r not in reqs:
             err(f"{m.upper()} {p}: x-request `{r}` は concepts.yaml の Request.* にない")
