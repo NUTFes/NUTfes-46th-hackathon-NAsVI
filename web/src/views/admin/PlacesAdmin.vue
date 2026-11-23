@@ -5,7 +5,7 @@ import { useAdminFeedback } from '../../admin/feedback';
 import { adminTokens } from '../../admin/tokens';
 import type { components } from '../../api/generated/schema';
 import { usePlacesStore } from '../../stores/places';
-import type { Place, PlaceKind } from '../../types';
+import type { Label, Landmark, Place, PlaceKind } from '../../types';
 
 type PlaceInput = components['schemas']['PlaceInput'];
 const kinds: Record<PlaceKind, string> = {
@@ -16,6 +16,9 @@ const { reportError, clearError } = useAdminFeedback();
 const busy = ref(false);
 const loaded = ref(false);
 const message = ref('');
+const landmarks = ref<Landmark[]>([]);
+const labels = ref<Label[]>([]);
+const fieldErrors = ref<Record<string, string>>({});
 const editing = ref<Place | null>(null);
 const deleting = ref<Place | null>(null);
 const deleteDialog = ref<HTMLDialogElement>();
@@ -32,22 +35,75 @@ function emptyForm() {
 }
 const form = reactive(emptyForm());
 
-// datetime-local は操作する端末の時刻。API には UTC の ISO 8601 を送る。
-function localTime(iso: string) {
-  const date = new Date(iso);
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, -1);
+// 入力・表示は常に日本時間。端末のタイムゾーンは参照しない。
+const tokyoTime = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3, hourCycle: 'h23',
+});
+function japanTime(iso: string) {
+  const parts = Object.fromEntries(tokyoTime.formatToParts(new Date(iso)).map(part => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}.${parts.fractionalSecond}`;
 }
 
-async function run(action: () => Promise<void>) {
+function displayTime(iso: string) {
+  return japanTime(iso).slice(0, 16).replace('T', ' ');
+}
+
+function errorAttrs(field: string, helpId?: string) {
+  return {
+    'aria-invalid': fieldErrors.value[field] ? 'true' as const : undefined,
+    'aria-describedby': [helpId, fieldErrors.value[field] ? `place-${field}-error` : ''].filter(Boolean).join(' ') || undefined,
+  };
+}
+
+function buildingName(id: string) {
+  return landmarks.value.find(building => building.id === id)?.name ?? id;
+}
+
+function labelTitle(id: string) {
+  return labels.value.find(label => label.id === id)?.title ?? `未取得の種類 (${id})`;
+}
+
+function changeLandmark(event: Event) {
+  const select = event.target as HTMLSelectElement;
+  if (!select.value && form.floor !== '') {
+    fieldErrors.value = { floor: '建物を外すには、先に階の入力を消してください。' };
+    select.value = form.landmarkId;
+    return;
+  }
+  form.landmarkId = select.value;
+  fieldErrors.value = {};
+}
+
+async function refreshPlaces() {
+  const result = await adminGet('/places', { signal: controller.signal });
+  if (controller.signal.aborted) return;
+  places.setAll(result.items);
+}
+
+async function run(action: () => Promise<void>, refreshOnNotFound = false) {
   if (busy.value || controller.signal.aborted) return;
   busy.value = true;
   message.value = '';
+  fieldErrors.value = {};
   clearError();
   try {
     await action();
     if (!controller.signal.aborted) clearError();
   } catch (error) {
-    if (!controller.signal.aborted) reportError(error);
+    if (controller.signal.aborted) return;
+    reportError(error);
+    if (error instanceof ApiError && error.status === 400 && error.field) {
+      fieldErrors.value = { [error.field]: error.message };
+    }
+    if (refreshOnNotFound && error instanceof ApiError && error.status === 404) {
+      try {
+        await refreshPlaces();
+        if (!controller.signal.aborted) message.value = '対象の場所が見つかりません。一覧を再取得しました。入力内容を確認してください。';
+      } catch {
+        if (!controller.signal.aborted) message.value = '対象の場所が見つかりません。一覧の再取得にも失敗しました。再読み込みしてください。';
+      }
+    }
   } finally {
     if (!controller.signal.aborted) busy.value = false;
   }
@@ -55,9 +111,15 @@ async function run(action: () => Promise<void>) {
 
 function loadPlaces() {
   return run(async () => {
-    const result = await adminGet('/places', { signal: controller.signal });
+    const [result, buildings, categories] = await Promise.all([
+      adminGet('/places', { signal: controller.signal }),
+      adminGet('/landmarks', { signal: controller.signal }),
+      adminGet('/labels', { signal: controller.signal }),
+    ]);
     if (controller.signal.aborted) return;
     places.setAll(result.items);
+    landmarks.value = buildings.items;
+    labels.value = categories.items;
     loaded.value = true;
   });
 }
@@ -65,15 +127,17 @@ onMounted(loadPlaces);
 
 function resetForm() {
   editing.value = null;
+  fieldErrors.value = {};
   Object.assign(form, emptyForm());
 }
 
 async function editPlace(place: Place) {
   editing.value = place;
+  fieldErrors.value = {};
   Object.assign(form, {
     name: place.name, kind: place.kind, lat: String(place.location.lat), lng: String(place.location.lng),
     description: place.description, landmarkId: place.landmarkId ?? '', floor: place.floor?.toString() ?? '',
-    hours: place.hours.map(period => ({ start: localTime(period.start), end: localTime(period.end) })),
+    hours: place.hours.map(period => ({ start: japanTime(period.start), end: japanTime(period.end) })),
   });
   await nextTick();
   nameInput.value?.focus();
@@ -94,14 +158,16 @@ function readInput(): PlaceInput {
   const floor = landmarkId && form.floor !== '' ? Number(form.floor) : null;
   if (floor !== null && (!Number.isInteger(floor) || floor < -5 || floor > 20)) invalid('floor', '階は-5〜20の整数で入力してください');
   const hours = form.hours.map(period => {
-    const start = new Date(period.start);
-    const end = new Date(period.end);
-    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end < start) {
+    // datetime-local が秒を省略した場合も、API には秒付きの日時を送る。
+    const start = `${period.start.length === 16 ? `${period.start}:00` : period.start}+09:00`;
+    const end = `${period.end.length === 16 ? `${period.end}:00` : period.end}+09:00`;
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate < startDate) {
       invalid('hours', '開催時間の開始と終了を正しく入力してください');
     }
-    return { start: start.toISOString(), end: end.toISOString() };
+    return { start, end };
   });
-  if (new Set(hours.map(period => period.start)).size !== hours.length) invalid('hours', '開催時間の開始が重複しています');
   return { name: form.name, kind: form.kind, location: { lat, lng }, description: form.description, landmarkId, floor, hours };
 }
 
@@ -118,10 +184,10 @@ function savePlace() {
       if (input.location.lat !== current.location.lat || input.location.lng !== current.location.lng) patch.location = input.location;
       if (input.landmarkId !== current.landmarkId) patch.landmarkId = input.landmarkId;
       if (input.floor !== current.floor) patch.floor = input.floor;
-      const originalHours = current.hours.map(period => ({
+      const canonicalHours = (hours: Place['hours']) => hours.map(period => ({
         start: new Date(period.start).toISOString(), end: new Date(period.end).toISOString(),
       }));
-      if (JSON.stringify(input.hours) !== JSON.stringify(originalHours)) patch.hours = input.hours;
+      if (JSON.stringify(canonicalHours(input.hours ?? [])) !== JSON.stringify(canonicalHours(current.hours))) patch.hours = input.hours;
       if (!Object.keys(patch).length) {
         message.value = '変更はありません。';
         return;
@@ -136,7 +202,7 @@ function savePlace() {
     places.upsert(saved);
     resetForm();
     message.value = current ? '場所を更新しました。' : '場所を登録しました。';
-  });
+  }, true);
 }
 
 async function requestDelete(place: Place) {
@@ -169,7 +235,7 @@ function confirmDelete() {
     places.remove(target.id);
     if (editing.value?.id === target.id) resetForm();
     message.value = '場所を削除しました。';
-  });
+  }, true);
 }
 </script>
 
@@ -186,22 +252,27 @@ function confirmDelete() {
       <div v-if="loaded" class="table-scroll" role="region" aria-label="場所の表" tabindex="0">
         <table>
           <caption>登録済みの場所</caption>
-          <thead><tr><th scope="col">名前</th><th scope="col">種別</th><th scope="col">種類 (ID)</th><th scope="col">位置の状態</th><th scope="col">操作</th></tr></thead>
+          <thead><tr><th scope="col">名前</th><th scope="col">種別</th><th scope="col">種類</th><th scope="col">位置の状態</th><th scope="col">階</th><th scope="col">開催時間 (日本時間)</th><th scope="col">操作</th></tr></thead>
           <tbody>
             <tr v-for="place in places.items" :key="place.id">
               <th scope="row">{{ place.name }}</th>
               <td>{{ kinds[place.kind] }}</td>
-              <td>{{ place.labelIds.join('、') || 'なし' }}</td>
+              <td>{{ place.labelIds.map(labelTitle).join('、') || 'なし' }}</td>
               <td>
                 <div>緯度 {{ place.location.lat }} / 経度 {{ place.location.lng }}</div>
-                <div>{{ place.landmarkId ? `建物 ${place.landmarkId} / ${place.floor === null ? '階の指定なし' : `${place.floor}階`}` : '屋外' }}</div>
+                <div>{{ place.landmarkId ? `建物 ${buildingName(place.landmarkId)}` : '屋外' }}</div>
+              </td>
+              <td>{{ place.floor === null ? '階の指定なし' : `${place.floor}階` }}</td>
+              <td>
+                <div v-for="(period, index) in place.hours" :key="index">{{ displayTime(period.start) }} 〜 {{ displayTime(period.end) }}</div>
+                <span v-if="!place.hours.length">指定なし</span>
               </td>
               <td><div class="actions">
                 <button type="button" :disabled="locked" :aria-label="`${place.name}を編集`" @click="editPlace(place)">編集</button>
                 <button type="button" class="danger" :disabled="locked" :aria-label="`${place.name}を削除`" @click="requestDelete(place)">削除</button>
               </div></td>
             </tr>
-            <tr v-if="!places.items.length"><td colspan="5">場所はまだ登録されていません。</td></tr>
+            <tr v-if="!places.items.length"><td colspan="7">場所はまだ登録されていません。</td></tr>
           </tbody>
         </table>
       </div>
@@ -209,34 +280,47 @@ function confirmDelete() {
 
     <section aria-labelledby="place-form-title">
       <h3 id="place-form-title">{{ editing ? '場所の更新' : '場所の登録' }}</h3>
-      <form aria-labelledby="place-form-title" @submit.prevent="savePlace">
+      <p v-if="editing">同じ場所の同じ項目を複数人が更新すると、あとから送信した内容が残ります。</p>
+      <form aria-labelledby="place-form-title" novalidate @submit.prevent="savePlace">
         <fieldset :disabled="locked">
           <legend>場所の情報</legend>
           <label for="place-name">名前 (必須)</label>
-          <input id="place-name" ref="nameInput" v-model="form.name" required maxlength="50">
+          <input id="place-name" ref="nameInput" v-model="form.name" v-bind="errorAttrs('name')" required maxlength="50">
+          <p v-if="fieldErrors.name" id="place-name-error" class="field-error">{{ fieldErrors.name }}</p>
           <label for="place-kind">種別 (必須)</label>
-          <select id="place-kind" v-model="form.kind" :disabled="editing !== null" aria-describedby="kind-help">
+          <select id="place-kind" v-model="form.kind" v-bind="errorAttrs('kind', 'kind-help')" :disabled="editing !== null">
             <option v-for="(title, kind) in kinds" :key="kind" :value="kind">{{ title }}</option>
           </select>
           <p id="kind-help">種別を変える場合は、削除して新しく登録し直してください。</p>
+          <p v-if="fieldErrors.kind" id="place-kind-error" class="field-error">{{ fieldErrors.kind }}</p>
           <label for="place-lat">緯度 (必須)</label>
-          <input id="place-lat" v-model="form.lat" type="text" inputmode="decimal" required>
+          <input id="place-lat" v-model="form.lat" v-bind="errorAttrs('location')" type="text" inputmode="decimal" required>
           <label for="place-lng">経度 (必須)</label>
-          <input id="place-lng" v-model="form.lng" type="text" inputmode="decimal" required>
+          <input id="place-lng" v-model="form.lng" v-bind="errorAttrs('location')" type="text" inputmode="decimal" required>
+          <p v-if="fieldErrors.location" id="place-location-error" class="field-error">{{ fieldErrors.location }}</p>
           <label for="place-description">説明</label>
-          <textarea id="place-description" v-model="form.description" maxlength="500" />
-          <label for="place-landmark">建物 ID (屋外は空欄)</label>
-          <input id="place-landmark" v-model="form.landmarkId" @input="form.floor = ''">
+          <textarea id="place-description" v-model="form.description" v-bind="errorAttrs('description')" maxlength="500" />
+          <p v-if="fieldErrors.description" id="place-description-error" class="field-error">{{ fieldErrors.description }}</p>
+          <label for="place-landmark">建物 (屋外は「建物なし」)</label>
+          <select id="place-landmark" :value="form.landmarkId" v-bind="errorAttrs('landmarkId')" @change="changeLandmark">
+            <option value="">建物なし</option>
+            <option v-if="form.landmarkId && !landmarks.some(building => building.id === form.landmarkId)" :value="form.landmarkId" disabled>未取得の建物 ({{ form.landmarkId }})</option>
+            <option v-for="building in landmarks" :key="building.id" :value="building.id">{{ building.name }}</option>
+          </select>
+          <p v-if="fieldErrors.landmarkId" id="place-landmarkId-error" class="field-error">{{ fieldErrors.landmarkId }}</p>
           <label for="place-floor">階 (任意・地下は負の数)</label>
-          <input id="place-floor" v-model="form.floor" type="text" inputmode="numeric" :disabled="!form.landmarkId">
-          <fieldset>
+          <input id="place-floor" v-model="form.floor" v-bind="errorAttrs('floor', 'floor-help')" type="text" inputmode="numeric" :disabled="!form.landmarkId">
+          <p id="floor-help">建物を外す場合は、先に階を空欄にしてください。</p>
+          <p v-if="fieldErrors.floor" id="place-floor-error" class="field-error">{{ fieldErrors.floor }}</p>
+          <fieldset v-bind="errorAttrs('hours')">
             <legend>開催時間 (任意・複数可)</legend>
-            <p>この端末の現地時刻で入力してください。</p>
+            <p>日本時間 (Asia/Tokyo) で入力してください。開催時間がない場合は空のままにしてください。</p>
+            <p v-if="fieldErrors.hours" id="place-hours-error" class="field-error">{{ fieldErrors.hours }}</p>
             <div v-for="(period, index) in form.hours" :key="index" class="period">
               <label :for="`period-start-${index}`">開始 {{ index + 1 }}</label>
-              <input :id="`period-start-${index}`" v-model="period.start" type="datetime-local" step="any" required>
+              <input :id="`period-start-${index}`" v-model="period.start" v-bind="errorAttrs('hours')" type="datetime-local" step="any" required>
               <label :for="`period-end-${index}`">終了 {{ index + 1 }}</label>
-              <input :id="`period-end-${index}`" v-model="period.end" type="datetime-local" step="any" required>
+              <input :id="`period-end-${index}`" v-model="period.end" v-bind="errorAttrs('hours')" type="datetime-local" step="any" required>
               <button type="button" :aria-label="`開催時間${index + 1}を外す`" @click="form.hours.splice(index, 1)">この時間帯を外す</button>
             </div>
             <button type="button" @click="form.hours.push({ start: '', end: '' })">時間帯を追加</button>
@@ -300,6 +384,7 @@ input, select, textarea { width: 100%; }
 button { cursor: pointer; font-weight: var(--admin-bold); }
 button:disabled { cursor: default; }
 .danger { border-color: var(--admin-danger); background: var(--admin-danger-bg); color: var(--admin-danger-text); }
+.field-error { color: var(--admin-danger-text); }
 :is(button, input, select, textarea, .table-scroll):focus-visible { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
 dialog { padding: var(--admin-space-xl); border: thin solid var(--admin-border); border-radius: var(--admin-radius); background: var(--admin-surface); color: var(--admin-text); font: inherit; }
 dialog h3, dialog p, dialog ul { margin-block: var(--admin-space-md); }
