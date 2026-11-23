@@ -89,7 +89,9 @@ paths:
       x-request: registerPlace
       tags: [places]
       summary: 場所を登録する(運営)
-      description: 登録すると、検索の対象にもなる(設備は除く。D-027。同期 index-on-register)。
+      description: >-
+        登録すると、検索の対象にもなる(設備は除く。D-027。同期 index-on-register)。
+        登録したことは GET /changes で開いている画面に流す(placeAdded)。
       x-transaction: 場所の登録と検索への登録は、まとめて成功か失敗(API-1)
       security:
         - operatorAuth: []
@@ -186,7 +188,10 @@ paths:
       x-request: updatePlace
       tags: [places]
       summary: 場所を更新する(運営)
-      description: 渡した項目だけを更新する。同時に直したら、あとから送った方が残る(API-18)。名前を変えると、検索の対象も更新する(設備は除く。D-027。同期 reindex-on-update)。
+      description: >-
+        渡した項目だけを更新する。同時に直したら、あとから送った方が残る(API-18)。名前を変えると、検索の対象も更新する(設備は除く。D-027。同期 reindex-on-update)。
+        種別(kind)は変えられない(送ると 400)。変えたいときは、削除して、新しく登録し直す(設備が検索の索引に残らないようにするため。API-28)。
+        更新したことは GET /changes で開いている画面に流す(placeUpdated)。
       x-transaction: 場所の更新と検索の更新は、まとめて成功か失敗(API-2)
       security:
         - operatorAuth: []
@@ -474,21 +479,24 @@ paths:
       x-request: showStamps
       tags: [stamps, places]
       x-non-request-events:
+        placeAdded: 場所の登録の知らせ(概念の要求ではない)
+        placeUpdated: 場所の更新の知らせ(概念の要求ではない)
         placeRemoved: 場所の削除の知らせ(概念の要求ではない)
         appVersionChanged: 版が変わった知らせ(概念の要求ではない)
         resync: 続きの履歴が無いので、一覧を取り直す知らせ(概念の要求ではない)
-      summary: スタンプ・場所の削除・版の変更を、リアルタイムで受け取る(Server-Sent Events)
+      summary: スタンプ・場所の登録・更新・削除・版の変更を、リアルタイムで受け取る(Server-Sent Events)
       description: >-
         開いている間、スタンプが押された(stampPressed)・取り消された(stampRetracted)こと、
-        場所が削除された(placeRemoved)ことが流れてくる(API-24・API-25)。
+        場所が登録された(placeAdded)・更新された(placeUpdated)・削除された(placeRemoved)ことが流れてくる(API-24・API-25)。
         概念設計の要求 showStamps に対応するのは、stampPressed・stampRetracted だけ(x-request はこのため)。
-        placeRemoved と appVersionChanged は、概念の要求ではない配信(場所の削除の知らせと、版が変わった知らせ)。
+        placeAdded・placeUpdated・placeRemoved・appVersionChanged は、概念の要求ではない配信(場所の変更の知らせと、版が変わった知らせ)。
         最初に GET /stamps と GET /places で一覧を取り、そのあとはこの流れで差分を当てる。
         一覧の応答には cursor(その時点の版の番号)が付く。つなぐときに since=<cursor> を渡すと、その後の出来事から流れてくる(API-42)。
         各出来事には id(版の番号)が付く。切れたら、ブラウザが自動でつなぎ直し、最後に受け取った id を Last-Event-ID に載せて送る。サーバーは、その続きから送り直す。
         続きの履歴が、サーバーが持っている範囲に無いときは、resync を流す。端末は、一覧を取り直す(取りこぼしを埋める)。持つ範囲の長さは、サーバーの実装が決める。
         resync には id を付けない(版の番号を進めない。付けると、実在しない版で再接続する恐れがある)。
-        場所とスタンプの 2 つの一覧に付く cursor は、小さい方(古い方)を since に使う(取りこぼしを避けるため。出来事は、何度当てても同じ結果になる)。
+        resync を受けたら、端末は一覧(GET /places・GET /stamps)を取り直し、その新しい cursor で接続を開き直す(EventSource を作り直す)。つなぎ直しを自動に任せると、resync が繰り返される恐れがある。
+        場所とスタンプの 2 つの一覧に付く cursor(整数を文字列にしたもの)は、小さい方(古い方)を since に使う(取りこぼしを避けるため。出来事は、何度当てても同じ結果になる)。
         期限を過ぎたスタンプは流さない。端末が expiresAt を過ぎたら消す(API-38)。
         行き先にしていた場所の placeRemoved を受け取ったら、端末は案内を終える(API-5)。
         appVersionChanged を受け取ったら、画面は再読み込みを促す(破壊的変更をしたとき。API-20)。
@@ -498,14 +506,15 @@ paths:
         - name: since
           in: query
           required: false
-          description: 一覧の cursor。これより後の出来事から流す。無ければ、つないだ時点から流す。つなぎ直しは Last-Event-ID が優先される
+          x-needs-review: "API-42: 版の番号つきの取り込み(利用者の方針。仮置き)"
+          description: 一覧の cursor(整数を文字列にしたもの)。これより後の出来事から流す。無ければ、つないだ時点から流す。つなぎ直しは Last-Event-ID が優先される
           schema: {type: string}
           example: "120"
       responses:
         "200":
           description: >-
             出来事の流れ(text/event-stream)。各出来事は id 行(版の番号)、event 行、data 行(JSON)。
-            stampPressed の data は Stamp(proof は含まない)。stampRetracted と placeRemoved の data は {id}。
+            stampPressed の data は Stamp(proof は含まない)。placeAdded と placeUpdated の data は Place(全項目)。stampRetracted と placeRemoved の data は {id}。
             appVersionChanged の data は {version}(新しい版の文字列)。resync の data は空({})。
           content:
             text/event-stream:
@@ -521,10 +530,14 @@ paths:
                 data: {"id":"st_01"}
 
                 id: 123
+                event: placeUpdated
+                data: {"id":"pl_01","name":"焼きそば屋台","kind":"event","location":{"lat":37.4249,"lng":138.7781},"description":"2 年生の模擬店","landmarkId":null,"floor":null,"hours":[{"start":"2026-11-28T11:00:00+09:00","end":"2026-11-28T16:00:00+09:00"}],"labelIds":["lb_food"]}
+
+                id: 124
                 event: placeRemoved
                 data: {"id":"pl_07"}
 
-                id: 124
+                id: 125
                 event: appVersionChanged
                 data: {"version":"2026-11-23.2"}
 
@@ -585,6 +598,7 @@ paths:
         端末が建物を認識するために、建物の輪郭(footprint)を配る。端末は現在地・向き・輪郭から正面の建物を決める(D-018。現在地と向きは送らない)。
         輪郭の無い建物(footprint が null)も返す。カメラの正面には選ばれないが、一覧・見取り図・その棟の企画には使う(API-37)。
         運営の建物の画面(op_landmarks)も使う。
+        輪郭は OpenStreetMap のデータ(© OpenStreetMap contributors、ODbL)。出典の表示は、画面側が地図に出す(ワイヤーフレームの前提。API は出典の文字列を返さない)。
       x-needs-review: "API-33: 輪郭を API で配るか、端末に静的ファイルで同梱するか(OQ-16)"
       responses:
         "200":
@@ -849,6 +863,7 @@ paths:
       description: >-
         端末が認識した建物に付いている場所(landmarkId がその建物の場所)を返す(API-23)。
         屋外の企画は含まない(カメラに映っているので見えている)。
+        設備(案内所・トイレ・休憩所・ゴミ箱。kind が info・wc・rest・trash)は含めない(D-030。設備は地図の「表示する印」でだけ使う)。設備だけが付いた建物は、items が空になる。
         無ければ items は空(同期 show-no-events。画面は「この棟には企画がない」と出す)。
       responses:
         "200":
@@ -998,7 +1013,7 @@ components:
         landmarkId:
           type: [string, "null"]
           description: 場所がある建物の id。屋外の企画・駐車場は null(API-14)
-          x-needs-review: "API-14: 場所に建物と階を持たせる(利用者の意見。チームの合意待ち)"
+          x-needs-review: "API-14: 場所に建物と階を持たせる(仮置きの値のまま合意。実装のあと、合わなければ直す)"
         floor:
           type: [integer, "null"]
           description: 階(1 = 1 階、地下は負)。建物の外(landmarkId が null)なら必ず null。建物の中でも、階が無ければ null
@@ -1026,8 +1041,10 @@ components:
           items: {$ref: "#/components/schemas/Place"}
         cursor:
           type: string
+          x-needs-review: "API-42: 版の番号つきの取り込み(利用者の方針。仮置き)"
           description: >-
             この一覧を取った時点の版の番号(GET /places と GET /stamps だけが返す。検索などでは付かない)。
+            整数を文字列にしたもの(例: "120")。大小を比べられる。
             端末は /changes に since として渡して、この時点より後の出来事から受け取る(API-42)
     PlaceInput:
       type: object
@@ -1037,7 +1054,7 @@ components:
         kind: {$ref: "#/components/schemas/PlaceKind"}
         location: {$ref: "#/components/schemas/Point"}
         description: {type: string, maxLength: 500}
-        landmarkId: {type: [string, "null"], description: "場所がある建物の id。屋外・駐車場は null"}
+        landmarkId: {type: [string, "null"], description: "場所がある建物の id。屋外・駐車場は null。存在しない建物の id は 400(invalid_input、field は landmarkId)"}
         floor: {type: [integer, "null"], minimum: -5, maximum: 20, description: "階。landmarkId が null のときは null でなければならない(階は建物の中だけ)。違反は 400。建物があって階が無いのは許す(1 階建てなど)"}
         hours:
           type: array
@@ -1045,12 +1062,12 @@ components:
     PlacePatch:
       type: object
       minProperties: 1
+      description: 種別(kind)は変えられない。変えるときは、削除して、新しく登録し直す
       properties:
         name: {type: string, minLength: 1, maxLength: 50}
-        kind: {$ref: "#/components/schemas/PlaceKind"}
         location: {$ref: "#/components/schemas/Point"}
         description: {type: string, maxLength: 500}
-        landmarkId: {type: [string, "null"], description: "場所がある建物の id。屋外・駐車場は null"}
+        landmarkId: {type: [string, "null"], description: "場所がある建物の id。屋外・駐車場は null。存在しない建物の id は 400(invalid_input、field は landmarkId)"}
         floor: {type: [integer, "null"], minimum: -5, maximum: 20, description: "階。landmarkId が null のときは null でなければならない(階は建物の中だけ)。違反は 400。建物があって階が無いのは許す(1 階建てなど)"}
         hours:
           type: array
@@ -1119,7 +1136,8 @@ components:
           type: string
           x-needs-review: "API-42: 版の番号つきの取り込み(利用者の方針。仮置き)"
           description: >-
-            この一覧を取った時点の版の番号。端末は /changes に since として渡して、この時点より後の出来事から受け取る(API-42)
+            この一覧を取った時点の版の番号。整数を文字列にしたもの(例: "120")。大小を比べられる。
+            端末は /changes に since として渡して、この時点より後の出来事から受け取る(API-42)
     StampInput:
       type: object
       required: [kind, at]
@@ -1211,7 +1229,9 @@ components:
     Error:
       type: object
       required: [code, message]
-      description: エラーの形(API-15)
+      description: >-
+        エラーの形(API-15)。media type は application/problem+json だが、RFC 9457 の標準の項目(type・title・status・detail)は使わず、
+        独自の code・message・field を返す(標準の項目は省略できるので、形式としては誤りではない)。
       properties:
         code:
           type: string

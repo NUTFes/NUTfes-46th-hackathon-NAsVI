@@ -93,7 +93,7 @@ items:
     kind: 一覧取得
     content: >-
       絞り込み(D-012。検索結果にも効かせる)を、どこで行うか。
-      回答: 端末でまとめて絞る(案 A)。サーバーは GET /places?q= で検索だけを行い、各場所に labelIds(運営の種類)を付けて返す。
+      回答: 端末でまとめて絞る(案 A)。サーバーは GET /places/search?q= で検索だけを行い(パスは API-11 で /places/search に変わった)、各場所に labelIds(運営の種類)を付けて返す。
       運営の種類も自分用のタグも、絞り込みは端末で行う。API に絞り込みの引数は付けない。
       理由: 絞り込みの状態と自分用のタグが端末にあり(API-5・D-014)、処理を 1 か所にそろえられる。通信なしで切り替えられ、応答を使い回せる。
       経緯: いったん「運営の種類は API の引数で絞る」で確定したが、同日に見直した。
@@ -189,6 +189,7 @@ items:
       コード: 400 invalid_input・out_of_venue、401 unauthorized、403 not_stamp_owner、404 not_found・label_not_found、409 label_in_use・label_title_taken・landmark_in_use、
       413 payload_too_large、429 too_many_requests、500 internal_error、502 footprint_unavailable(API-34)。
       複数の項目が誤っていても、示すのは 1 項目だけ(まとめて出したい場面はあるが、今回は A で足りる。api/roadmap.md の 4)
+      追記(2026-11-23、利用者): application/problem+json の形は、このままにする(media type も項目も変えない)。RFC 9457 の標準の項目は使わず、独自の code・message・field を返す
     state: 確定
     placeholder: ""
     decided_by: sabo10p
@@ -290,7 +291,8 @@ items:
       API-14 で場所に landmarkId を足したので、「近く」でなく「landmarkId がその建物の場所」で返す案もある(OQ-10 の near が要らなくなる)。
       回答: 建物の id で出す(案 A)。landmarkId がその建物の場所を返す。
       理由: 屋外の模擬店は、カメラで映している時点で既に見えている(利用者)。
-      概念設計の同期 show-building-events・show-no-events の where は、D-024 で「建物の一致」に変わり、この API と合った(2026-11-23)。OQ-10 のうち near の範囲は要らなくなり、残るのは「迷っている」の判定だけ
+      設備(案内所・トイレ・休憩所・ゴミ箱)は含めない(D-030、2026-11-23。設備は地図の「表示する印」でだけ使う)。設備だけの建物は、items が空になる。
+      概念設計の同期 show-building-events・show-no-events の where は、D-024 で「建物の一致」に変わり、この API と合った(2026-11-23)。D-030 で、設備を除く条件も足された。OQ-10 のうち near の範囲は要らなくなり、残るのは「迷っている」の判定だけ
       利用者の意見: その棟の企画は建物の id で出し、「近く」(OQ-10 の near)は要らない(ゲート 2 の質問 7 の回答 A)。
     state: 確定
     placeholder: ""
@@ -319,8 +321,9 @@ items:
       → つなぎ直したときの取り直しは、API-42 で、続きだけ受け取る形に変えた(2026-11-23)。
       スタンプ以外も流すので、パスを /stamps/events から /changes に変えた(events は showBuildingEvents で「企画」の意味に使っているため避けた。AI の仮置き)。
       運営が止める営業停止は、場所の削除で表す(API-26)
+      追記(2026-11-23、利用者): 場所の登録・更新も流す(placeAdded・placeUpdated。data は Place の全項目)。当日に運営が開催時間などを直したとき、開いている画面が取り直さなくても反映されるようにするため
     state: 仮置き
-    placeholder: スタンプと場所の削除を流す(利用者の仮の回答 C)。パスは /changes。営業停止は場所の削除として扱う
+    placeholder: スタンプと、場所の登録・更新・削除を流す(利用者の仮の回答 C に、登録・更新を足した)。パスは /changes。営業停止は場所の削除として扱う
     decided_by: ""
     date: ""
     related_oq: OQ-4
@@ -355,6 +358,8 @@ items:
       回答(ゲート 3): 足す。ワイヤーフレームの案どおり、場所の種別(kind)に 案内所・トイレ・休憩所・ゴミ箱 を足し、運営が場所として登録する。
       設備は検索・絞り込みの対象にするか: ワイヤーフレームの案は「設備とスタンプは絞らない」。絞り込みは端末で行う(API-8)ので、API は変わらない。
       概念設計は、D-017 で Kind に設備 4 種を足し、D-027 で設備を検索に出さないと決めた(2026-11-23)
+      追記(2026-11-23、利用者): 種別(kind)は、登録後に変えられない(PATCH に kind を持たせない)。変えたいときは、削除して、新しく登録し直す。設備が検索の索引に残る状況を作らないため。
+      概念設計も、D-031(2026-11-23)で Place.update が kind を受け取らない形に合わせた
       利用者の意見: 設備を Place.kind に足す(ゲート 3 の回答)。Place.kind と種類の線引きは OQ-3 で、API の形には影響しない。
     state: 確定
     placeholder: ""
