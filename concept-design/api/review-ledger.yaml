@@ -316,6 +316,7 @@ items:
       利用者の仮の回答(2026-11-22): スタンプと、場所の削除を流す(案 C)。理由: 途中で営業停止になる場所があるため。
       出来事は stampPressed(Stamp。retractToken は含まない)・stampRetracted({id})・placeRemoved({id})。appVersionChanged({version})も流す(API-20)。
       期限を過ぎた混雑スタンプは流さず、端末が pressedAt から消す(→ API-38 で expiresAt から消すに変更)。つなぎ直したら GET /stamps と GET /places で取り直す(この 2 点も利用者が「このままでよい」と回答)。
+      → つなぎ直したときの取り直しは、API-42 で、続きだけ受け取る形に変えた(2026-11-23)。
       スタンプ以外も流すので、パスを /stamps/events から /changes に変えた(events は showBuildingEvents で「企画」の意味に使っているため避けた。AI の仮置き)。
       運営が止める営業停止は、場所の削除で表す(API-26)
     state: 仮置き
@@ -417,7 +418,7 @@ items:
     content: >-
       建物の輪郭(footprint)を、GET /landmarks で配るか、端末に静的ファイルで同梱するか(OQ-16)。いまの仕様は API で配る形
     state: 仮置き
-    placeholder: GET /landmarks の応答に footprint を入れて配る
+    placeholder: "GET /landmarks の応答に footprint を入れて配る。API 設計としては、この形で終了(2026-11-23、利用者)。キャッシュによる通信の最適化など、端末で行う処理の話は、次のステップに持ち越す"
     decided_by: ""
     date: ""
     related_oq: OQ-16
@@ -511,4 +512,17 @@ items:
     placeholder: ""
     decided_by: 利用者(D-028)
     date: "2026-11-23"
+    related_oq: ""
+  - id: API-42
+    kind: 状態遷移
+    content: >-
+      /changes(API-25)が切れたあとの取り込み。いまは、つなぎ直すたびに、一覧を全件取り直す(電波が弱いと通信量が問題になる、と利用者)。
+      回答(2026-11-23、利用者): 版の番号つきにする。一覧(GET /stamps・GET /places)に cursor を付け、/changes の各出来事に id を付ける。
+      つなぐときは since=<cursor>、つなぎ直しは Last-Event-ID で、その続きだけ受け取る。続きの履歴が無いときは resync を流し、端末が一覧を取り直す。
+      履歴を持つ範囲は「サーバーが持っている範囲」とし、時間や行数は仕様に書かない(実装が決める。行数で上限をつける案でよい)。
+      概念設計に影響しない配信の仕組み(概念の要求ではない。resync は x-non-request-events に入れた)。出来事は、同じものを何度当てても同じ結果になるようにする
+    state: 仮置き
+    placeholder: "cursor と出来事の id による、続きだけの取り込み。履歴の範囲はサーバーの実装。端末の処理(番号の保存・続きの取り込み)は、次のステップ"
+    decided_by: ""
+    date: ""
     related_oq: ""

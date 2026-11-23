@@ -79,6 +79,7 @@ paths:
                     hours:
                       - {start: "2026-11-28T11:00:00+09:00", end: "2026-11-28T15:00:00+09:00"}
                     labelIds: [lb_food]
+                cursor: "120"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -414,6 +415,7 @@ paths:
                     at: {lat: 37.4250, lng: 138.7783}
                     pressedAt: "2026-11-23T11:05:00+09:00"
                     expiresAt: "2026-11-23T11:35:00+09:00"
+                cursor: "120"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -474,6 +476,7 @@ paths:
       x-non-request-events:
         placeRemoved: 場所の削除の知らせ(概念の要求ではない)
         appVersionChanged: 版が変わった知らせ(概念の要求ではない)
+        resync: 続きの履歴が無いので、一覧を取り直す知らせ(概念の要求ではない)
       summary: スタンプ・場所の削除・版の変更を、リアルタイムで受け取る(Server-Sent Events)
       description: >-
         開いている間、スタンプが押された(stampPressed)・取り消された(stampRetracted)こと、
@@ -481,34 +484,51 @@ paths:
         概念設計の要求 showStamps に対応するのは、stampPressed・stampRetracted だけ(x-request はこのため)。
         placeRemoved と appVersionChanged は、概念の要求ではない配信(場所の削除の知らせと、版が変わった知らせ)。
         最初に GET /stamps と GET /places で一覧を取り、そのあとはこの流れで差分を当てる。
-        切れたら、ブラウザが自動でつなぎ直す。つなぎ直したら一覧を取り直す(取りこぼしを埋める)。
+        一覧の応答には cursor(その時点の版の番号)が付く。つなぐときに since=<cursor> を渡すと、その後の出来事から流れてくる(API-42)。
+        各出来事には id(版の番号)が付く。切れたら、ブラウザが自動でつなぎ直し、最後に受け取った id を Last-Event-ID に載せて送る。サーバーは、その続きから送り直す。
+        続きの履歴が、サーバーが持っている範囲に無いときは、resync を流す。端末は、一覧を取り直す(取りこぼしを埋める)。持つ範囲の長さは、サーバーの実装が決める。
         期限を過ぎたスタンプは流さない。端末が expiresAt を過ぎたら消す(API-38)。
         行き先にしていた場所の placeRemoved を受け取ったら、端末は案内を終える(API-5)。
         appVersionChanged を受け取ったら、画面は再読み込みを促す(破壊的変更をしたとき。API-20)。
         知らない出来事は無視する。サーバーは 30 秒ごとに空の合図(コメント行)を送り、接続を保つ(API-21)。
       x-needs-review: "API-25: 対象と流す出来事の形(利用者の仮の回答 C)"
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: 一覧の cursor。これより後の出来事から流す。無ければ、つないだ時点から流す。つなぎ直しは Last-Event-ID が優先される
+          schema: {type: string}
+          example: "120"
       responses:
         "200":
           description: >-
-            出来事の流れ(text/event-stream)。各出来事は event 行と data 行(JSON)。
+            出来事の流れ(text/event-stream)。各出来事は id 行(版の番号)、event 行、data 行(JSON)。
             stampPressed の data は Stamp(proof は含まない)。stampRetracted と placeRemoved の data は {id}。
-            appVersionChanged の data は {version}(新しい版の文字列)。
+            appVersionChanged の data は {version}(新しい版の文字列)。resync の data は空({})。
           content:
             text/event-stream:
               schema:
                 type: string
               example: |
+                id: 121
                 event: stampPressed
                 data: {"id":"st_02","kind":"food","at":{"lat":37.4251,"lng":138.7780},"pressedAt":"2026-11-23T11:06:00+09:00","expiresAt":"2026-11-23T17:00:00+09:00"}
 
+                id: 122
                 event: stampRetracted
                 data: {"id":"st_01"}
 
+                id: 123
                 event: placeRemoved
                 data: {"id":"pl_07"}
 
+                id: 124
                 event: appVersionChanged
                 data: {"version":"2026-11-23.2"}
+
+                id: 125
+                event: resync
+                data: {}
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -1000,6 +1020,11 @@ components:
         items:
           type: array
           items: {$ref: "#/components/schemas/Place"}
+        cursor:
+          type: string
+          description: >-
+            この一覧を取った時点の版の番号(GET /places と GET /stamps だけが返す。検索などでは付かない)。
+            端末は /changes に since として渡して、この時点より後の出来事から受け取る(API-42)
     PlaceInput:
       type: object
       required: [name, kind, location, description]
@@ -1086,6 +1111,11 @@ components:
         items:
           type: array
           items: {$ref: "#/components/schemas/Stamp"}
+        cursor:
+          type: string
+          x-needs-review: "API-42: 版の番号つきの取り込み(利用者の方針。仮置き)"
+          description: >-
+            この一覧を取った時点の版の番号。端末は /changes に since として渡して、この時点より後の出来事から受け取る(API-42)
     StampInput:
       type: object
       required: [kind, at]
