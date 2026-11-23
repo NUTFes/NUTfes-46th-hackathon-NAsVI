@@ -408,3 +408,19 @@ decisions:
       前提(崩れたら見直す条件): 登録後に種別を直したい要望が多いとき。
     status: resolved
     derived_from: API-28、D-027
+
+  - id: D-032
+    problem: 運営が場所に種類を付ける操作(Labeling.attach・detach)を、画面の操作の数にどう数えるか(op_places は上限 4 に達している)
+    options:
+      - 場所の登録・更新の一部として数え、上限 4 のままにする
+      - 上限を 5 に上げる
+      - Labeling.define を別の画面(種類の管理)に移す
+    adopted: 場所の登録・更新の一部として数える(上限 4 のまま)
+    reason: >-
+      利用者の決定(2026-11-23。デザインシステムの O1 を分けない判断と合わせて)。種類の付け外しは、場所の入力欄の中の「種類を選ぶ」欄で行い、
+      実際の操作の流れは 1 つのまま。上限の値も画面の数も変えない。デザインシステムは、この欄を CheckRow の再利用で作る(#23)。
+      screens.yaml では、op_places の register・update の注記に書き、actions には並べない(並べると 6 個で上限を超える)。
+      API は PUT・DELETE /places/{id}/labels/{labelId}。付ける・外すは冪等(API-41)。
+      前提(崩れたら見直す条件): 種類の付け外しを、場所の登録・更新と別の操作として見せたくなったとき。
+    status: resolved
+    derived_from: D-028、API-6・7、デザインシステムの O1
