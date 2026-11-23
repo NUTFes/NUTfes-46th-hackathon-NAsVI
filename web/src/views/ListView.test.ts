@@ -113,7 +113,7 @@ describe('一覧', () => {
     const wrapper = await render();
     expect(wrapper.get('h1').text()).toBe('一覧');
     expect(wrapper.get('.place-view__count').text()).toBe('4 件');
-    const row = wrapper.getComponent('[data-place-id="cards"]');
+    const row = wrapper.getComponent<typeof PlaceRow>('[data-place-id="cards"]');
     expect(row.props()).toMatchObject({
       placeId: 'cards', name: 'カード体験会', kindLabel: '体験', building: '図書館棟', floor: '2階',
       distanceM: undefined, tags: { wantToGo: false, favorite: false },
@@ -139,7 +139,7 @@ describe('一覧', () => {
     expect(wrapper.text()).toContain('更新した企画');
     expect(wrapper.text()).not.toContain('カード屋台');
     expect(wrapper.get('.place-view__count').text()).toBe('3 件');
-    const row = wrapper.getComponent('[data-place-id="cards"]');
+    const row = wrapper.getComponent<typeof PlaceRow>('[data-place-id="cards"]');
     expect(row.props()).toMatchObject({ kindLabel: '企画', building: '建物情報なし', floor: '0階' });
   });
 
@@ -206,6 +206,11 @@ describe('一覧', () => {
     usePlacesStore(pinia).setAll([fixtures[0]]);
     await storage.filter.save({ labelIds: [], tagIds: ['favorite'] });
     const wrapper = await render();
+    expect(wrapper.getComponent({ name: 'EmptyState' }).props()).toMatchObject({
+      title: 'この種類の場所はありません',
+      body: '条件を変えると、見つかることがあります。',
+      actions: [{ label: '絞り込みを解除して探す', disabled: false }],
+    });
     expect(wrapper.getComponent(FilterBand).props('count')).toBe(0);
     expect(wrapper.get('.filter-band__hint').text()).toContain('お気に入りはまだありません');
     expect(wrapper.get('.place-view__empty').text()).toContain('この種類の場所はありません');
@@ -215,6 +220,9 @@ describe('一覧', () => {
     usePlacesStore(pinia).setAll([]);
     await flushPromises();
     expect(wrapper.get('.place-view__empty h2').text()).toBe('場所はまだありません');
+    expect(wrapper.getComponent({ name: 'EmptyState' }).props()).toMatchObject({
+      title: '場所はまだありません', actions: [],
+    });
     expect(wrapper.find('.place-view__empty button').exists()).toBe(false);
   });
 

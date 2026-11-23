@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, watch, type PropType } from 'vue';
+import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router';
 import FilterBand from '../components/FilterBand.vue';
 import FilterChips from '../components/FilterChips.vue';
 import PlaceRow from '../components/PlaceRow.vue';
@@ -11,6 +11,26 @@ import { getStorage, type StorageRepositories, type TagLink } from '../storage';
 import { useLabelsStore, useLandmarksStore, usePlacesStore } from '../stores';
 import type { Destination, FilterState, MyTag, Place, PlaceKind } from '../types';
 import '../../../design-system/claude-design/tokens.css';
+
+type EmptyAction = { label: string; onClick?: () => unknown; to?: RouteLocationRaw; disabled?: boolean };
+// design-system/components/EmptyState.md の title・body・actions に合わせる。
+// 既存の実装がないため担当ファイル内に置き、検索と一覧で共用する。
+const EmptyState = defineComponent({
+  name: 'EmptyState',
+  props: {
+    title: { type: String, required: true },
+    body: String,
+    actions: { type: Array as PropType<EmptyAction[]>, default: () => [] },
+  },
+  setup: props => () => h('section', { class: 'place-view__empty', 'aria-label': '場所が見つからないとき' }, [
+    h('span', { 'aria-hidden': 'true' }, '⌕'),
+    h('h2', props.title),
+    props.body ? h('p', props.body) : null,
+    ...props.actions.map(action => action.to
+      ? h(RouterLink, { key: action.label, to: action.to }, () => action.label)
+      : h('button', { key: action.label, type: 'button', disabled: action.disabled, onClick: action.onClick }, action.label)),
+  ]),
+});
 
 // SearchView と一覧でデータ・絞り込み・表示用 props の組み立てを共用する。
 const props = withDefaults(defineProps<{ searchMode?: boolean }>(), { searchMode: false });
@@ -182,6 +202,15 @@ const emptyTitle = computed(() => word.value
   ? `『${word.value}』に一致する企画・場所はありません`
   : props.searchMode ? '企画・場所の名前を入力してください'
     : activeLabels.value.length ? 'この種類の場所はありません' : '場所はまだありません');
+const emptyBody = computed(() => activeLabels.value.length
+  ? '条件を変えると、見つかることがあります。'
+  : word.value ? props.searchMode ? '別の言葉を入力するか、一覧から探してください。' : '別の言葉を入力して探してください。'
+    : props.searchMode ? '名前の一部を入力して探せます。' : '場所が登録されると、ここに表示されます。');
+const emptyActions = computed<EmptyAction[]>(() => [
+  ...(activeLabels.value.length ? [{ label: '絞り込みを解除して探す', onClick: clearFilter, disabled: busy.value }] : []),
+  ...(word.value ? [{ label: '別の言葉で探す', onClick: clearKeyword }] : []),
+  ...(props.searchMode ? [{ label: '一覧から探す', to: { name: 'list' } }] : []),
+]);
 const emptyHint = computed(() => {
   const hasTag = (tagId: string) => tagLinks.value.some(link => link.tagId === tagId
     && places.items.some(place => place.id === link.placeId));
@@ -280,13 +309,7 @@ function clearKeyword() {
           />
         </li>
       </ul>
-      <section v-else class="place-view__empty" aria-label="場所が見つからないとき">
-        <h2>{{ emptyTitle }}</h2>
-        <p v-if="activeLabels.length">条件を変えると、見つかることがあります。</p>
-        <button v-if="activeLabels.length" type="button" :disabled="busy" @click="clearFilter">絞り込みを解除して探す</button>
-        <button v-if="word" type="button" @click="clearKeyword">別の言葉で探す</button>
-        <RouterLink v-if="searchMode" :to="{ name: 'list' }">一覧から探す</RouterLink>
-      </section>
+      <EmptyState v-else :title="emptyTitle" :body="emptyBody" :actions="emptyActions" />
     </template>
   </main>
 </template>
@@ -303,7 +326,7 @@ function clearKeyword() {
   line-height: var(--view-line);
   font-weight: var(--view-weight);
 }
-.place-view h1, .place-view h2 { margin: 0 0 var(--view-padding); font-size: var(--view-heading-size); line-height: var(--view-heading-line); font-weight: var(--view-heading-weight); }
+.place-view h1, .place-view__empty :deep(h2) { margin: 0 0 var(--view-padding); font-size: var(--view-heading-size); line-height: var(--view-heading-line); font-weight: var(--view-heading-weight); }
 .place-view__search { display: flex; align-items: end; gap: var(--view-gap); }
 .place-view__search-label { display: grid; gap: var(--view-gap); flex: 1; min-width: 0; }
 .place-view input {
@@ -328,9 +351,9 @@ function clearKeyword() {
 .place-view__count { margin-block: var(--view-padding); }
 .place-view__rows { padding: 0; margin: 0; list-style: none; }
 .place-view__empty { display: grid; gap: var(--view-gap); padding: var(--view-padding); border-radius: var(--view-radius); background: var(--view-surface); }
-.place-view__empty h2, .place-view__empty p { margin: 0; overflow-wrap: anywhere; }
-.place-view__empty p { color: var(--view-muted); }
-.place-view button, .place-view__empty a {
+.place-view__empty :deep(h2), .place-view__empty :deep(p) { margin: 0; overflow-wrap: anywhere; }
+.place-view__empty :deep(p) { color: var(--view-muted); }
+.place-view button, .place-view__empty :deep(button), .place-view__empty :deep(a) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -346,6 +369,6 @@ function clearKeyword() {
   text-decoration: none;
   cursor: pointer;
 }
-.place-view button:focus-visible, .place-view__empty a:focus-visible { outline: 2px solid var(--view-action); outline-offset: 2px; }
+.place-view button:focus-visible, .place-view__empty :deep(button:focus-visible), .place-view__empty :deep(a:focus-visible) { outline: 2px solid var(--view-action); outline-offset: 2px; }
 .place-view__error { padding: var(--view-padding); background: var(--view-danger-bg); color: var(--view-danger); border-radius: var(--view-radius); }
 </style>

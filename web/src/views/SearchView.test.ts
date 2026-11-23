@@ -275,6 +275,16 @@ describe('検索結果', () => {
   it('絞り込みによる一致なしでは解除を先頭に示し、検索語を保って再検索できる', async () => {
     await storage.filter.save({ labelIds: [], tagIds: ['favorite'] });
     const wrapper = await render();
+    const empty = wrapper.getComponent({ name: 'EmptyState' });
+    expect(empty.props()).toMatchObject({
+      title: '『カード』に一致する企画・場所はありません',
+      body: '条件を変えると、見つかることがあります。',
+      actions: [
+        { label: '絞り込みを解除して探す', disabled: false },
+        { label: '別の言葉で探す' },
+        { label: '一覧から探す', to: { name: 'list' } },
+      ],
+    });
     expect(wrapper.get('.place-view__empty h2').text()).toBe('『カード』に一致する企画・場所はありません');
     expect(wrapper.get('.place-view__count').text()).toBe('『カード』の検索結果・0 件');
     const actions = wrapper.get('.place-view__empty').findAll('button, a');
