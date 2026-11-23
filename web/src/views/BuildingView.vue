@@ -16,11 +16,11 @@ const events = computed(() => places.items.filter((place) =>
 const floors = computed(() => {
   const numbers = new Set(building.value?.floors.map((plan) => plan.floor) ?? []);
   for (const place of events.value) {
-    if (place.floor !== null) numbers.add(place.floor);
+    numbers.add(place.floor ?? 1);
   }
   return [...numbers].sort((a, b) => a - b).map((floor) => ({
     floor,
-    count: events.value.filter((place) => place.floor === floor).length,
+    count: events.value.filter((place) => (place.floor ?? 1) === floor).length,
   }));
 });
 const selection = ref<{ buildingId: string; floor: number }>();
@@ -32,7 +32,7 @@ const currentFloor = computed(() => {
   return floors.value.find((item) => item.floor === 1)?.floor ?? floors.value[0]?.floor;
 });
 const plan = computed(() => building.value?.floors.find((item) => item.floor === currentFloor.value));
-const currentPlaces = computed(() => events.value.filter((place) => place.floor === currentFloor.value));
+const currentPlaces = computed(() => events.value.filter((place) => (place.floor ?? 1) === currentFloor.value));
 const otherFloors = computed(() => floors.value.filter((item) => item.count > 0 && item.floor !== currentFloor.value));
 
 function floorLabel(floor: number) {
@@ -70,7 +70,7 @@ function openPlace(id: string) {
       <section class="building__events" aria-label="この階の企画">
         <h2 v-if="currentFloor !== undefined">{{ floorLabel(currentFloor) }}の企画 {{ currentPlaces.length }} 件</h2>
         <div v-if="currentPlaces.length === 0" class="building__empty">
-          <h2>この階に企画はありません</h2>
+          <h2>{{ events.length === 0 ? 'この建物には企画がありません' : 'この階に企画はありません' }}</h2>
           <p v-if="otherFloors.length">企画のある階を選んでください。</p>
           <div v-if="otherFloors.length" class="building__suggestions">
             <button
@@ -93,7 +93,7 @@ function openPlace(id: string) {
         </ul>
       </section>
     </template>
-    <h1 v-else>建物が見つかりません</h1>
+    <!-- ストアは未取得と該当なしを区別できないため、建物を参照できるまで空にする。 -->
   </main>
 </template>
 

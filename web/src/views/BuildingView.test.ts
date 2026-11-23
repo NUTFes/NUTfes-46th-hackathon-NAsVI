@@ -68,11 +68,16 @@ describe('BuildingView', () => {
     expect(wrapper.get('h1').text()).toBe(building.name);
     const buttons = wrapper.findAll('nav button');
     expect(buttons.map((button) => button.attributes('aria-label'))).toEqual([
-      '地下1階、企画 1 件', '1階、企画 1 件', '2階、企画 2 件', '3階、企画 1 件', '4階、企画 0 件',
+      '地下1階、企画 1 件', '1階、企画 2 件', '2階、企画 2 件', '3階、企画 1 件', '4階、企画 0 件',
     ]);
-    expect(wrapper.get('nav [aria-pressed="true"]').attributes('aria-label')).toBe('1階、企画 1 件');
+    expect(wrapper.get('nav [aria-pressed="true"]').attributes('aria-label')).toBe('1階、企画 2 件');
     expect(buttons[4].text()).toBe('4階');
-    expect(wrapper.get('li').text()).toContain('企画 1f');
+    expect(wrapper.findAll('li').map((row) => row.text())).toEqual([
+      '企画 1f企画 · 図書館棟 · 1階', '企画 no-floor企画 · 図書館棟 · 1階',
+    ]);
+    expect(wrapper.get('.building__events h2').text()).toBe('1階の企画 2 件');
+    expect(wrapper.findAll('[role="button"]').map((marker) => marker.attributes('aria-label')))
+      .toEqual(['企画 1f', '企画 no-floor']);
     expect(wrapper.get('path').attributes('d')).toBe(floorPlan(1).plan.d);
   });
 
@@ -113,12 +118,44 @@ describe('BuildingView', () => {
     expect(wrapper.get('li').text()).toContain('企画 3f');
   });
 
-  it('建物が無いときはその旨を表示する', async () => {
+  it('建物を参照できないときは未取得と区別できないので見つからないと断定しない', async () => {
     const { wrapper } = await render('missing');
-    expect(wrapper.get('h1').text()).toBe('建物が見つかりません');
+    expect(wrapper.text()).toBe('');
     expect(wrapper.find('svg').exists()).toBe(false);
     expect(wrapper.find('nav').exists()).toBe(false);
     expect(wrapper.find('li').exists()).toBe(false);
+  });
+
+  it('取得前にエラーや企画なしを出さず、遅れて取得した建物と企画を表示する', async () => {
+    useLandmarksStore().$reset();
+    usePlacesStore().$reset();
+    const { wrapper } = await render();
+    expect(wrapper.text()).toBe('');
+    useLandmarksStore().setAll([building]);
+    usePlacesStore().setAll([event('late', null)]);
+    await nextTick();
+    expect(wrapper.get('h1').text()).toBe(building.name);
+    expect(wrapper.get('nav [aria-pressed="true"]').attributes('aria-label')).toBe('1階、企画 1 件');
+    expect(wrapper.get('li').text()).toContain('企画 late');
+    expect(wrapper.text()).not.toContain('企画がありません');
+  });
+
+  it('見取り図の階が空でも、階がnullの企画を1階のタブ・一覧・件数に表示する', async () => {
+    useLandmarksStore().setAll([{ ...building, floors: [] }]);
+    usePlacesStore().setAll([
+      event('no-floor', null),
+      { ...event('outside', null), landmarkId: null },
+      { ...event('other', null), landmarkId: 'other' },
+      { ...event('wc', null), kind: 'wc' },
+    ]);
+    const { wrapper } = await render();
+    expect(wrapper.findAll('nav button')).toHaveLength(1);
+    expect(wrapper.get('nav [aria-pressed="true"]').attributes('aria-label')).toBe('1階、企画 1 件');
+    expect(wrapper.get('.building__events h2').text()).toBe('1階の企画 1 件');
+    expect(wrapper.findAll('li').map((row) => row.text())).toEqual(['企画 no-floor企画 · 図書館棟 · 1階']);
+    expect(wrapper.text()).toContain('この階の見取り図はありません');
+    expect(wrapper.find('.building__empty').exists()).toBe(false);
+    expect(wrapper.find('svg').exists()).toBe(false);
   });
 
   it.each(['li button', 'circle[role="button"]'])('%s を押すと場所のカードへ遷移する', async (selector) => {
@@ -141,7 +178,8 @@ describe('BuildingView', () => {
   it('企画が建物全体に無ければ案内ボタンを出さない', async () => {
     usePlacesStore().setAll(facilities);
     const { wrapper } = await render();
-    expect(wrapper.text()).toContain('この階に企画はありません');
+    expect(wrapper.text()).toContain('この建物には企画がありません');
+    expect(wrapper.text()).not.toContain('この階に企画はありません');
     expect(wrapper.find('.building__suggestions').exists()).toBe(false);
     expect(wrapper.findAll('nav button')).toHaveLength(4);
   });
@@ -150,7 +188,8 @@ describe('BuildingView', () => {
     useLandmarksStore().setAll([{ ...building, floors: [] }]);
     usePlacesStore().setAll([]);
     const { wrapper } = await render();
-    expect(wrapper.text()).toContain('この階に企画はありません');
+    expect(wrapper.text()).toContain('この建物には企画がありません');
+    expect(wrapper.text()).not.toContain('この階に企画はありません');
     expect(wrapper.text()).toContain('この階の見取り図はありません');
     expect(wrapper.find('svg').exists()).toBe(false);
     expect(wrapper.text()).not.toContain('undefined');
