@@ -269,6 +269,24 @@ describe('IndexedDB schema and lifecycle', () => {
   });
 });
 
+describe('validation and pruning', () => {
+  it.each([false, true])('validates destination/filter references and prunes expired proofs (memory=%s)', async memory => {
+    const storage = await createStorage({ memory });
+    instances.push(storage);
+    await expect(storage.filter.save({ labelIds: [], tagIds: ['missing'] })).rejects.toThrow();
+    await storage.filter.save({ labelIds: [], tagIds: ['favorite'] });
+    expect(await storage.filter.get()).toEqual({ labelIds: [], tagIds: ['favorite'] });
+    await storage.cache.save('places', { items: [place], cursor: '1' });
+    await expect(storage.destination.save({ placeId: 'missing' })).rejects.toThrow();
+    await storage.destination.save({ placeId: place.id });
+    expect(await storage.destination.get()).toEqual({ placeId: place.id });
+    await storage.proofs.save({ stampId: 'old', proof: 'a', expiresAt: '2026-11-24T01:00:00Z' });
+    await storage.proofs.save({ stampId: 'new', proof: 'b', expiresAt: '2026-11-24T09:00:00Z' });
+    expect(await storage.proofs.pruneExpired(Date.parse('2026-11-24T05:00:00Z'))).toBe(1);
+    expect((await storage.proofs.list()).map(p => p.stampId)).toEqual(['new']);
+  });
+});
+
 describe('fallback', () => {
   it('works when IndexedDB is absent', async () => {
     vi.stubGlobal('indexedDB', undefined);
@@ -302,7 +320,7 @@ describe('fallback', () => {
     expect(await storage.tags.list()).toHaveLength(2);
   });
 
-  it('times out blocked opens, and aborts the upgrade after the blocking tab closes', async () => {
+  it('times out blocked opens, then moves memory contents into the late-opened database and announces it', async () => {
     const blocker = await new Promise<IDBDatabase>((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION + 1);
       req.onsuccess = () => resolve(req.result);
@@ -316,9 +334,42 @@ describe('fallback', () => {
     const storage = await createStorage({ openTimeoutMs: 10 });
     instances.push(storage);
     expect(storage.mode).toBe('memory');
+    const modes: string[] = [];
+    const lost = vi.fn();
+    storage.onModeChange(mode => modes.push(mode));
+    storage.onWriteNotPersisted(lost);
+    await storage.tags.save(custom);
+    expect(lost).toHaveBeenCalledTimes(1);
+    await storage.tags.list();
+    expect(lost).toHaveBeenCalledTimes(1);
     blocker.close();
     await deleting;
-    // deleteDatabase in cleanup is queued after the late open request as well.
+    await vi.waitFor(() => expect(modes).toEqual(['indexeddb']));
+    expect(storage.mode).toBe('indexeddb');
+    expect(await storage.tags.get(custom.id)).toEqual(custom);
+    await storage.close();
+    const reopened = await open();
+    expect(reopened.mode).toBe('indexeddb');
+    expect(await reopened.tags.get(custom.id)).toEqual(custom);
+  });
+
+  it('announces a fallback to memory and stops announcing after unsubscribe', async () => {
+    const storage = await open();
+    const modes: string[] = [];
+    const lost = vi.fn();
+    const off = storage.onModeChange(mode => modes.push(mode));
+    storage.onWriteNotPersisted(lost);
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementationOnce(() => {
+      throw new DOMException('Full', 'QuotaExceededError');
+    });
+    await storage.meta.save('k', 1);
+    put.mockRestore();
+    expect(modes).toEqual(['memory']);
+    expect(lost).toHaveBeenCalledTimes(1);
+    off();
+    await storage.meta.save('k', 2);
+    expect(modes).toEqual(['memory']);
+    expect(lost).toHaveBeenCalledTimes(2);
   });
 
   it('falls back after a write failure and keeps previously loaded records', async () => {

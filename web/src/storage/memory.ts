@@ -26,6 +26,11 @@ export class MemoryStorage implements StorageTransaction {
     this.records.get(store)!.delete(JSON.stringify(key));
   }
 
+  entries<K extends StoreName>(store: K): [StorageKeys[K], StorageValues[K]][] {
+    return [...this.records.get(store)!].map(([key, value]) =>
+      [JSON.parse(key), structuredClone(value)] as [StorageKeys[K], StorageValues[K]]);
+  }
+
   replace<K extends StoreName>(store: K, keys: StorageKeys[K][], values: StorageValues[K][]): void {
     this.records.set(store, new Map(keys.map((key, i) => [JSON.stringify(key), structuredClone(values[i])])));
   }

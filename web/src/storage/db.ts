@@ -28,24 +28,16 @@ function completed(tx: IDBTransaction): Promise<void> {
   return done;
 }
 
-function openDatabase(timeoutMs: number): Promise<IDBDatabase> {
+function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      settled = true;
-      reject(new DOMException('Opening storage timed out', 'TimeoutError'));
-    }, timeoutMs);
     let opening: IDBOpenDBRequest;
     try {
       opening = globalThis.indexedDB.open(DB_NAME, DB_VERSION);
     } catch (error) {
-      clearTimeout(timer);
       reject(error);
       return;
     }
     opening.onupgradeneeded = () => {
-      // A late request must not create an unused database after memory fallback.
-      if (settled) { opening.transaction?.abort(); return; }
       const db = opening.result;
       db.createObjectStore('tags', { keyPath: 'id' });
       db.createObjectStore('tagLinks', { keyPath: ['placeId', 'tagId'] });
@@ -56,18 +48,11 @@ function openDatabase(timeoutMs: number): Promise<IDBDatabase> {
       db.createObjectStore('meta');
     };
     opening.onsuccess = () => {
-      clearTimeout(timer);
-      if (settled) { opening.result.close(); return; }
-      settled = true;
       const db = opening.result;
       db.onversionchange = () => db.close();
       resolve(db);
     };
-    opening.onerror = () => {
-      clearTimeout(timer);
-      settled = true;
-      reject(opening.error);
-    };
+    opening.onerror = () => reject(opening.error);
   });
 }
 
@@ -88,24 +73,98 @@ export class StorageDatabase {
 
   static async open(options: StorageOptions = {}): Promise<StorageDatabase> {
     if (options.memory) return new StorageDatabase();
-    let db: IDBDatabase | undefined;
+    let pending: Promise<IDBDatabase>;
     try {
-      db = await openDatabase(options.openTimeoutMs ?? 1000);
-      const result = new StorageDatabase(db);
-      const tx = db.transaction([...STORE_NAMES], 'readonly');
-      const done = completed(tx);
-      // Warm the fallback snapshot, including records saved in earlier sessions.
-      await Promise.all(STORE_NAMES.map(async store => {
-        const objectStore = tx.objectStore(store);
-        const [keys, values] = await Promise.all([request(objectStore.getAllKeys()), request(objectStore.getAll())]);
-        result.memory.replace(store, keys as StorageKeys[typeof store][], values);
-      }));
-      await done;
-      return result;
+      pending = openDatabase();
     } catch {
-      db?.close();
       return new StorageDatabase();
     }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = Symbol('timeout');
+    const timeout = new Promise<typeof timedOut>(resolve => {
+      timer = setTimeout(() => resolve(timedOut), options.openTimeoutMs ?? 1000);
+    });
+    let outcome: IDBDatabase | typeof timedOut | undefined;
+    try {
+      outcome = await Promise.race([pending, timeout]);
+    } catch {
+      return new StorageDatabase();
+    } finally {
+      clearTimeout(timer);
+    }
+    if (outcome === timedOut) {
+      // Start in memory now; if the database opens later, move memory contents into it and announce it.
+      const result = new StorageDatabase();
+      pending.then(db => result.adopt(db), () => {});
+      return result;
+    }
+    const db = outcome!;
+    try {
+      const result = new StorageDatabase(db);
+      await result.warm();
+      return result;
+    } catch {
+      db.close();
+      return new StorageDatabase();
+    }
+  }
+
+  private async warm(): Promise<void> {
+    const tx = this.db!.transaction([...STORE_NAMES], 'readonly');
+    const done = completed(tx);
+    // Warm the fallback snapshot, including records saved in earlier sessions.
+    await Promise.all(STORE_NAMES.map(async store => {
+      const objectStore = tx.objectStore(store);
+      const [keys, values] = await Promise.all([request(objectStore.getAllKeys()), request(objectStore.getAll())]);
+      this.memory.replace(store, keys as StorageKeys[typeof store][], values);
+    }));
+    await done;
+  }
+
+  /** Late-opened database: memory contents win over stored ones, then the database becomes the backend. */
+  private adopt(db: IDBDatabase): Promise<void> {
+    const task = this.queue.then(async () => {
+      if (this.closed || this.db) { db.close(); return; }
+      this.db = db;
+      try {
+        await this.persistent('readwrite', async tx => {
+          for (const store of STORE_NAMES) {
+            for (const [key, value] of this.memory.entries(store)) await tx.put(store, key as never, value as never);
+          }
+        });
+        await this.persistent('readonly', async tx => { for (const store of STORE_NAMES) await tx.all(store); });
+      } catch {
+        this.db.close();
+        this.db = undefined;
+        return;
+      }
+      this.emitMode();
+    });
+    this.queue = task.catch(() => {});
+    return task;
+  }
+
+  private modeListeners = new Set<(mode: 'indexeddb' | 'memory') => void>();
+  private lostListeners = new Set<() => void>();
+
+  /** Subscribe to backend changes (fallback to memory, or a late-opened database taking over). */
+  onModeChange(cb: (mode: 'indexeddb' | 'memory') => void): () => void {
+    this.modeListeners.add(cb);
+    return () => { this.modeListeners.delete(cb); };
+  }
+
+  /** Called after a write that was kept only in memory (lost on reload unless a late database adopts it). */
+  onWriteNotPersisted(cb: () => void): () => void {
+    this.lostListeners.add(cb);
+    return () => { this.lostListeners.delete(cb); };
+  }
+
+  private emitMode(): void {
+    for (const cb of [...this.modeListeners]) { try { cb(this.mode); } catch { /* listener errors are not ours */ } }
+  }
+
+  private emitLost(): void {
+    for (const cb of [...this.lostListeners]) { try { cb(); } catch { /* ditto */ } }
   }
 
   get mode(): 'indexeddb' | 'memory' { return this.db ? 'indexeddb' : 'memory'; }
@@ -121,11 +180,13 @@ export class StorageDatabase {
           if (!unavailable(error)) throw error;
           this.db.close();
           this.db = undefined;
+          this.emitMode();
         }
       }
       const snapshot = new MemoryStorage(this.memory);
       const result = await action(snapshot);
       this.memory = snapshot;
+      if (mode === 'readwrite') this.emitLost();
       return result;
     });
     this.queue = operation.catch(() => {});
