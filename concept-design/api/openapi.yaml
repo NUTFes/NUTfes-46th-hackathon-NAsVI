@@ -139,6 +139,7 @@ paths:
       description: >-
         一致した場所を、一覧と同じ形(labelIds つき)で返す。一致が無ければ items は空。
         D-012(絞り込みを検索結果にも効かせる)は、端末がこの結果を絞って満たす(API-8)。
+        設備(info・wc・rest・trash)は検索結果に出ない。設備は、地図の「表示する印」で探す。
       parameters:
         - name: q
           in: query
@@ -250,6 +251,30 @@ paths:
       responses:
         "204":
           description: 付けた(または既に付いていた)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: 場所か種類が無い
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: label_not_found
+                message: 種類 lb_food は登録されていません
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: unassignLabel
+      tags: [places, labels]
+      summary: 場所から運営の種類を外す(運営)
+      description: 付け間違えたときに外す。付いていなくても成功にする(何度送っても同じ結果)。種類そのものは消えない(消すのは DELETE /labels/{labelId})。
+      security:
+        - operatorAuth: []
+      x-needs-review: "API-41: 場所から種類を外す操作を足す(概念設計に対応する要求が無い)"
+      responses:
+        "204":
+          description: 外した(または付いていなかった)
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -405,7 +430,7 @@ paths:
               at: {lat: 37.4250, lng: 138.7783}
       responses:
         "201":
-          description: 押したスタンプ(取り消し用の token つき)
+          description: 押したスタンプ(取り消し用の proof つき)
           content:
             application/json:
               schema:
@@ -438,10 +463,12 @@ paths:
       security: []   # 来場者の操作。認証なし(API-12)
       x-request: showStamps
       tags: [stamps, places]
-      summary: スタンプと場所の削除を、リアルタイムで受け取る(Server-Sent Events)
+      summary: スタンプ・場所の削除・版の変更を、リアルタイムで受け取る(Server-Sent Events)
       description: >-
         開いている間、スタンプが押された(stampPressed)・取り消された(stampRetracted)こと、
         場所が削除された(placeRemoved)ことが流れてくる(API-24・API-25)。
+        概念設計の要求 showStamps に対応するのは、stampPressed・stampRetracted だけ(x-request はこのため)。
+        placeRemoved と appVersionChanged は、概念の要求ではない配信(場所の削除の知らせと、版が変わった知らせ)。
         最初に GET /stamps と GET /places で一覧を取り、そのあとはこの流れで差分を当てる。
         切れたら、ブラウザが自動でつなぎ直す。つなぎ直したら一覧を取り直す(取りこぼしを埋める)。
         期限を過ぎたスタンプは流さない。端末が expiresAt を過ぎたら消す(API-38)。
@@ -500,7 +527,7 @@ paths:
         "204":
           description: 取り消した
         "403":
-          description: token が合わない(押した本人でない)
+          description: proof が合わない(押した本人でない)
           content:
             application/problem+json:
               schema:
@@ -510,6 +537,8 @@ paths:
                 message: このスタンプは取り消せません
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -807,10 +836,13 @@ paths:
 components:
   securitySchemes:
     operatorAuth:
-      type: http
-      scheme: bearer
+      type: apiKey
+      in: header
+      name: Cf-Access-Jwt-Assertion
       description: >-
-        運営の操作だけに要る(API-12)。共通の運営用パスワードでログインして受け取った token を付ける。
+        運営の操作だけに要る(API-12)。運営の画面と運営の操作の入口は Cloudflare Access で守る。
+        Access を通ると、リクエストに Cf-Access-Jwt-Assertion(署名つきの JWT)が付く。サーバーはこれを検証する。
+        ログインの操作はこの API に持たない(Access のログインを使う)。
         来場者の操作は認証なし。出展者のアカウントは今回やらない(api/roadmap.md)
 
   parameters:
@@ -927,7 +959,7 @@ components:
           x-needs-review: "API-14: 場所に建物と階を持たせる(利用者の意見。チームの合意待ち)"
         floor:
           type: [integer, "null"]
-          description: 階(1 = 1 階、地下は負)。建物の外なら null
+          description: 階(1 = 1 階、地下は負)。建物の外(landmarkId が null)なら必ず null。建物の中でも、階が無ければ null
         hours:
           type: array
           description: 開催時間(D-020)。複数の時間帯を持てる。駐車場・設備など時間が無いものは空
@@ -959,8 +991,8 @@ components:
         kind: {$ref: "#/components/schemas/PlaceKind"}
         location: {$ref: "#/components/schemas/Point"}
         description: {type: string, maxLength: 500}
-        landmarkId: {type: [string, "null"]}
-        floor: {type: [integer, "null"], minimum: -5, maximum: 20}
+        landmarkId: {type: [string, "null"], description: "場所がある建物の id。屋外・駐車場は null"}
+        floor: {type: [integer, "null"], minimum: -5, maximum: 20, description: "階。landmarkId が null のときは null でなければならない(階は建物の中だけ)。違反は 400。建物があって階が無いのは許す(1 階建てなど)"}
         hours:
           type: array
           items: {$ref: "#/components/schemas/Period"}
@@ -972,8 +1004,8 @@ components:
         kind: {$ref: "#/components/schemas/PlaceKind"}
         location: {$ref: "#/components/schemas/Point"}
         description: {type: string, maxLength: 500}
-        landmarkId: {type: [string, "null"]}
-        floor: {type: [integer, "null"], minimum: -5, maximum: 20}
+        landmarkId: {type: [string, "null"], description: "場所がある建物の id。屋外・駐車場は null"}
+        floor: {type: [integer, "null"], minimum: -5, maximum: 20, description: "階。landmarkId が null のときは null でなければならない(階は建物の中だけ)。違反は 400。建物があって階が無いのは許す(1 階建てなど)"}
         hours:
           type: array
           items: {$ref: "#/components/schemas/Period"}

@@ -53,14 +53,6 @@ items:
     decided_by: sabo10p
     date: "2026-11-22"
     related_oq: OQ-12
-#  - id: API-1
-#    kind: 認証・認可
-#    content: 運営者用の登録 API を、誰が呼べるか(運営のみか、出展者も含めるか)
-#    state: 要確認
-#    placeholder: ""
-#    decided_by: ""
-#    date: ""
-#    related_oq: OQ-1
   # --- ゲート 1(2026-11-22) ---
   - id: API-5
     kind: リソース設計
@@ -78,7 +70,7 @@ items:
     kind: リソース設計
     content: >-
       一覧の過不足(ゲート 1 の質問 2)。
-      回答: decisions.yaml に合わせて推奨どおり。a GET /labels(運営の種類の一覧)と b GET /landmarks(基準画像つきの建物の一覧)を足す。
+      回答: decisions.yaml に合わせて推奨どおり。a GET /labels(運営の種類の一覧)と b GET /landmarks(輪郭つきの建物の一覧。D-018 で基準画像から輪郭に変わった)を足す。
       c Labeling.undefine は今回外す → 同日に見直し、足すことにした(API-10)。d assignLabel は残す。e searchNatural は外す(OQ-8)。
       a・b に対応する Request.* が concepts.yaml に無い件は、API 側で仮置きにして進める(API-7)。
     state: 確定
@@ -155,6 +147,9 @@ items:
       運営の操作(場所・種類・建物の登録・更新・削除)の認証方式と、誰が呼べるか(運営のみか、出展者も含めるか)。
       回答: 運営だけが呼べる(案 A)。共通の運営用パスワードでログインし、受け取った token を Authorization: Bearer で付けて呼ぶ。来場者の操作は認証なし。
       出展者のアカウント(案 B)は今回やらない。展望として api/roadmap.md に残した
+      回答(2026-11-23、利用者): 運営の認証は Cloudflare Access にする。共通パスワードと、ログインで token を受け取る操作は、この API に持たない。
+      Access を通ったリクエストの Cf-Access-Jwt-Assertion ヘッダーをサーバーが検証する(openapi.yaml の operatorAuth)。
+      運営の画面・操作の入口を Access で守る設定はインフラ側の作業。API の範囲外。画面設計・概念設計には影響しない(ログイン画面は無い)
     state: 確定
     placeholder: ""
     decided_by: sabo10p
@@ -182,7 +177,7 @@ items:
       種類の名前 1〜20 文字で重複を禁止(409 label_title_taken)、階は整数 -5〜20、位置は緯度経度(lat・lng)、検索語は 1〜50 文字。違反は 400
       利用者の意見: 場所に建物と階を持たせる(概念設計の変更)。概念設計に入れるかはチームが決める(ゲート 2 の質問 6 の回答 C)。
     state: 仮置き
-    placeholder: "利用者の意見: 場所に建物(landmarkId)と階(floor)を足す。開催時間は hours(D-020)。文字数などの決まりも利用者の回答どおり。チームの合意待ち"
+    placeholder: "場所に建物(landmarkId)と階(floor)を足すのは、利用者が API 設計の範囲として決めた(2026-11-23)。階は landmarkId が null のとき null(openapi.yaml に書いた)。文字数などの決まりは、仮置きの値のまま合意とする。実装して合わなければ直す(2026-11-23、利用者)"
     decided_by: ""
     date: ""
     related_oq: ""
@@ -345,7 +340,7 @@ items:
     content: >-
       場所が付いている建物を削除しようとしたときの扱い(API-14 で場所に landmarkId を足したため)。
       回答: 断る(案 A)。409 Conflict(landmark_in_use)を返す。先に場所の建物を空にするか、付け替えてもらう。種類の削除(API-10)と同じ扱い。
-      基準画像の撮り直しは、削除でなく更新(PATCH /landmarks/{landmarkId})で差し替える
+      建物の情報(名前・位置など)の直しは、削除でなく更新(PATCH /landmarks/{landmarkId})で行う。輪郭は OpenStreetMap から読み込み直す(D-018・D-019)
     state: 確定
     placeholder: ""
     decided_by: sabo10p
@@ -506,3 +501,14 @@ items:
     decided_by: sabo10p
     date: "2026-11-23"
     related_oq: OQ-12
+  - id: API-41
+    kind: リソース設計
+    content: >-
+      場所に付けた運営の種類を外す操作(付け間違いの取り消し)。付ける操作(PUT /places/{placeId}/labels/{labelId})だけがあった。
+      回答(2026-11-23、利用者): 足す。DELETE /places/{placeId}/labels/{labelId}(運営)。付いていなくても 204。種類そのものは消えない。
+      概念設計には、運営の種類を外す要求が無い(Request.unmarkPlace は来場者の自分用タグ。端末内)。Labeling.detach を呼ぶ同期の追加が要る
+    state: 仮置き
+    placeholder: "利用者の指示で操作を足した。概念設計に Request(例: unassignLabel)と同期を足すかは、概念設計側で決める。チームの合意待ち"
+    decided_by: ""
+    date: ""
+    related_oq: ""

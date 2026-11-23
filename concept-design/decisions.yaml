@@ -189,7 +189,7 @@ decisions:
       利用者の決定(2026-11-22。API 設計のゲート 1、台帳 API-9)。例: 飲食+展示+お気に入り → (飲食か展示)で、かつお気に入りの場所。
       「どの種類か」(運営)と「自分にとってどうか」(自分用)は軸が違うので、軸ごとに組み合わせ方を分ける。自作タグも同じ規則で説明できる。
       お気に入りだけ AND にする案は、自作タグの扱いの説明が分かれるので捨てた。すべて AND にする案は、運営の種類を複数選ぶと結果がほぼ空になるので捨てた。
-      concepts.yaml の同期 show-places の where は、まだ OR のまま(チームで反映を決める)。
+      concepts.yaml の同期 show-places の where には反映済み(D-017 の(5)。運営の種類どうし OR、自分用タグ AND)。
       絞り込みは端末で行う(台帳 API-8)ので、API の仕様には影響しない。
     status: resolved
     derived_from: concept-design/api/review-ledger.yaml の API-8・API-9
