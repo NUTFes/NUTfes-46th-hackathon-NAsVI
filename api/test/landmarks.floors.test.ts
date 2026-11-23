@@ -163,8 +163,8 @@ it('PUT は入力の推測値でなく書き込み後に読み直した値を返
   }
 });
 
-it('文字列や bounds に OpenAPI にない追加の制約を課さない', async () => {
-  const body = { plan: { viewBox: '', d: '' }, bounds: { north: 0, south: 0, east: 0, west: 0 } };
+it.each(['0 0 400 240', '0,0,400,240', ' -1.5, +2e1 4e2, .5\t'])('有効な viewBox %j と bounds を登録できる', async viewBox => {
+  const body = { plan: { ...input.plan, viewBox }, bounds: { north: 0, south: -1, east: 0, west: -1 } };
   const response = await put(body);
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ floor: 1, ...body });
@@ -186,8 +186,16 @@ it.each([
   ['plan が配列', { ...input, plan: [] }, 'plan'],
   ['viewBox なし', { ...input, plan: { d: input.plan.d } }, 'plan'],
   ['viewBox が数値', { ...input, plan: { ...input.plan, viewBox: 400 } }, 'plan'],
+  ...[
+    '', ' ', '0 0 text 240', '0 0 400', '0 0 400 240 1',
+    '0 0 0 240', '0 0 -1 240', '0 0 400 0', '0 0 400 -1',
+    'NaN 0 400 240', '0 Infinity 400 240', '0 0 1e309 240',
+    '0,,0,400,240', '0 0 0x100 240',
+  ].map(viewBox => [`viewBox が不正: ${JSON.stringify(viewBox)}`, { ...input, plan: { ...input.plan, viewBox } }, 'plan']),
   ['d なし', { ...input, plan: { viewBox: input.plan.viewBox } }, 'plan'],
   ['d が null', { ...input, plan: { ...input.plan, d: null } }, 'plan'],
+  ['d が空', { ...input, plan: { ...input.plan, d: '' } }, 'plan'],
+  ['d が200001文字', { ...input, plan: { ...input.plan, d: 'x'.repeat(200001) } }, 'plan'],
   ['bounds なし', { plan: input.plan }, 'bounds'],
   ['bounds が null', { ...input, bounds: null }, 'bounds'],
   ['bounds が配列', { ...input, bounds: [] }, 'bounds'],
@@ -195,7 +203,14 @@ it.each([
     [`${key} なし`, { ...input, bounds: { ...input.bounds, [key]: undefined } }, 'bounds'],
     [`${key} が文字列`, { ...input, bounds: { ...input.bounds, [key]: '37' } }, 'bounds'],
     [`${key} が null`, { ...input, bounds: { ...input.bounds, [key]: null } }, 'bounds'],
+    ...['NaN', 'Infinity', '-Infinity'].map(value => [
+      `${key} が ${value}`, { ...input, bounds: { ...input.bounds, [key]: value } }, 'bounds',
+    ]),
   ]),
+  ...[
+    { north: input.bounds.south }, { north: input.bounds.south - 1 },
+    { east: input.bounds.west }, { east: input.bounds.west - 1 },
+  ].map(bounds => [`bounds の大小関係が不正: ${JSON.stringify(bounds)}`, { ...input, bounds: { ...input.bounds, ...bounds } }, 'bounds']),
   ['本文が null', null, 'body'], ['本文が配列', [], 'body'], ['本文が文字列', 'text', 'body'],
 ] as [string, unknown, string][])('%s は 400 と field を返し、既存図を変更しない', async (_title, body, field) => {
   expect((await put()).status).toBe(200);
@@ -225,14 +240,23 @@ it('存在しない建物への PUT・DELETE と見取り図のない階の DELE
   expect(await plans()).toEqual([]);
 });
 
-it('本文がちょうど 1 MB の PUT は登録できる', async () => {
-  const empty = { ...input, plan: { ...input.plan, d: '' } };
-  const d = ' '.repeat(1024 * 1024 - new TextEncoder().encode(JSON.stringify(empty)).length);
-  const body = JSON.stringify({ ...empty, plan: { ...empty.plan, d } });
-  expect(new TextEncoder().encode(body).length).toBe(1024 * 1024);
-  const response = await requestWithEnv(path(), { method: 'PUT', body }, bindings);
+it('保存直前に建物が削除されても PUT は 404 を返す', async () => {
+  const batch = env.DB.batch.bind(env.DB);
+  vi.spyOn(env.DB, 'batch').mockImplementationOnce(async statements => {
+    await env.DB.prepare('DELETE FROM landmarks WHERE id = ?').bind('lm_a').run();
+    return batch(statements);
+  });
+  await expectProblem(await put(), 404, 'not_found');
+  expect(await plans()).toEqual([]);
+});
+
+it('d が上限の200000文字の PUT は登録できる', async () => {
+  const body = { ...input, plan: { ...input.plan, d: input.plan.d.padEnd(200000, ' ') } };
+  expect(body.plan.d.length).toBe(200000);
+  expect(new TextEncoder().encode(JSON.stringify(body)).length).toBeLessThan(1024 * 1024);
+  const response = await put(body);
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ floor: 1, ...empty, plan: { ...empty.plan, d } });
+  expect(await response.json()).toEqual({ floor: 1, ...body });
 });
 
 it.each(['ascii', 'utf8', 'content-length'])('1 MB を超える %s の本文は 413 で既存図を変更しない', async mode => {
