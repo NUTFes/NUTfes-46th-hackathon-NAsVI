@@ -22,7 +22,10 @@ function equal(a: unknown, b: unknown): boolean {
   return false;
 }
 
-function matchesType(value: unknown, type: unknown): boolean {
+// 未対応の制約は失敗にせず、ここに集めて件数に出す(検証できなかったもの)。
+export type Unchecked = Set<string>;
+
+function matchesType(value: unknown, type: unknown, unchecked?: Unchecked): boolean {
   switch (type) {
     case 'null': return value === null;
     case 'object': return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -31,7 +34,7 @@ function matchesType(value: unknown, type: unknown): boolean {
     case 'number': return typeof value === 'number' && Number.isFinite(value);
     case 'string': return typeof value === 'string';
     case 'boolean': return typeof value === 'boolean';
-    default: throw new Error(`未対応の type: ${String(type)}`);
+    default: unchecked?.add(`type: ${String(type)}`); return true;
   }
 }
 
@@ -49,18 +52,18 @@ function dateTime(value: string): boolean {
     && Number(offsetHour) <= 23 && Number(offsetMinute) <= 59;
 }
 
-export function validateSchema(spec: OpenApiSpec, schema: unknown, value: unknown, path = '$', depth = 0): Violation[] {
+export function validateSchema(spec: OpenApiSpec, schema: unknown, value: unknown, path = '$', depth = 0, unchecked?: Unchecked): Violation[] {
   if (depth > 64) throw new Error('スキーマの参照が深すぎます');
   schema = resolveRef(spec, schema);
   if (schema === true) return [];
   if (schema === false) return [{ path, message: '許可されていない値です' }];
   const rule = object(schema, 'schema');
   for (const key of Object.keys(rule)) {
-    if (!supported.has(key) && !key.startsWith('x-')) throw new Error(`未対応のスキーマ制約: ${key}`);
+    if (!supported.has(key) && !key.startsWith('x-')) unchecked?.add(key);
   }
   const errors: Violation[] = [];
   const add = (message: string): void => { errors.push({ path, message }); };
-  const validate = (child: unknown, item: unknown, childPath = path): Violation[] => validateSchema(spec, child, item, childPath, depth + 1);
+  const validate = (child: unknown, item: unknown, childPath = path): Violation[] => validateSchema(spec, child, item, childPath, depth + 1, unchecked);
   if (rule.allOf !== undefined) {
     if (!Array.isArray(rule.allOf)) throw new Error('allOf は配列で指定してください');
     for (const child of rule.allOf) errors.push(...validate(child, value));
@@ -77,7 +80,7 @@ export function validateSchema(spec: OpenApiSpec, schema: unknown, value: unknow
   if (value === null && rule.nullable === true) return errors;
   if (rule.type !== undefined) {
     const types = Array.isArray(rule.type) ? rule.type : [rule.type];
-    if (!types.some(type => matchesType(value, type))) {
+    if (!types.some(type => matchesType(value, type, unchecked))) {
       add(`型が一致しません (期待: ${types.join(' | ')})`);
       return errors;
     }
@@ -96,8 +99,8 @@ export function validateSchema(spec: OpenApiSpec, schema: unknown, value: unknow
     limit('minLength', [...value].length, true);
     limit('maxLength', [...value].length, false);
     if (rule.format !== undefined) {
-      if (rule.format !== 'date-time') throw new Error(`未対応の format: ${String(rule.format)}`);
-      if (!dateTime(value)) add('date-time 形式ではありません');
+      if (rule.format !== 'date-time') unchecked?.add(`format: ${String(rule.format)}`);
+      else if (!dateTime(value)) add('date-time 形式ではありません');
     }
   }
   if (Array.isArray(value)) {

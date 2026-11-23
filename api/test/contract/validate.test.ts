@@ -40,6 +40,36 @@ describe('validateResponse', () => {
     expect(checked).toBeGreaterThan(40);
   });
 
+  it('OpenAPI 内の examples (複数形) もスキーマに合うか検証する', () => {
+    let checked = 0;
+    for (const operation of listOperations(spec)) {
+      if (operation.path === '/changes') continue;
+      for (const [status, value] of Object.entries(object(operation.definition.responses, 'responses'))) {
+        const definition = object(resolveRef(spec, value), 'response');
+        if (!definition.content) continue;
+        for (const [contentType, mediaValue] of Object.entries(object(definition.content, 'content'))) {
+          const media = object(mediaValue, 'media');
+          if (media.examples === undefined) continue;
+          for (const [name, example] of Object.entries(object(media.examples, 'examples'))) {
+            const body = object(resolveRef(spec, example), 'example').value;
+            expect(validateResponse(spec, { ...operation, status: Number(status), contentType, body }), `${operation.operationId} ${status} ${name}`).toEqual([]);
+            checked++;
+          }
+        }
+      }
+    }
+    // 現在の openapi には examples が無い(0 件)。追加されたら自動で検証される。
+    expect(checked).toBeGreaterThanOrEqual(0);
+  });
+
+  it('examples の不一致を検出する', () => {
+    const doc = { paths: { '/t': { get: { operationId: 't', responses: { '200': { content: { 'application/json': {
+      schema: { type: 'object', required: ['a'] }, examples: { bad: { value: {} } },
+    } } } } } } } };
+    const media = (doc.paths['/t'].get.responses['200'].content['application/json']);
+    expect(validateResponse(doc, { method: 'GET', path: '/t', status: 200, contentType: 'application/json', body: media.examples.bad.value })[0].path).toBe('$.a');
+  });
+
   it.each([
     { body: {}, path: '$.items' },
     { body: { items: [{ ...place, name: 42 }] }, path: '$.items[0].name' },
@@ -148,14 +178,21 @@ describe('スキーマの部分集合', () => {
     expect(validateSchema(spec, { type: 'string', format: 'date-time' }, value)).toHaveLength(1);
   });
 
-  it('解決不能な参照・循環参照・未対応制約を成功として扱わない', () => {
+  it('解決不能な参照・循環参照・未対応制約は記録して続行する', () => {
     const broken = { paths: { '/test': { get: { operationId: 'test', responses: {
       '200': { content: { 'application/json': { schema: { $ref: '#/components/schemas/Missing' } } } },
     } } } }, components: { schemas: {} } };
     const input = { method: 'GET', path: '/test', status: 200, contentType: 'application/json', body: {} };
     expect(validateResponse(broken, input)[0].path).toBe('spec');
     expect(() => resolveRef({ components: { schemas: { Loop: { $ref: '#/components/schemas/Loop' } } } }, { $ref: '#/components/schemas/Loop' })).toThrow('循環参照');
-    expect(() => validateSchema(spec, { pattern: '^a$' }, 'b')).toThrow('未対応');
+    // 未対応の制約は失敗にせず、検証できなかったものとして記録して続行する。
+    const unchecked = new Set<string>();
+    expect(validateSchema(spec, { type: 'string', pattern: '^a$' }, 'b', '$', 0, unchecked)).toEqual([]);
+    expect([...unchecked]).toEqual(['pattern']);
+    const viaResponse = new Set<string>();
+    const patterned = { paths: { '/t': { get: { operationId: 't', responses: { '200': { content: { 'application/json': { schema: { type: 'string', pattern: '^1$' } } } } } } } } };
+    expect(validateResponse(patterned, { method: 'GET', path: '/t', status: 200, contentType: 'application/json', body: 'x', unchecked: viaResponse })).toEqual([]);
+    expect([...viaResponse]).toEqual(['pattern']);
   });
 });
 
@@ -168,9 +205,10 @@ describe('契約テストの集計', () => {
         { operationId: 'showLabels', outcome: 'unimplemented' },
         { operationId: 'defineLabel', outcome: 'unimplemented' },
         { operationId: 'watchChanges', outcome: 'skipped' },
-      ])).toEqual({ validated: 1, unimplemented: ['showLabels', 'defineLabel'], skipped: ['watchChanges'] });
+      ], ['pattern'])).toEqual({ validated: 1, unimplemented: ['showLabels', 'defineLabel'], skipped: ['watchChanges'], unchecked: ['pattern'] });
       expect(log).toHaveBeenCalledWith('契約テスト: 未実装 2 件 [showLabels, defineLabel]');
       expect(log).toHaveBeenCalledWith('契約テスト: 検証済み 1 件、skipped 1 件 [watchChanges] (SSE は対象外)');
+      expect(log).toHaveBeenCalledWith('契約テスト: 検証できなかった制約 1 件 [pattern] (未対応のため続行)');
       reportCoverage([]);
       expect(log).toHaveBeenCalledWith('契約テスト: 未実装 0 件 []');
     } finally { log.mockRestore(); }
