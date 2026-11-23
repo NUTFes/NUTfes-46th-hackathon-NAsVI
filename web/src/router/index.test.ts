@@ -1,31 +1,26 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { enableAutoUnmount, mount } from '@vue/test-utils';
-import { createPinia } from 'pinia';
+import { describe, expect, it } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import screensYaml from '../../../concept-design/screens.yaml?raw';
-import App from '../App.vue';
 import AdminLayout from '../views/admin/AdminLayout.vue';
 import { routes } from './index';
-
-enableAutoUnmount(afterEach);
 
 // screens.yaml の画面 ID と URL の対応。
 // labels / floorplans は WBS の独立した View で、元の運営画面から分ける。
 const screenRoutes = [
-  { screenId: 'map', name: 'map', path: '/', title: 'マップ' },
-  { screenId: 'search', name: 'search', path: '/search', title: '検索結果' },
-  { screenId: 'card', name: 'card', path: '/places/test-place', title: '場所のカード' },
-  { screenId: 'tags', name: 'tags', path: '/places/test-place/tags', title: 'タグを付ける・作る' },
-  { screenId: 'guide', name: 'guide', path: '/guide', title: '案内中' },
-  { screenId: 'stamp', name: 'stamp', path: '/stamp', title: 'スタンプを押す' },
-  { screenId: 'noloc', name: 'noloc', path: '/noloc', title: '位置が使えない' },
-  { screenId: 'building', name: 'building', path: '/buildings/test-building', title: '建物の中の地図' },
-  { screenId: 'list', name: 'list', path: '/list', title: '一覧' },
-  { screenId: 'camera', name: 'camera', path: '/camera', title: 'カメラ' },
-  { screenId: 'op_places', name: 'admin-places', path: '/admin/places', title: '場所の登録・管理(運営)' },
-  { screenId: 'op_places', name: 'admin-labels', path: '/admin/labels', title: '種類の定義・管理(運営)' },
-  { screenId: 'op_landmarks', name: 'admin-landmarks', path: '/admin/landmarks', title: '建物の登録・管理(運営)' },
-  { screenId: 'op_landmarks', name: 'admin-floorplans', path: '/admin/floorplans', title: '見取り図の登録・管理(運営)' },
+  { screenId: 'map', name: 'map', path: '/' },
+  { screenId: 'search', name: 'search', path: '/search' },
+  { screenId: 'card', name: 'card', path: '/places/test-place' },
+  { screenId: 'tags', name: 'tags', path: '/places/test-place/tags' },
+  { screenId: 'guide', name: 'guide', path: '/guide' },
+  { screenId: 'stamp', name: 'stamp', path: '/stamp' },
+  { screenId: 'noloc', name: 'noloc', path: '/noloc' },
+  { screenId: 'building', name: 'building', path: '/buildings/test-building' },
+  { screenId: 'list', name: 'list', path: '/list' },
+  { screenId: 'camera', name: 'camera', path: '/camera' },
+  { screenId: 'op_places', name: 'admin-places', path: '/admin/places' },
+  { screenId: 'op_places', name: 'admin-labels', path: '/admin/labels' },
+  { screenId: 'op_landmarks', name: 'admin-landmarks', path: '/admin/landmarks' },
+  { screenId: 'op_landmarks', name: 'admin-floorplans', path: '/admin/floorplans' },
 ];
 
 describe('画面のルーター', () => {
@@ -42,16 +37,15 @@ describe('画面のルーター', () => {
     expect(screenRoutes).toHaveLength(14);
   });
 
-  it.each(screenRoutes)('$screenId: $path で対応する未実装 View を表示する', async (screen) => {
+  // 画面内容は各画面のタスクのテストで検証する。
+  it.each(screenRoutes)('$screenId: $path は正しい名前・パラメータ・レイアウトに解決される', async (screen) => {
     const router = createRouter({ history: createMemoryHistory(), routes });
     await router.push(screen.path);
     await router.isReady();
 
-    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } });
     expect(router.currentRoute.value.name).toBe(screen.name);
-    expect(wrapper.get('main h1').text()).toBe(screen.title);
-    expect(wrapper.get('main p').text()).toBe('未実装');
-    expect(wrapper.findComponent(AdminLayout).exists()).toBe(screen.path.startsWith('/admin/'));
+    expect(router.currentRoute.value.matched.some((record) => record.components?.default === AdminLayout))
+      .toBe(screen.path.startsWith('/admin/'));
     if (screen.name === 'card' || screen.name === 'tags') {
       expect(router.currentRoute.value.params.id).toBe('test-place');
     }
@@ -65,10 +59,6 @@ describe('画面のルーター', () => {
     await router.push('/admin');
     await router.isReady();
 
-    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } });
     expect(router.currentRoute.value.path).toBe('/admin/places');
-    expect(wrapper.get('main h1').text()).toBe('場所の登録・管理(運営)');
-    expect(wrapper.get('main p').text()).toBe('未実装');
-    expect(wrapper.findComponent(AdminLayout).exists()).toBe(true);
   });
 });
