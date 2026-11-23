@@ -22,7 +22,7 @@
 | placeId | 文字列 | ○ | — | | places.id |
 | name | 文字列 | ○ | — | | places.name |
 | kind | 列挙 | ○ | — | event / parking / facility(設備。D-017) | places.kind(API の info・wc・rest・trash は、画面の側で facility にまとめて渡す。#21 の API-36) |
-| building・floor | 文字列 | | なし | 表示用の文字列(「総合研究棟」「2階」) | places.building(Landmark の id。名前にして渡す)・floor(数。「2階」にして渡す) |
+| building・floor | 文字列 | | なし | 表示用の文字列(「総合研究棟」「2階」) | places.landmarkId(建物の id。建物の名前にして渡す)・floor(数。「2階」にして渡す) |
 | description | 文字列 | | なし | | places.description |
 | hours | 文字列 | | なし | 表示用の文字列(「両日 10:00〜16:00」)。places.hours(開始と終了の組、複数可)から、画面の側の 1 つの関数で作って渡す | places.hours(D-020) |
 | distanceM | 数 | | なし | | なし(端末で計算) |

@@ -16,7 +16,7 @@
 
 | 名前 | 型 | 必須 | 既定値 | 取りうる値 / 説明 | API の項目 |
 |---|---|---|---|---|---|
-| value | 位置 |  | なし |  | location |
+| value | 位置(地図の中の割合 `{x, y}`。0〜100) |  | なし | 部品は地図の中の割合だけを受け渡す。API の位置は緯度経度(`{lat, lng}`)で、割合との変換は画面の側で行う | location(`{lat, lng}`。#21) |
 | onChange | 関数 | ○ | — |  | なし |
 
 Design System で足した props: buildings・label(仕様には無い。`components/index.d.ts` に【Design System で追加】と書いた)

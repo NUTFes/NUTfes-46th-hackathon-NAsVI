@@ -32,7 +32,7 @@ Design System で足した props: retracting(仕様には無い。`components/in
 | 通常 | 枠つきの行 | border-subtle、text-secondary、congestion-1〜5、feeling |
 | 取り消し中 | 行を薄くし、取り消すを押せなくする | opacity.disabled |
 | 期限切れ | 一覧から消す | |
-| その他(押下・空・エラー) | 押下は中の Button。0 件なら欄ごと出さない。失敗は Toast | |
+| その他(押下・空・エラー) | 押下は中の Button。0 件なら欄ごと出さない。失敗は Banner | |
 
 ## 使う / 使わない
 

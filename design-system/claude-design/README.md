@@ -131,7 +131,7 @@ React.createElement(FilterBand, { labels: ['行きたい場所'], count: 2, onCl
 
 - 部品は 4 つの箱に分かれる: 基本の部品(Button、Chip など 12 個)、地図の印(7 個)、画面の部品(12 個)、運営の部品(PC。5 個)。
 - 名前の付け方: 基本の部品は役割で(`Button`、`Banner`)、地図の印と画面の部品は概念の名前を頭に付ける(`PlaceRow`、`DestinationCard`、`StampMark`)。
-- ※ の付いた部品(`BuildingFloorPlan`)は、概念設計の決定待ち(見取り図を新しい概念にするか。OQ-14)。
+- 見取り図は概念にしない(D-029、OQ-14 は閉じた)。`BuildingFloorPlan` の API(API-29・30)は、#21 の台帳で確定。
 - 内部の名前(概念設計・API)は `Landmark`(API は `landmarks`)のまま。画面の言葉は「建物」、部品の名前は `Building*` にそろえる(D-020)。
 
 ## Design System で足したもの
