@@ -1,0 +1,141 @@
+# D1 の表の設計(下書き)
+
+作成: 2026-11-23 / 状態: **下書き**(チーム確認前。実装で合わなければ直す)
+元: `concept-design/api/openapi.yaml`(PR #32 までの版)、`review-ledger.yaml`、`concepts.yaml`
+原則: API の応答は DB の構造と切り離す。ここは、API を満たすための保存の形を決めるだけ。
+
+## 1. 表の一覧
+
+| 表 | 役割 | 出どころ |
+|---|---|---|
+| `landmarks` | 建物(名前、位置、OSM の輪郭) | `Landmark`、D-019 |
+| `floor_plans` | 建物の階ごとの見取り図 | `FloorPlan`、API-29・30 |
+| `places` | 場所(企画、駐車場、設備) | `Place`、API-14・28・31 |
+| `place_hours` | 場所の開催時間(複数の時間帯) | `Period`、D-020 |
+| `labels` | 運営の種類(飲食、展示など) | `Label` |
+| `place_labels` | 場所に付いた運営の種類 | `Place.labelIds` |
+| `stamps` | スタンプ | `Stamp`、D-021・22、API-17・19・38 |
+| `changes` | 変更の履歴。SSE の版の番号(cursor)の元 | `/changes`、API-24・25・42 |
+| `meta` | アプリの版など | `appVersionChanged`、API-20 |
+
+端末内に置くもの(現在地、行き先、自分用タグ、絞り込み、自分のスタンプの proof)は、D1 に置かない(D-014・D-021)。
+
+## 2. SQL の下書き
+
+```sql
+-- id は Worker が作る不透明な文字列(UUID v4。Q-D4)。削除した id は再び使わない(API-31)ので、連番の再利用はしない。
+
+CREATE TABLE landmarks (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 50),
+  lat           REAL NOT NULL CHECK (lat BETWEEN -90 AND 90),
+  lng           REAL NOT NULL CHECK (lng BETWEEN -180 AND 180),
+  footprint     TEXT,                 -- 輪郭の頂点の JSON 配列 [{lat,lng},...]。OSM から取れなければ NULL(API-37)
+  footprint_at  TEXT                  -- 輪郭を取った時刻(ISO 8601)。取り直しの目安
+);
+
+CREATE TABLE floor_plans (
+  landmark_id TEXT NOT NULL REFERENCES landmarks(id) ON DELETE CASCADE,
+  floor       INTEGER NOT NULL,
+  view_box    TEXT NOT NULL,          -- SVG の viewBox
+  d           TEXT NOT NULL,          -- SVG の path の d
+  north REAL NOT NULL, south REAL NOT NULL, east REAL NOT NULL, west REAL NOT NULL,
+  PRIMARY KEY (landmark_id, floor)
+);
+
+CREATE TABLE places (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 50),
+  kind        TEXT NOT NULL CHECK (kind IN ('event','parking','info','wc','rest','trash')),  -- 変更不可(PlacePatch)
+  lat         REAL NOT NULL,
+  lng         REAL NOT NULL,
+  description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 500),
+  search_text TEXT NOT NULL,        -- 検索用に正規化した名前(Q-D5)。name を NFKC 正規化して小文字にしたもの。Worker が登録・更新のときに作る
+  landmark_id TEXT REFERENCES landmarks(id),   -- 屋外・駐車場は NULL。建物を消す前に場所の付け替えが要る(要確認 Q-D1)
+  floor       INTEGER CHECK (floor BETWEEN -5 AND 20),
+  updated_at  TEXT NOT NULL,
+  CHECK (landmark_id IS NOT NULL OR floor IS NULL)   -- 階は建物の中だけ(API-14)
+);
+CREATE INDEX places_landmark ON places(landmark_id);
+CREATE INDEX places_name ON places(name);
+
+CREATE TABLE place_hours (
+  place_id TEXT NOT NULL REFERENCES places(id) ON DELETE CASCADE,
+  start_at TEXT NOT NULL,             -- ISO 8601(date-time)
+  end_at   TEXT NOT NULL,
+  PRIMARY KEY (place_id, start_at)
+);
+
+CREATE TABLE labels (
+  id    TEXT PRIMARY KEY,
+  title TEXT NOT NULL UNIQUE CHECK (length(title) BETWEEN 1 AND 20)   -- 重複不可(API-14)
+);
+
+CREATE TABLE place_labels (
+  place_id TEXT NOT NULL REFERENCES places(id) ON DELETE CASCADE,       -- 場所の削除で種類が外れる(release)
+  label_id TEXT NOT NULL REFERENCES labels(id),                         -- 付いている種類は消せない(undefine の事前条件)
+  PRIMARY KEY (place_id, label_id)
+);
+
+CREATE TABLE stamps (
+  id         TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL CHECK (kind IN ('congestion-1','congestion-2','congestion-3','congestion-4','congestion-5','fun','food','good')),
+  lat        REAL NOT NULL,
+  lng        REAL NOT NULL,
+  pressed_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,           -- 混雑は押した時刻 + 30 分(仮置き、D-022)、感想はその日の閉場
+  proof_hash TEXT NOT NULL            -- 取り消しの証(proof)そのものは持たず、ハッシュだけ持つ(推奨)。押した人(by)・通信元は持たない(API-19)
+);
+CREATE INDEX stamps_expires ON stamps(expires_at);
+
+CREATE TABLE changes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,   -- 版の番号。cursor と Last-Event-ID に使う(API-42)
+  type       TEXT NOT NULL CHECK (type IN ('stampPressed','stampRetracted','placeAdded','placeUpdated','placeRemoved','appVersionChanged')),
+  payload    TEXT NOT NULL,                       -- 出来事の本文(JSON)。stampPressed に proof は入れない(API-25)
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE meta (
+  key   TEXT PRIMARY KEY,             -- 例: 'app_version'
+  value TEXT NOT NULL
+);
+```
+
+## 3. 設計の要点
+
+- **書き込みと履歴は、1 回の `batch()` で行う。** 場所やスタンプの登録・更新・削除は、本体の表の更新と `changes` への追記を、同じ D1 の batch(1 つのトランザクション)で行う。履歴だけ抜ける、本体だけ変わる、を避ける。
+- **cursor は `changes.id` の最大値。** 一覧(`GET /places`、`GET /stamps`)は、その時点の最大の `id` を cursor として返す。SSE は `id > since` を引いて流す。
+- **履歴の保持。** `changes` は古い行を定期的に消す(保持範囲の長さは実装が決める)。範囲外の `since` が来たら `resync` を流す(API-42)。
+- **期限切れのスタンプ。** 流さない。端末が `expires_at` から消す(API-38)。D1 側の掃除は、一覧に出さない条件(`expires_at > now`)と、まとめて消す処理で分ける。
+- **検索(`Search`)。** `places.search_text`(正規化した名前)に対する `LIKE '%…%'` で足りる(Q-D5)。場所は数百件程度のため、専用の索引表は持たない。`description` を検索の対象に含めるかは、概念設計の `Search` の未決(index に渡す値)のままで、P1 は名前だけ。
+- **建物の輪郭は JSON の文字列で持つ。** 頂点の数が少なく、点ごとに行を持たせる必要がない。
+
+## 4. 見積もり(仮定つき。実測で直す)
+
+前提: 想定来場者は、延べ約 10000 人(重複を含む)で、実人数は数千(OQ-6)。ここでは仮に実人数 5000 人(2 日間で、1 日あたり 2500 人)とする。次の仮定は**私の置いたもので、根拠はない**。
+- 場所は 100 件、有効なスタンプは同時に 200 件程度。
+- 来場者 1 人が、1 日に 3 回アプリを開く。
+- スタンプを押すのは来場者の 10%、1 人 5 回。
+
+| 項目 | 概算 | 無料枠(1 日、5,000,000 行読み取り・100,000 行書き込み)との関係 |
+|---|---|---|
+| 初期表示(`GET /places`・`GET /stamps`)の読み取り | 利用者 1,250 人/日(来場者 2,500 人 × 利用率 5 割)× 3 回 × 約 300 行 ≒ 112 万行/日 | 無料枠の約 2 割。収まる。`GET /places` をエッジでキャッシュすると、さらに減らせる |
+| スタンプの書き込み | 1,000 人 × 5 回 × 2 日 ≒ 1 万スタンプ。1 件あたり本体 + 索引 + `changes` の数行 | 1 日 数万行以内。収まる見込み |
+| SSE の D1 への問い合わせ | 同時接続 N × (3〜5 秒に 1 回) | 同時接続が数百を超えると、D1 への問い合わせが集中する。**Durable Objects を中継にする設計も、候補に残す** |
+
+→ 結論: 初期表示だけなら無料枠に収まる。ただし、SSE のポーリングを足すと、読み取り行数が無料枠を超える見込み(同時接続の見積もりは `doc/sse-sizing.md`)。**有料プラン(Workers Paid)を前提にする**のが安全。
+
+## 5. 要確認(台帳に載せる候補)
+
+| # | 質問 | 推し・決定 | 状態 |
+|---|---|---|---|
+| Q-D1 | 建物を削除するとき、その建物にある場所をどうするか | **決定**(API-27 で確定済み): 建物に場所が付いていれば、削除を断る(409 `landmark_in_use`)。`places.landmark_id` の外部キーは削除を禁止(`ON DELETE` 指定なし)。Worker が先に件数を数えて 409 のメッセージに入れる。見取り図(`floor_plans`)は建物と一緒に消える(API-29・D-029) | 済 |
+| Q-D2 | 取り消しの証(`proof`)を、ハッシュで保存するか | **決定**(利用者、2026-11-23): `proof` はハッシュ(SHA-256 など)だけを保存する。取り消しのとき、受け取った証をハッシュして比べる。証は十分に長いランダム値にする(塩は不要) | 済 |
+| Q-D3 | `changes` の保持期間(件数か時間か) | **決定**(利用者、2026-11-23): 会期(2 日間)すべてを保持し、会期が終わるまで消さない。行は小さく、数万行の見込み。`resync` が起きる場面はほぼなくなる | 済 |
+| Q-D4 | 場所などの ID の形 | **決定**(利用者、2026-11-23。複雑にならなければ): `crypto.randomUUID()` の UUID v4。Workers に標準で付き、依存が要らない。場所の並びは名前・距離、順序は `pressed_at`・`changes.id` が持つので、時刻順の ID(ULID)は要らない。最初に入れるデータ(`events.json` の `kougi` など)は、既存の slug をそのまま ID にしてよい(列は `TEXT`。変換の手間を省く) | 済 |
+| Q-D5 | 日本語の検索の正規化 | **決定**(利用者、2026-11-23): 全角・半角と英字の大小を吸収する(`s.normalize('NFKC').toLowerCase()`)。かなの統一は P1 では扱わない。`places.search_text` に正規化した名前を持たせ、Worker が登録・更新のときに作る。検索語も同じ関数を通し、`LIKE '%…%'` で比べる | 済 |
+
+## 6. この下書きが前提にしていること
+- 場所と建物の API は、`openapi.yaml`(PR #32 までの版)のとおり。今後の変更に合わせて直す。
+- スタンプの期限は仮置き(D-022、OQ-4)。値が変わっても、表の形は変わらない(`expires_at` を計算する側が変わるだけ)。
+- D1 の外部キーが標準で有効かと、`batch()` のトランザクションの扱いは、実装の最初に試作で確かめる(私の知識によるもので、現行の公式ドキュメントでは未確認)。
