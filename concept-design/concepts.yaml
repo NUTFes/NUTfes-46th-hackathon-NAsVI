@@ -35,6 +35,7 @@ concepts:
         effects: place を places から取り除く
     notes: >-
       一覧と個々の情報を見るのは状態の読み取りで、同期の where が行う(getter は持たない)。
+      API は kind を英語のコードで表す(API-36)。概念の kind は日本語のままで、API のコードと 1 対 1 に対応する(対応表は API 側)。
       kind は場所の性質の違い(企画・駐車場・設備)で、Labeling の種類(飲食、展示)とは別(OQ-3)。設備は検索・絞り込みの対象にしない(端末側の規則)。
       building・floor は、外から使う仕様と画面の設計が一致して前提にした項目(decisions D-017)。Building は Landmark の id を指す型で、同期が結ぶ。
       開催期間(工大祭の 2 日間)中は id を変えず、取り除いた id を再び使わない(端末のタグが id で場所を覚えるため)。
@@ -181,6 +182,7 @@ concepts:
         requires: stamp が stamps に含まれ、stamp の proof が与えられた proof と一致する
         effects: stamp を stamps から取り除く
     notes: >-
+      API は StampKind を英語のコードで表す(API-36)。概念の値は日本語のままで、API のコードと 1 対 1 に対応する。
       旧 Congestion を完全に差し替えた(decisions D-006)。混雑は、スタンプの種類(混雑 1〜5)の 1 つとして扱う。
       スタンプは場所(Place)ではなく、押した人の現在地(Point)に付く(decisions D-009)。そのため Place の削除には連動しない。
       押した人を持たない(取り消しは proof の一致で確かめる。端末のデータが消えると取り消せないことは受け入れる)。基本の型として Proof を扱う(推論)。
@@ -196,11 +198,11 @@ concepts:
       landmarks: set Landmark
       name: Landmark -> one String
       location: Landmark -> one Point
-      footprint: Landmark -> one Polygon  // 建物の輪郭(地図上の多角形の頂点列)
+      footprint: Landmark -> lone Polygon  // 建物の輪郭(地図上の多角形の頂点列)。地図データに無い建物は持たない(D-023)
     actions:
       - name: register
         requires: なし
-        effects: 新しい Landmark を作り、name・location・footprint を設定して landmarks に加えて返す
+        effects: 新しい Landmark を作り、name・location を設定し、footprint が与えられていれば設定して、landmarks に加えて返す
       - name: update
         requires: landmark が landmarks に含まれる
         effects: 指定された属性を更新する
@@ -250,12 +252,12 @@ syncs:
   # ---- 場所の変化に、他の概念を連動させる ----
   - name: index-on-register
     when: Place.register
-    where: ""
+    where: Place.kind of p が設備(案内所・トイレ・休憩所・ゴミ箱)でない   # 設備は検索に出さない。地図の「表示する印」で探す(D-027)
     then: Search.index
 
   - name: reindex-on-update
     when: Place.update
-    where: name が更新された
+    where: name が更新され、Place.kind of p が設備でない   # D-027
     then: Search.index
 
   - name: remove-unindexes
@@ -293,6 +295,11 @@ syncs:
     when: Request.assignLabel
     where: place が Place.places に含まれ、実行者が場所を管理できる   # OQ-1
     then: Labeling.attach
+
+  - name: unassign-label
+    when: Request.unassignLabel
+    where: place が Place.places に含まれ、実行者が場所を管理できる   # OQ-1。付け間違いの取り消し。種類そのものは消えない(D-028。API-41)
+    then: Labeling.detach   # 付いていなければ事前条件を満たさない。API は、付いていなくても成功として返す(API-41)
 
   - name: define-my-tag
     when: Request.defineMyTag
@@ -350,6 +357,11 @@ syncs:
     where: place が Place.places に含まれる
     then: Destination.choose
 
+  - name: clear-destination
+    when: Request.clearDestination
+    where: u に Destination.chosen がある   # 着く前の「案内をやめる」も、着いた後の「案内を終える」も、同じ操作(D-026)
+    then: Destination.clear
+
   - name: guide-on-choose
     when: Destination.choose
     where: Position.at of u が a で、Place.location of 行き先 が b である
@@ -373,20 +385,20 @@ syncs:
 
   - name: retract-stamp
     when: Request.retractStamp
-    where: ""
+    where: ""   # Stamp.retract の事前条件(stamp が stamps に含まれ、proof が一致すること。D-021)が確かめる。一致しなければ取り消されない
     then: Stamp.retract
 
   - name: show-stamps
     when: Request.showStamps
     where: >-
       s が Stamp.stamps に含まれ、混雑スタンプなら(now - Stamp.pressedAt of s)が 30 分以内、感想のスタンプ(面白い・美味しい・よさ)ならその日の閉場まで   # 仮置きの値(D-022)。OQ-4
-    then: Request.respond(スタンプの種類、地点、押された時刻)
+    then: Request.respond(スタンプの種類、地点、押された時刻、消える時刻 expiresAt)   # expiresAt は、混雑なら(押された時刻 + 30 分)、感想ならその日の閉場。API-38
 
   # ---- 建物の認識と、迷いの解消(F5) ----
   - name: register-landmark
     when: Request.registerLandmark
     where: 実行者が場所を管理できる。輪郭は OpenStreetMap から取る(Osm.outline(建物の位置)。外部の計算。D-019)   # OQ-1
-    then: Landmark.register   # 取った輪郭を footprint として渡す
+    then: Landmark.register   # 取った輪郭を footprint として渡す。輪郭が取れなければ footprint なしで登録する(D-023、OQ-17)
 
   - name: update-landmark
     when: Request.updateLandmark
@@ -405,7 +417,7 @@ syncs:
 
   - name: recognize-building
     when: Request.recognizeBuilding
-    where: l が Landmark.landmarks に含まれ、Geometry.facing(Position.at of u, 向き, Landmark.footprint of l)   # 外部の計算(推論)。現在地と向きは端末内で扱い、送信しない。D-018
+    where: l が Landmark.landmarks に含まれ、l が footprint を持ち、Geometry.facing(Position.at of u, 向き, Landmark.footprint of l)   # 外部の計算(推論)。現在地と向きは端末内で扱い、送信しない。D-018
     then: Request.respond(正面の建物の名前と位置)
 
   - name: show-landmarks
@@ -415,12 +427,12 @@ syncs:
 
   - name: show-building-events
     when: Request.showBuildingEvents
-    where: 一致した建物 l の近く(Landmark.location of l)に、Place.places に含まれる p がある   # near の範囲は OQ-10
-    then: Request.respond(建物と、その建物の場所の一覧)
+    where: 一致した建物 l について、Place.places に含まれ、Place.building of p が l である p がある   # 距離でなく、建物との結びつきで決める(D-024。API-23)
+    then: Request.respond(建物と、その建物の場所の一覧)   # 各企画の方向・距離・「建物の奥か」は、端末が現在地・向き・輪郭から計算する。概念の外(D-025)
 
   - name: show-no-events
     when: Request.showBuildingEvents
-    where: 一致した建物 l の近くに、Place.places に含まれる p が無い   # near の範囲は OQ-10
+    where: 一致した建物 l について、Place.places に含まれ、Place.building of p が l である p が無い   # D-024
     then: Request.respond(建物と、「この建物には企画がない」)
 
 # 機能 × 概念・同期の対応表(定義 6.4)。空の行は実現されていない機能、空の列は使われない概念。
@@ -430,13 +442,13 @@ trace:
     syncs: [register-place, update-place, remove-place, show-places, search-places, search-places-laya, index-on-register, reindex-on-update, remove-unindexes]
   - feature: F2
     concepts: [Place, Position, Destination]
-    syncs: [allow-location, refuse-location, report-position, set-position, choose-destination, guide-on-choose, guide-on-move, show-route, remove-clears-destination]
+    syncs: [allow-location, refuse-location, report-position, set-position, choose-destination, clear-destination, guide-on-choose, guide-on-move, show-route, remove-clears-destination]
   - feature: F3
     concepts: [Position, Stamp]
     syncs: [press-stamp, retract-stamp, show-stamps]
   - feature: F4
     concepts: [Place, Labeling]
-    syncs: [define-label, show-labels, remove-label, assign-label, define-my-tag, mark-place, unmark-place, apply-filter, clear-filter, browse-by-label, remove-releases-labels]
+    syncs: [define-label, show-labels, remove-label, assign-label, unassign-label, define-my-tag, mark-place, unmark-place, apply-filter, clear-filter, browse-by-label, remove-releases-labels]
   - feature: F5
     concepts: [Place, Landmark]
     syncs: [register-landmark, update-landmark, reload-footprint, remove-landmark, show-landmarks, recognize-building, show-building-events, show-no-events]

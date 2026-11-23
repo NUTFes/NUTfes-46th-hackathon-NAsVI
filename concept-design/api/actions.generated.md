@@ -17,6 +17,7 @@
 | showLabels | F4 | Request.respond | GET | /request TODO | l が Labeling.labels に含まれ、Labeling.owner of l が無い(運営の種類) | - |
 | removeLabel | F4 | Labeling.undefine | POST | /labeling TODO | 実行者が場所を管理できる | Labeling.undefine: label が labels に含まれ、どの item にも label が付いていない |
 | assignLabel | F4 | Labeling.attach | POST | /labeling TODO | place が Place.places に含まれ、実行者が場所を管理できる | Labeling.attach: label が labels に含まれ、label に owner が無いか、owner が u である |
+| unassignLabel | F4 | Labeling.detach | POST | /labeling TODO | place が Place.places に含まれ、実行者が場所を管理できる | Labeling.detach: item に label が付いていて、label に owner が無いか、owner が u である |
 | defineMyTag | F4 | Labeling.defineFor | POST | /labeling TODO | - | - |
 | markPlace | F4 | Labeling.attach | POST | /labeling TODO | place が Place.places に含まれる | Labeling.attach: label が labels に含まれ、label に owner が無いか、owner が u である |
 | unmarkPlace | F4 | Labeling.detach | POST | /labeling TODO | - | Labeling.detach: item に label が付いていて、label に owner が無いか、owner が u である |
@@ -28,6 +29,7 @@
 | reportPosition | F2 | Position.update | POST | /position TODO | - | Position.update: u が allowed に含まれる |
 | setPosition | F2 | Position.setManually | POST | /position TODO | - | - |
 | chooseDestination | F2 | Destination.choose | POST | /destination TODO | place が Place.places に含まれる | - |
+| clearDestination | F2 | Destination.clear | POST | /destination TODO | u に Destination.chosen がある | Destination.clear: u に chosen がある |
 | showRoute | F2 | Request.respond | GET | /request TODO | Destination.chosen of u が d で、Destination.heading・remaining・guidedAt of u がある | - |
 | pressStamp | F3 | Stamp.press | POST | /stamp TODO | Position.at of u が p である | - |
 | retractStamp | F3 | Stamp.retract | POST | /stamp TODO | - | Stamp.retract: stamp が stamps に含まれ、stamp の proof が与えられた proof と一致する |
@@ -36,17 +38,17 @@
 | updateLandmark | F5 | Landmark.update | POST | /landmark TODO | 実行者が場所を管理できる | Landmark.update: landmark が landmarks に含まれる |
 | reloadFootprint | F5 | Landmark.update | POST | /landmark TODO | 実行者が場所を管理できる。l が Landmark.landmarks に含まれ、Osm.outline(Landmark.location of l)が輪郭を返す | Landmark.update: landmark が landmarks に含まれる |
 | removeLandmark | F5 | Landmark.remove | POST | /landmark TODO | 実行者が場所を管理できる | Landmark.remove: landmark が landmarks に含まれる |
-| recognizeBuilding | F5 | Request.respond | POST | /request TODO | l が Landmark.landmarks に含まれ、Geometry.facing(Position.at of u, 向き, Landmark.footprint of l) | - |
+| recognizeBuilding | F5 | Request.respond | POST | /request TODO | l が Landmark.landmarks に含まれ、l が footprint を持ち、Geometry.facing(Position.at of u, 向き, Landmark.footprint of l) | - |
 | showLandmarks | F5 | Request.respond | GET | /request TODO | l が Landmark.landmarks に含まれる | - |
-| showBuildingEvents | F5 | Request.respond | GET | /request TODO | 一致した建物 l の近く(Landmark.location of l)に、Place.places に含まれる p がある | - |
-| showBuildingEvents | F5 | Request.respond | GET | /request TODO | 一致した建物 l の近くに、Place.places に含まれる p が無い | - |
+| showBuildingEvents | F5 | Request.respond | GET | /request TODO | 一致した建物 l について、Place.places に含まれ、Place.building of p が l である p がある | - |
+| showBuildingEvents | F5 | Request.respond | GET | /request TODO | 一致した建物 l について、Place.places に含まれ、Place.building of p が l である p が無い | - |
 
 ## 2. 1 回の要求で複数の概念が動く連動(整合の扱いを決める)
 
 連動の途中で失敗したとき、全体を失敗にするか、一部だけ成功にするか。決めてから API の応答を書く。
 
-- `Place.register` のあと `Search.index`  TODO: 失敗時の扱い
-- `Place.update` のあと `Search.index`(条件: name が更新された)  TODO: 失敗時の扱い
+- `Place.register` のあと `Search.index`(条件: Place.kind of p が設備(案内所・トイレ・休憩所・ゴミ箱)でない)  TODO: 失敗時の扱い
+- `Place.update` のあと `Search.index`(条件: name が更新され、Place.kind of p が設備でない)  TODO: 失敗時の扱い
 - `Place.remove` のあと `Search.unindex`  TODO: 失敗時の扱い
 - `Place.remove` のあと `Labeling.release`  TODO: 失敗時の扱い
 - `Place.remove` のあと `Destination.clear`(条件: Destination.chosen が、取り除かれた place である)  TODO: 失敗時の扱い
@@ -123,20 +125,21 @@ pressedAt: Stamp -> one Time
 landmarks: set Landmark
 name: Landmark -> one String
 location: Landmark -> one Point
-footprint: Landmark -> one Polygon  // 建物の輪郭(地図上の多角形の頂点列)
+footprint: Landmark -> lone Polygon  // 建物の輪郭(地図上の多角形の頂点列)。地図データに無い建物は持たない(D-023)
 ```
 
 ## 5. 決まっていない前提
 
 - OQ-1: 場所の登録を行う運営を、どう識別するか(運営者用の登録ページの認証。運営のみか、出展者も含めるか)。スタンプは来場者が押すので、報告者の権限は要らない
 - OQ-2: GPS が取れないとき、現在地を手で指定する操作を P1 に入れるか
-- OQ-3: 種類(カテゴリ)で選ぶ F4 を P1 に入れるか。Place.kind(企画 / 駐車場)との線引きはどうするか
+- OQ-3: 種類(カテゴリ)で選ぶ F4 を P1 に入れるか。Place.kind(企画・駐車場・設備)との線引きはどうするか
 - OQ-4: スタンプの種類(混雑 1〜5、面白い、美味しい、よさ など)と、混雑スタンプを古いとみなす時間。感想のスタンプに期限を付けるか
 - OQ-7: input.yaml の課題・機能 F1〜F5 は、ボードの P1 案と合っているか(F1〜F4 は画像から推測した下書き。F3・F4 の広げ方と F5 は Slack の発言から)
 - OQ-8: タグ検索を入れるか。Laya(自然言語から曖昧検索できる小規模言語モデル)の入出力形式と、動かす場所(端末かサーバか)
 - OQ-9: 待ち合わせ(周囲のオンライン者に合言葉を共有する案)を入れるか。入れる場合、位置の共有を許可した相手にだけ見せる形にするか(現在地は自分のみ、という原理と衝突する)
-- OQ-10: 「迷っている」をどう判定するか(行き先から遠ざかる、同じ所に長く留まる、など)。建物の近くとみなす範囲(near)
+- OQ-10: 「迷っている」をどう判定するか(行き先から遠ざかる、同じ所に長く留まる、など)
 - OQ-12: 来場者(User)を誰が供給するか。識別しない場合、現在地・行き先・自分用タグ・絞り込みは端末内に置く形になる(自分用タグは D-014 で端末内に決まった。残りが未決)。その場合、これらを概念として残すかも決める
 - OQ-13: 自作タグの名前のルール(空欄・重複・文字数)と、タグの上限数。名前の変更・削除ができるか、固定の 2 つを消せるか
 - OQ-14: 階ごとの見取り図(階の画像と、四隅の緯度経度)を、新しい概念にするか。Place・Landmark とは目的が違う(API-29・30、wireframe の ※)
 - OQ-16: 建物の輪郭を、端末へ静的ファイルで同梱するか、サーバー(API)から返すか
+- OQ-17: 輪郭の無い建物(D-023)を、運営にどう知らせるか。カメラの正面に出ない建物があることを、受け入れてよいか

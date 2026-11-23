@@ -124,8 +124,7 @@ decisions:
       - 効かせる
       - 一覧・地図の表示だけに効かせる
     adopted: 効かせる
-    reason: >-
-      利用者(admin)の決定(2026-11-21)。PR #16 の要確認 4 への回答。concepts.yaml の search-places の where は未反映(チームで反映を決める)。絞り込みは、運営の種類も自分用のタグも、端末でまとめて行う。API は検索結果に各場所の labelIds を付けて返し、絞り込みの引数は持たない(api/review-ledger.yaml の API-8、2026-11-22)。
+    reason: 利用者(admin)の決定(2026-11-21)。PR #16 の要確認 4 への回答。concepts.yaml では、同期 search-places に「絞り込みも検索結果に効かせる(D-012)」として反映済み(D-017 の(5))。
     status: resolved
     derived_from: 'PR #16(looky-looky)の要確認 4'
 
@@ -270,3 +269,94 @@ decisions:
     reason: 利用者の決定(2026-11-23)。値はチームが決めるまで変えてよい。OQ-4 は開いたまま。
     status: open
     derived_from: API-17・API-25、OQ-4
+
+  - id: D-023
+    problem: 地図データ(OpenStreetMap)に輪郭が無い建物を、概念として認めるか
+    options:
+      - 認める(footprint を lone にする。輪郭の無い建物は、正面に出ない)
+      - 認めない(輪郭が取れなければ登録できない)
+    adopted: 認める(API 設計とデザインシステムに合わせる)
+    reason: >-
+      利用者の決定(2026-11-23)。概念設計は、今の出来上がりで一旦完成とし、問題点は残したまま、API 設計(API-37、footprint は null)と
+      デザインシステム(BuildingShapePreview の「形なし」)に合わせる。concepts.yaml の Landmark.footprint を lone にし、
+      register-landmark は輪郭が取れなくても登録でき、recognize-building・show-building-events は輪郭を持つ建物だけを対象にする。
+      残る問題は OQ-17(輪郭の無い建物を、運営にどう知らせるか。カメラの正面に出ない建物を許してよいか)。
+      注意: 元になった API 設計の API-37(footprint は null)は、チームの合意待ちの仮置き。合意が変われば、この決定も見直す。
+    status: resolved
+    derived_from: API-37、design-system/components/BuildingShapePreview
+
+  - id: D-024
+    problem: 建物の企画を、建物の「近く」(距離)で決めるか、場所の建物との結びつき(building)で決めるか
+    options:
+      - 距離で決める(near の範囲は OQ-10 で未決のまま)
+      - 場所の building が、その建物と一致するもので決める
+    adopted: 場所の building が一致するもので決める(API 設計の API-23 を優先)
+    reason: >-
+      利用者の決定(2026-11-23)。デザインシステム(PR #23)は、この範囲を決めておらず「近いとみなす範囲は OQ-10」と書くだけで、
+      端末へ返す形(landmarks/{id}/places)だけを示している。API 設計(API-23)は「landmarkId がその建物の場所を返す」と決めている。
+      Place に building が入った(D-017)ので、距離の範囲を決める必要が無くなる。概念の同期 show-building-events・show-no-events の
+      where を、距離から Place.building の一致に直した。doc/concept-design.md の同期は、すでにこの形だった。OQ-10 のうち near は閉じ、
+      「迷っている」の判定だけが残る。屋外の企画(building なし)は、建物の企画には出ない。
+      注意: 元になった API 設計の API-23(landmarkId で返す)は、チームの合意待ちの仮置き。合意が変われば、この決定も見直す。
+    status: resolved
+    derived_from: API-23、OQ-10、D-017
+
+  - id: D-025
+    problem: カメラの企画の札の「方向・距離・建物の奥か」の計算を、概念に入れるか、端末の計算にするか
+    options:
+      - 端末の計算とし、概念に入れない
+      - 概念の同期の where に外部の計算として入れる
+    adopted: 端末の計算とし、概念には入れない(API 設計に記述が無いため、端末に割り切る)
+    reason: >-
+      利用者の決定(2026-11-23)。API 設計(PR #21)は、正面の建物の判定(recognizeBuilding)と、行き先への直線の方角・距離(showRoute。D-003)を
+      端末内の計算としている(x-excluded-requests)。企画の札の方向・距離・「建物の奥か」は、API 設計に記述が無く、
+      デザインシステム(BuildingCameraOverlay)が画面の部品として扱っている。現在地と向きは端末の外へ送らない(D-018)ので、
+      同じ入力(現在地・向き・輪郭・場所の位置)で端末が計算できる。サーバーが返すのは、建物の企画の一覧(D-024)と輪郭だけ。
+      概念は変えない(状態も変えない読み取りの計算で、概念にする理由が無い)。
+    status: resolved
+    derived_from: API-5・D-003・D-018、design-system/components/BuildingCameraOverlay
+
+  - id: D-026
+    problem: 来場者が案内をやめる操作を、概念にどう書くか(着く前の「案内をやめる」と、着いた後の「案内を終える」)
+    options:
+      - 同じ操作として、同期 clear-destination を 1 本足す
+      - 「やめる」と「終える」を、別の操作・別の同期にする
+    adopted: 同期を 1 本足す。言葉の違いは画面の側に残す
+    reason: >-
+      利用者の決定(2026-11-23)。デザインシステム(PR #23。glossary.md)は、2 つを同じ操作(Destination.clear)とし、来場者の気持ちの違いだけで
+      画面の言葉を分けている。概念には、来場者が Destination.clear を呼ぶ同期が無く、場所の削除からの連動(remove-clears-destination)しか無かった。
+      Request.clearDestination を受けて Destination.clear を呼ぶ同期を足した。API 設計では、行き先の操作は端末内(API-5)で、API には載せない。
+      着いたとみなす距離(20 m の仮置き)は、端末が距離から判定する(概念には入れない)。
+    status: resolved
+    derived_from: design-system/glossary.md、wireframe.md の「※ 案内をやめる」、API-5
+
+  - id: D-027
+    problem: 設備(案内所・トイレ・休憩所・ゴミ箱)を、検索に出すか
+    options:
+      - 検索に出さない。地図の「表示する印」(V1-h)のチェックで探す
+      - タグ・種類の絞り込みで探す
+    adopted: 検索に出さず、「表示する印」で探す(デザインシステムの方針)
+    reason: >-
+      利用者の決定(2026-11-23)。デザインシステム(PR #23。glossary.md、wireframe.md、screen-selection.md)は、設備を検索・絞り込みの対象にせず、
+      画面 V1-h「表示する印」のチェック(端末の中に保存)で、地図に出す印を選ぶ形にしている。API 設計(API-28)も、絞らない案で API は変わらない。
+      概念の注記は「設備は検索・絞り込みの対象にしない」だったが、同期 index-on-register が設備も検索の索引に入れていたため、
+      index-on-register と reindex-on-update の where に「設備でない」を足した。API の GET /places/search は、この索引から探すので、API の仕様は変わらない。
+      未処理: 場所の種別を、後から設備に変えたとき、すでにある索引の項目は消えない(必要になったら、別の同期で扱う)。
+    status: resolved
+    derived_from: design-system/glossary.md、wireframe.md V1-h、API-28、OQ-3
+
+  - id: D-028
+    problem: 運営が場所に付けた種類を外す操作を、概念に書くか
+    options:
+      - 同期 unassign-label を足す(Request.unassignLabel → Labeling.detach)
+      - 書かない(API だけが持つ)
+    adopted: 同期を足す(API 設計の API-41 に合わせる)
+    reason: >-
+      利用者の指示(2026-11-23)で、概念設計は API 設計とデザインシステムに合わせて直す。API 設計(PR #21)は、付け間違いを取り消すため、
+      DELETE /places/{placeId}/labels/{labelId} を足した(API-41。仮置き)。概念には、運営が種類を付ける同期(assign-label)だけがあり、
+      外す同期が無かった(unmark-place は来場者の自分用タグで、別物)。Labeling.detach は既にあるので、同期 unassign-label を足した。
+      違い: 概念の detach は「付いていること」が事前条件で、API は付いていなくても 204(冪等)。API の層が、事前条件を満たさない場合も成功として返す。
+      注意: API-41 は、チームの合意待ちの仮置き。合意が変われば、この決定も見直す。
+    status: resolved
+    derived_from: API-41、Labeling.detach
+

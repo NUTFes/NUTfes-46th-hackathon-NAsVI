@@ -59,7 +59,7 @@ items:
     content: >-
       来場者の現在地・行き先・案内(Position・Destination)を API に載せるか。
       回答: 載せない(端末内に置く)。サーバーの API は場所・種類・スタンプ・建物と運営の操作だけにする。
-      allowLocation・refuseLocation・reportPosition・setPosition・chooseDestination・showRoute は x-excluded-requests に入れる。
+      allowLocation・refuseLocation・reportPosition・setPosition・chooseDestination・clearDestination(D-026)・showRoute は x-excluded-requests に入れる。
       D-014 により defineMyTag・markPlace・unmarkPlace・applyFilter・clearFilter・browse も端末内。
     state: 確定
     placeholder: ""

@@ -236,10 +236,10 @@ state
  landmarks: set Landmark
  name: Landmark -> one String
  location: Landmark -> one Point
- footprint: Landmark -> one Polygon  // 建物の輪郭(地図上の多角形の頂点列)
+ footprint: Landmark -> lone Polygon  // 建物の輪郭(地図上の多角形の頂点列)。地図データに無い建物は持たない(D-023)
 actions
- register (name: String, at: Point, footprint: Polygon): Landmark
- update (l: Landmark, name: String, at: Point, footprint: Polygon)
+ register (name: String, at: Point, footprint: Polygon?): Landmark
+ update (l: Landmark, name: String, at: Point, footprint: Polygon?)
    requires l in landmarks
  remove (l: Landmark)
    requires l in landmarks
@@ -247,6 +247,7 @@ actions
 
 - 正面の建物を決める計算(現在地から向いている方向へ線を伸ばし、最初に輪郭と交わる建物を選ぶ)は、状態を必要としない計算なので、概念にせず、外部の計算(`Geometry.facing`)として同期の `where` に置く(Laya と同じ扱い)。【推論】
 - 映像は使わない。現在地と向きは、端末の中で計算し、サーバーへ送らない(D-018)。
+- カメラの企画の札の方向・距離・「建物の奥か」は、端末が現在地・向き・輪郭・場所の位置から計算する。概念には入れない(D-025)。
 - 輪郭は地図データ(OpenStreetMap)から取る。運営は輪郭を描かず、直さず、取り直す操作(同期 `reload-footprint`)だけを持つ(D-019)。輪郭の配り方は OQ-16。画像認識(MindAR)は拡張として残す。
 - Place(企画、駐車場、設備)と重なる疑い: どちらも位置を持つ。Landmark は建物で、輪郭を持つので、分けた。Place の `kind` に建物を足す案もある。【推論】
 ## 4. 概念の点検
@@ -302,10 +303,12 @@ then Web.respond (the places, each with its labels)
 // Place の変化に、他の概念を連動させる
 sync index-on-register
 when Place.register (name, kind, at, text, b, floor, hours): p
+where Place.kind of p is not a facility            // 案内所・トイレ・休憩所・ゴミ箱は検索に出さない(D-027)
 then Search.index (p, name)
 
 sync reindex-on-update
 when Place.update (p, name, kind, at, text, b, floor, hours)
+where Place.kind of p is not a facility            // D-027
 then Search.index (p, name)
 
 sync cascade-remove
@@ -364,6 +367,12 @@ where p in Place.places
       who may manage places
 then Labeling.attach (who, p, l)
 
+sync unassign-label
+when Web.request (unassignLabel, who, p, l)
+where p in Place.places
+      who may manage places
+then Labeling.detach (who, p, l)                 // 付け間違いの取り消し。種類そのものは消えない(D-028)。付いていなければ事前条件を満たさない。API は成功として返す(API-41)
+
 sync define-my-tag
 when Web.request (defineMyTag, u, title)           // 例: お気に入り、行きたい
 then Labeling.defineFor (u, title)
@@ -417,6 +426,11 @@ when Web.request (chooseDestination, u, place)
 where place in Place.places
 then Destination.choose (u, place)
 
+sync clear-destination
+when Web.request (clearDestination, u)
+where Destination.chosen of u exists            // 「案内をやめる」(着く前)も「案内を終える」(着いた後)も同じ操作(D-026)
+then Destination.clear (u)
+
 sync guide-on-choose
 when Destination.choose (u, d)
 where Position.at of u is a
@@ -457,7 +471,7 @@ where s in Stamp.stamps
       Stamp.kind of s is a congestion stamp and the age (now - Stamp.pressedAt of s) is within 30 minutes,
       or Stamp.kind of s is a feeling stamp and now is before the closing time of that day
       // 仮置きの値(D-022)。【未決】OQ-4
-then Web.respond (s, with Stamp.kind, Stamp.at, Stamp.pressedAt)
+then Web.respond (s, with Stamp.kind, Stamp.at, Stamp.pressedAt, expiresAt)   // 混雑は押した時刻 + 30 分、感想はその日の閉場(D-022、API-38)
 ```
 
 - 混雑スタンプは、許容時間を過ぎると `where` に合わず、答えに出ない。感想のスタンプ(面白い、美味しい、よさ)は、その日の閉場まで見える。期限の値(混雑 30 分、感想は閉場まで)は仮置きで、チームが決める。【未決】OQ-4
@@ -467,7 +481,7 @@ then Web.respond (s, with Stamp.kind, Stamp.at, Stamp.pressedAt)
 sync register-landmark
 when Web.request (registerLandmark, who, name, at)
 where who may manage places                        // 【未決】OQ-1
-      Osm.outline (at) is footprint                // 【推論】外部の計算。輪郭は地図データから取る(D-019)
+      Osm.outline (at) is footprint                // 【推論】外部の計算。輪郭は地図データから取る(D-019)。取れなければ footprint なしで登録する(D-023)
 then l = Landmark.register (name, at, footprint)
 
 sync update-landmark
@@ -495,26 +509,25 @@ then Web.respond (the landmarks)
 sync recognize-building
 when Web.request (recognizeBuilding, u, heading)   // 現在地と向きは端末内で扱い、送信しない(D-018)
 where l in Landmark.landmarks
+      Landmark.footprint of l exists                // 輪郭の無い建物は、正面に出ない(D-023)
       Geometry.facing (Position.at of u, heading, Landmark.footprint of l)   // 【推論】外部の計算
 then Web.respond (l, with Landmark.name, Landmark.location)
 
 sync show-building-events
-when Web.request (showBuildingEvents, u, heading)
+when Web.request (showBuildingEvents, l)         // l は、端末が正面の建物として決めたもの(recognize-building。現在地と向きは送らない。D-018)
 where l in Landmark.landmarks
-      Geometry.facing (Position.at of u, heading, Landmark.footprint of l)
       p in Place.places with Place.building of p is l
 then Web.respond (l, the places p, with Place.name, Place.location)
 
 sync show-no-events
-when Web.request (showBuildingEvents, u, heading)
+when Web.request (showBuildingEvents, l)
 where l in Landmark.landmarks
-      Geometry.facing (Position.at of u, heading, Landmark.footprint of l)
       no p in Place.places with Place.building of p is l
 then Web.respond (l, no events)                       // 「この建物には企画がない」を見せる
 ```
 
 - 「この建物には企画がない」を見せる(Slack の構想)ために、`show-no-events` を分けた。`show-building-events` は、企画が 1 件以上あるときだけ起きる。
-- 建物の企画は、場所の `building` が建物と一致するもので決める(2026-11-22)。以前の「建物の近く(near)」は使わない。OQ-10 のうち near の範囲は、要らなくなった。
+- 建物の企画は、場所の `building` が建物と一致するもので決める(2026-11-22。D-024)。以前の「建物の近く(near)」は使わない。OQ-10 のうち near の範囲は、要らなくなった。
 - 運営は輪郭を描かない。建物を登録するときに地図データから取り込み、ずれたときは `reload-footprint` で取り直す(D-019)。
 - 「迷っているか」の判定は、まだ書いていない。Position と Destination から、`where` で計算できるか(行き先から遠ざかる、同じ所に長く留まる、など)を決める。【未決】OQ-10
 ## 6. 機能 × 概念・同期の対応(被覆)
@@ -563,6 +576,7 @@ app NAsVI includes
 | 13 | Stamp が押した人(by)を持つ | 取り消しの証(proof)の一致で確かめる。by をやめた | D-021。API-13・19 と一致 |
 | 14 | show-places が絞り込みを行う | 絞り込みは端末。サーバーは運営の種類を付けて返す | D-012・D-014・D-016 |
 | 15 | showLabels・removeLabel・showLandmarks・reloadFootprint が無い | 同期を足した | API-6・10、D-019 |
+| 16 | Landmark の輪郭が必須(`one`) | 輪郭が無い建物を認める(`lone`)。輪郭の無い建物は、正面に出ない | D-023。API(API-37)とデザインシステム(BuildingShapePreview の「形なし」)に合わせた。残る問題は OQ-17 |
 
 ## 8. 決めること・確認できないこと
 
@@ -578,9 +592,10 @@ app NAsVI includes
 | OQ-12 来場者(`User`)を誰が供給するか | Position [User]、Destination [User, Item]、Labeling [User, Item]、Stamp は User を持たなくなった(D-021)。来場者を識別しないなら、利用者ごとの状態は、端末の中に置く形になる。その場合、Position、Destination を概念として残すかも決める |
 | OQ-8 タグ検索と Laya の組み込み | タグ名を index に渡すか。Laya(自然言語から曖昧検索できる小規模言語モデル)の入出力形式と、動かす場所(端末かサーバか)。search-places-laya の Laya.matches の書き方 |
 | OQ-9 待ち合わせ(合言葉) | 周囲のオンライン者に合言葉を共有する案(Slack)。入れる場合は、グループと位置の共有を保つ概念(Meetup など)が要る。Position の「見えるのは自分の現在地のみ」と衝突するので、共有を許可した相手にだけ見せる形にするかを決める。来場者(User)の識別も要る |
-| OQ-10 迷いの判定と「企画なし」の表示 | 「迷っている」の判定方法(行き先から遠ざかる、同じ所に長く留まる、など)。near の範囲。判定を概念にするか、同期の where の計算にするか |
+| OQ-10 迷いの判定と「企画なし」の表示 | 「迷っている」の判定方法(行き先から遠ざかる、同じ所に長く留まる、など)。near の範囲は D-024 で不要になった。判定を概念にするか、同期の where の計算にするか |
 | OQ-11 Landmark の認識の実装(閉じた) | 映像でなく、現在地・向き・建物の輪郭で決めることにした(D-018)。画像認識(MindAR)は拡張 |
 | OQ-14 階ごとの見取り図を新概念にするか | 階の画像と、四隅の緯度経度。Place・Landmark とは目的が違う。概念には足していない |
+| OQ-17 輪郭の無い建物の扱い | 輪郭の無い建物(D-023)を、運営にどう知らせるか。カメラの正面に出ない建物を許してよいか |
 | OQ-16 建物の輪郭の配り方 | 端末へ静的ファイルで同梱するか、API で返すか |
 
 演繹文書で確認できていないこと(この文書が【推論】で置いた所)。

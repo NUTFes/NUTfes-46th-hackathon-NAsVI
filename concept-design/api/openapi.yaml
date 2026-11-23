@@ -37,6 +37,7 @@ x-excluded-requests:
   reportPosition: 端末内(API-5)。現在地をサーバーに送らない
   setPosition: 端末内(API-5)。P1 に入れるかも未決(OQ-2)
   chooseDestination: 端末内(API-5・D-013)
+  clearDestination: 端末内(API-5・D-026)。着く前の「案内をやめる」も、着いた後の「案内を終える」も同じ操作で、サーバーに送らない
   showRoute: 端末内(API-5)。直線の方角と距離は端末で計算する(D-003)
   defineMyTag: 端末内(D-014)
   markPlace: 端末内(D-014)
@@ -266,6 +267,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     delete:
       operationId: unassignLabel
+      x-request: unassignLabel
       tags: [places, labels]
       summary: 場所から運営の種類を外す(運営)
       description: 付け間違えたときに外す。付いていなくても成功にする(何度送っても同じ結果)。種類そのものは消えない(消すのは DELETE /labels/{labelId})。
