@@ -218,3 +218,53 @@ it('不正な Last-Event-ID も有効な since より優先して resync で閉�
     await client.close();
   }
 });
+
+it('64KB を超える再送でも切れず、全件を順に受け取る', async () => {
+  const text = 'x'.repeat(300);
+  await env.DB.batch(Array.from({ length: 400 }, (_, i) => env.DB.prepare(
+    'INSERT INTO changes (id, type, payload, created_at) VALUES (?, ?, ?, ?)',
+  ).bind(i + 1, 'placeRemoved', JSON.stringify({ text }), '2026-11-24T00:00:00Z')));
+  const stub = hub();
+  const client = await connect(stub, '?since=0');
+  try {
+    for (let id = 1; id <= 400; id++) expect(await client.next()).toContain(`id: ${id}\nevent: placeRemoved`);
+    await publish(stub, 401);
+    expect(await client.next()).toContain('id: 401\nevent: placeRemoved');
+  } finally {
+    await client.close();
+  }
+});
+
+it('上限を超える接続は 503 と Retry-After で断る', async () => {
+  const stub = hub();
+  await runInDurableObject(stub, instance => { instance.limits.maxClients = 2; });
+  const clients = await Promise.all([connect(stub), connect(stub)]);
+  try {
+    const refused = await stub.fetch('http://hub/changes');
+    expect(refused.status).toBe(503);
+    expect(refused.headers.get('Retry-After')).not.toBeNull();
+    await refused.body?.cancel();
+  } finally {
+    await Promise.all(clients.map(client => client.close()));
+  }
+});
+
+it('再送中に pending が上限を超えた接続は閉じる', async () => {
+  const text = 'x'.repeat(300);
+  await env.DB.batch(Array.from({ length: 400 }, (_, i) => env.DB.prepare(
+    'INSERT INTO changes (id, type, payload, created_at) VALUES (?, ?, ?, ?)',
+  ).bind(i + 1, 'placeRemoved', JSON.stringify({ text }), '2026-11-24T00:00:00Z')));
+  const stub = hub();
+  await runInDurableObject(stub, instance => { instance.limits.maxPending = 2; });
+  const client = await connect(stub, '?since=0'); // not read: replay stays unfinished
+  try {
+    for (const id of [401, 402, 403]) await publish(stub, id);
+    let frame: string | null = null;
+    let count = 0;
+    do { frame = await client.next(); count++; } while (frame !== null && count <= 400);
+    expect(frame).toBeNull();
+    expect(count).toBeLessThanOrEqual(400);
+  } finally {
+    await client.close();
+  }
+});
