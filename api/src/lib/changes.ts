@@ -22,16 +22,25 @@ async function publish(env: Env, event: ChangeEvent): Promise<void> {
 }
 
 export async function commitWithChange(
-  env: Env, stmts: D1PreparedStatement[], change: { type: ChangeType; payload: unknown },
+  env: Env, stmts: D1PreparedStatement[],
+  change: { type: ChangeType; payload: unknown } | { type: ChangeType; payloadSql: { sql: string; params: unknown[] } },
   ctx?: { waitUntil(p: Promise<unknown>): void },
-): Promise<{ changeId: number }> {
+): Promise<{ changeId: number; payload: unknown }> {
   const createdAt = nowIso(env);
-  const insert = env.DB.prepare('INSERT INTO changes (type, payload, created_at) VALUES (?, ?, ?)')
-    .bind(change.type, JSON.stringify(change.payload), createdAt);
-  const results = await env.DB.batch([...stmts, insert]);
-  const changeId = results[results.length - 1].meta.last_row_id;
-  const pending = publish(env, { id: changeId, ...change, createdAt });
+  // payloadSql.sql is interpolated: callers must use fixed SQL literals and bind all values via params.
+  const insert = 'payloadSql' in change
+    ? env.DB.prepare(`INSERT INTO changes (type, payload, created_at) SELECT ?, (${change.payloadSql.sql}), ? RETURNING payload`)
+      .bind(change.type, ...change.payloadSql.params, createdAt)
+    : env.DB.prepare('INSERT INTO changes (type, payload, created_at) VALUES (?, ?, ?)')
+      .bind(change.type, JSON.stringify(change.payload), createdAt);
+  const results = await env.DB.batch<{ payload: string }>([...stmts, insert]);
+  const last = results[results.length - 1];
+  const changeId = last.meta.last_row_id;
+  const payload: unknown = 'payloadSql' in change
+    ? JSON.parse(last.results[0].payload)
+    : change.payload;
+  const pending = publish(env, { id: changeId, type: change.type, payload, createdAt });
   if (ctx) ctx.waitUntil(pending);
   else await pending;
-  return { changeId };
+  return { changeId, payload };
 }
