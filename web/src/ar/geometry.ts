@@ -1,14 +1,14 @@
-import { toXY } from '../domain/geo';
+import { bearingDeg, toXY } from '../domain/geo';
 import type { Landmark, Place } from '../types';
 
-/** この距離未満は「現在地付近」と表示する想定。単位は m。 */
-export const NEAR_M = 20;
+/**
+ * 以下の5定数は決定根拠のない仮置きの値。
+ * PR #4 の通常版に合わせた初期値であり、実機で調整する。
+ */
 /** 輪郭に接した現在地での自己交差を避ける最小距離。単位は m。 */
 export const RAY_MIN_T = 0.5;
 /** 正面の建物を探す直線距離の上限。単位は m。 */
 export const FRONT_MAX_M = 300;
-/** 登録企画のない建物を表示する際の距離上限。表示側で使う想定。 */
-export const FRONT_NAMED_MAX_M = 80;
 /** 頂点自体への衝突を避け、手前まで可視判定する余裕。単位は m。 */
 export const VERTEX_MARGIN_M = 1.5;
 /** 現在地に近すぎる頂点を除外する距離。単位は m。 */
@@ -55,6 +55,10 @@ function project(location: Location): XY {
   return toXY(location.lat, location.lng);
 }
 
+function isFiniteXY(point: XY): boolean {
+  return point.every(Number.isFinite);
+}
+
 function projectBuildings(buildings: readonly Landmark[]): ProjectedBuilding[] {
   return buildings.flatMap(building => building.footprint === null ? [] : [{
     building,
@@ -67,6 +71,10 @@ export function wrap180(angle: number): number {
   return ((angle + 540) % 360) - 180;
 }
 
+/**
+ * bearingDeg は緯度経度入力だが、anchor と可視頂点は平面座標。
+ * fromXY で緯度経度に戻すと往復誤差が出るため、ここでは平面上で方位を求める。
+ */
 function bearingXY(from: XY, to: XY): number {
   return (Math.atan2(to[0] - from[0], to[1] - from[1]) * 180 / Math.PI + 360) % 360;
 }
@@ -117,8 +125,10 @@ export function pickFront(
   headingDeg: number,
   buildings: readonly Landmark[],
 ): RayHit | null {
+  const origin = project(pos);
+  if (!isFiniteXY(origin) || !Number.isFinite(headingDeg)) return null;
   const heading = headingDeg * Math.PI / 180;
-  return castRay(project(pos), Math.sin(heading), Math.cos(heading), FRONT_MAX_M, buildings);
+  return castRay(origin, Math.sin(heading), Math.cos(heading), FRONT_MAX_M, buildings);
 }
 
 function projectedVisibility(
@@ -126,6 +136,7 @@ function projectedVisibility(
   target: Landmark | Place,
   buildings: readonly ProjectedBuilding[],
 ): Visibility {
+  if (!isFiniteXY(origin)) return { occluded: true, anchor: null, span: null, nearD: null };
   const isBuilding = 'footprint' in target;
   const points = isBuilding ? (target.footprint ?? []).map(project) : [project(target.location)];
   const visible: XY[] = [];
@@ -134,7 +145,7 @@ function projectedVisibility(
     const dx = point[0] - origin[0];
     const dy = point[1] - origin[1];
     const d = Math.hypot(dx, dy);
-    if (d < VERTEX_MIN_DIST_M) continue;
+    if (!Number.isFinite(d) || d < VERTEX_MIN_DIST_M) continue;
     const hit = castProjectedRay(origin, dx / d, dy / d, d - VERTEX_MARGIN_M, buildings);
     if (hit === null || (isBuilding && hit.building.id === target.id)) {
       visible.push(point);
@@ -173,9 +184,13 @@ export function describeTarget(
 ): TargetDescription {
   const origin = project(pos);
   const point = 'lat' in target ? project(target) : target;
+  // 無効な座標は距離不明として扱い、表示候補から外せる値を返す。
+  if (!isFiniteXY(origin) || !isFiniteXY(point)) {
+    return { distance: Infinity, bearing: 0, occluded: true };
+  }
   return {
     distance: Math.hypot(point[0] - origin[0], point[1] - origin[1]),
-    bearing: bearingXY(origin, point),
+    bearing: 'lat' in target ? bearingDeg(pos, target) : bearingXY(origin, point),
     occluded,
   };
 }

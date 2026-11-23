@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { fromXY, toXY } from '../domain/geo';
 import type { Landmark, Place } from '../types';
@@ -8,8 +9,6 @@ import {
   describePlaces,
   describeTarget,
   FRONT_MAX_M,
-  FRONT_NAMED_MAX_M,
-  NEAR_M,
   pickFront,
   RAY_MIN_T,
   VERTEX_MARGIN_M,
@@ -36,12 +35,19 @@ function outdoor(x: number, y: number): Place {
   return { ...places[2], location: fromXY(x, y) };
 }
 
-describe('AR の前提となる定数', () => {
-  it('通常版の距離と画角を固定する', () => {
+describe('AR の依存と初期値', () => {
+  it('DOM に触れる API に依存しない', () => {
+    const source = readFileSync(new URL('./geometry.ts', import.meta.url), 'utf8');
+    for (const word of ['document', 'window', 'fetch', 'navigator', 'localStorage']) {
+      expect(source).not.toMatch(new RegExp(`\\b${word}\\b`));
+    }
+  });
+
+  it('PR #4 の通常版に合わせた仮置きの距離と画角を保つ', () => {
     expect([
-      NEAR_M, RAY_MIN_T, FRONT_MAX_M, FRONT_NAMED_MAX_M,
+      RAY_MIN_T, FRONT_MAX_M,
       VERTEX_MARGIN_M, VERTEX_MIN_DIST_M, DEFAULT_LONG_FOV_DEG,
-    ]).toEqual([20, 0.5, 300, 80, 1.5, 1, 65]);
+    ]).toEqual([0.5, 300, 1.5, 1, 65]);
   });
 });
 
@@ -59,6 +65,12 @@ describe('正面の建物', () => {
 
   it('原点以外の現在地からも計算する', () => {
     expect(pickFront(fromXY(0, -10), 0, buildings)?.distance).toBeCloseTo(20, 6);
+  });
+
+  it.each([0, 90, 180, 270])('輪郭の内側から方位 %s° に出る辺に当たる', heading => {
+    const hit = pickFront(fromXY(0, 15), heading, buildings);
+    expect(hit?.building).toBe(northBuilding);
+    expect(hit?.distance).toBeCloseTo(5, 6);
   });
 
   it('手前の輪郭なしの建物を飛ばして奥の北棟を選ぶ', () => {
@@ -127,6 +139,18 @@ describe('レイと輪郭の交差', () => {
 });
 
 describe('可視頂点と anchor', () => {
+  it('輪郭の内側でも自身の頂点を可視とし、その平均を返す', () => {
+    const result = visibility(fromXY(0, 15), northBuilding, buildings);
+    expect(result.occluded).toBe(false);
+    expect(result.anchor?.[0]).toBeCloseTo(0, 6);
+    expect(result.anchor?.[1]).toBeCloseTo(15, 6);
+    expect(result.nearD).toBeCloseTo(Math.hypot(5, 5), 6);
+    expect(result.span?.[0]).toBeCloseTo(-135, 6);
+    expect(result.span?.[1]).toBeCloseTo(135, 6);
+    expect(describePlaces(fromXY(0, 15), [places[0]], buildings)[0])
+      .toMatchObject({ ...result, place: places[0], distance: expect.closeTo(0, 6) });
+  });
+
   it('自身の輪郭への衝突は遮蔽にせず、全可視頂点の平均を返す', () => {
     const result = visibility(pos, northBuilding, buildings);
     expect(result.occluded).toBe(false);
@@ -223,6 +247,30 @@ describe('位置と企画の記述', () => {
     visibility(pos, northBuilding, buildings);
     describePlaces(pos, places, buildings);
     expect(JSON.stringify({ pos, buildings, places })).toBe(before);
+  });
+});
+
+describe('非有限値の入力', () => {
+  const hidden = { occluded: true, anchor: null, span: null, nearD: null };
+
+  it.each([NaN, Infinity, -Infinity])('現在地の値 %s を可視として扱わない', value => {
+    for (const invalidPos of [{ ...pos, lat: value }, { ...pos, lng: value }]) {
+      expect(pickFront(invalidPos, 0, buildings)).toBeNull();
+      for (const target of [northBuilding, places[2], shapelessBuilding]) {
+        expect(visibility(invalidPos, target, buildings)).toEqual(hidden);
+      }
+      expect(describePlaces(invalidPos, places, buildings)).toEqual(places.map(place => ({
+        place,
+        distance: Infinity,
+        bearing: 0,
+        ...hidden,
+      })));
+      expect(describePlaces(invalidPos, [], buildings)).toEqual([]);
+    }
+  });
+
+  it.each([NaN, Infinity, -Infinity])('向き %s では正面の建物を選ばない', heading => {
+    expect(pickFront(pos, heading, buildings)).toBeNull();
   });
 });
 
