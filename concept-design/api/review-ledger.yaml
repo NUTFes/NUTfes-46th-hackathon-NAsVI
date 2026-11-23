@@ -83,11 +83,11 @@ items:
     content: >-
       画面に要るのに concepts.yaml に要求が無かった操作。
       main の PR #24(D-017・D-019)で Request.showLabels・removeLabel・showLandmarks・reloadFootprint が足され、仕様に x-request を付けた(2026-11-23)。
-      残りは階ごとの見取り図(PUT・DELETE /landmarks/{landmarkId}/floors/{floor}/plan)だけ。見取り図を概念にするかが OQ-14 で未決のため
-    state: 仮置き
-    placeholder: 要求名を setFloorPlan・removeFloorPlan と仮に呼ぶ。概念設計への反映はチーム(OQ-14)
-    decided_by: ""
-    date: ""
+      残りは階ごとの見取り図(PUT・DELETE /landmarks/{landmarkId}/floors/{floor}/plan)だけ。見取り図は、OQ-14 の決定(D-029、2026-11-23)で概念にしないと決まった。要求は作らず、x-no-request を付けた
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者(D-029)
+    date: "2026-11-23"
     related_oq: OQ-14
   - id: API-8
     kind: 一覧取得
@@ -177,7 +177,7 @@ items:
       種類の名前 1〜20 文字で重複を禁止(409 label_title_taken)、階は整数 -5〜20、位置は緯度経度(lat・lng)、検索語は 1〜50 文字。違反は 400
       利用者の意見: 場所に建物と階を持たせる(概念設計の変更)。概念設計に入れるかはチームが決める(ゲート 2 の質問 6 の回答 C)。
     state: 仮置き
-    placeholder: "場所に建物(landmarkId)と階(floor)を足すのは、利用者が API 設計の範囲として決めた(2026-11-23)。階は landmarkId が null のとき null(openapi.yaml に書いた)。文字数などの決まりは、仮置きの値のまま合意とする。実装して合わなければ直す(2026-11-23、利用者)"
+    placeholder: "場所に建物(landmarkId)と階(floor)を足すのは、利用者が API 設計の範囲として決めた(2026-11-23)。階は landmarkId が null のとき null(openapi.yaml に書いた)。文字数などの決まりは、仮置きの値のまま合意とし、実装まで進めてから、使ってみて合わなければ直す(出戻りを許す。2026-11-23、利用者)"
     decided_by: ""
     date: ""
     related_oq: ""
@@ -213,7 +213,7 @@ items:
       回答(2026-11-22、sabo10p): 案 C。OQ-4 はチームが決めるので、仮置きのまま残す。
       利用者の意見: 種類はいまの 8 つ、混雑は 30 分で消え、感想はその日の閉場で消える案(A)でよい気がする。チームで決めるときの案として残す
     state: 仮置き
-    placeholder: 全件を返す。スタンプの種類は congestion-1〜5・fun・food・good(混雑 1〜5・面白い・美味しい・よさ。API-36)。許容時間は未定(案 混雑 30 分、感想は閉場まで)
+    placeholder: "スタンプの種類と、混雑 30 分・感想は閉場までの期限(D-022)は、仮置きの値のまま合意とし、実装まで進めてから、使ってみて合わなければ直す(出戻りを許す。2026-11-23、利用者)"
     decided_by: ""
     date: ""
     related_oq: OQ-4
@@ -292,10 +292,10 @@ items:
       理由: 屋外の模擬店は、カメラで映している時点で既に見えている(利用者)。
       概念設計の同期 show-building-events・show-no-events の where は、D-024 で「建物の一致」に変わり、この API と合った(2026-11-23)。OQ-10 のうち near の範囲は要らなくなり、残るのは「迷っている」の判定だけ
       利用者の意見: その棟の企画は建物の id で出し、「近く」(OQ-10 の near)は要らない(ゲート 2 の質問 7 の回答 A)。
-    state: 仮置き
-    placeholder: "利用者の意見: その棟の企画は、landmarkId がその建物の場所で返す(near は使わない)。チームの合意待ち"
-    decided_by: ""
-    date: ""
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者(D-024)
+    date: "2026-11-23"
     related_oq: "OQ-10"
   - id: API-24
     kind: 状態遷移
@@ -353,12 +353,12 @@ items:
       マップに設備(案内所・トイレ・休憩所・ゴミ箱)の印を出す(screens.yaml の map、wireframe.md の ※)が、API に設備が無い。
       回答(ゲート 3): 足す。ワイヤーフレームの案どおり、場所の種別(kind)に 案内所・トイレ・休憩所・ゴミ箱 を足し、運営が場所として登録する。
       設備は検索・絞り込みの対象にするか: ワイヤーフレームの案は「設備とスタンプは絞らない」。絞り込みは端末で行う(API-8)ので、API は変わらない。
-      概念設計の変更が要る(Place.kind に設備の種類を足す)。反映はチームが決める
-      利用者の意見: 設備を Place.kind に足す。Place.kind と種類の線引き(OQ-3)と、概念設計への反映はチームが決める(ゲート 3 の回答)。
-    state: 仮置き
-    placeholder: "利用者の意見: Place.kind に 案内所・トイレ・休憩所・ゴミ箱(info・wc・rest・trash。API-36)を足す。チームの合意待ち"
-    decided_by: ""
-    date: ""
+      概念設計は、D-017 で Kind に設備 4 種を足し、D-027 で設備を検索に出さないと決めた(2026-11-23)
+      利用者の意見: 設備を Place.kind に足す(ゲート 3 の回答)。Place.kind と種類の線引きは OQ-3 で、API の形には影響しない。
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者(D-017・D-027)
+    date: "2026-11-23"
     related_oq: OQ-3
   - id: API-29
     kind: リソース設計
@@ -370,10 +370,10 @@ items:
       利用者の意見: 見取り図を足す(ゲート 3 の回答)。
       利用者の意見(2026-11-23、PR #23 との照合): 見取り図は画像でなく SVG の図形(viewBox と path の d)で持つ。デザインシステムの BuildingFloorPlan の形に合わせる。
       運営が図形を用意する必要がある(図面の写真のままでは使えない)。四隅の緯度経度(API-30)は残す
-    state: 仮置き
-    placeholder: "利用者の意見: 階ごとの見取り図を SVG の図形として PUT・DELETE /landmarks/{landmarkId}/floors/{floor}/plan で扱い、建物の応答に floors を入れる。チームの合意待ち"
-    decided_by: ""
-    date: ""
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者
+    date: "2026-11-23"
     related_oq: ""
   - id: API-30
     kind: バリデーション
@@ -381,11 +381,11 @@ items:
       見取り図の上に企画の位置を描く方法。場所の位置は緯度経度なので、見取り図の画像のどこに当たるかを決める情報が要る。
       案: 見取り図を登録するとき、画像の四隅に当たる緯度経度(bounds。north・south・east・west)も送り、端末が位置を画像の上に換算する。
       別案: 場所ごとに、見取り図の上の座標(x・y)を持たせる(場所の項目が増える)
-      利用者の意見: 四隅の緯度経度の案(bounds)でよい(2026-11-22)。見取り図を足すこと(API-29)と合わせて、チームの合意待ち
-    state: 仮置き
-    placeholder: "利用者の意見: 見取り図に bounds(north・south・east・west)を持たせ、端末が緯度経度から図形の上の x・y に換算する。チームの合意待ち"
-    decided_by: ""
-    date: ""
+      利用者の意見: 四隅の緯度経度の案(bounds)でよい(2026-11-22)。見取り図を足すこと(API-29)と合わせて確定(2026-11-23、利用者)。位置の換算は端末が行い、API は bounds を保存して返すだけ(換算を端末に置く前提は、API 設計の外の判断でもあるが、この形で確定)
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者
+    date: "2026-11-23"
     related_oq: ""
   # --- issue #17 の API の欄(2026-11-22) ---
   - id: API-31
@@ -426,20 +426,20 @@ items:
     content: >-
       輪郭の取り直し(Request.reloadFootprint)の形。パスは動詞を避けて POST /landmarks/{landmarkId}/footprint(本文なし)。
       OpenStreetMap から輪郭が取れないときは、輪郭を変えずに 502 footprint_unavailable を返す。登録のときは断らず、輪郭なしで登録する(API-37)
-    state: 仮置き
-    placeholder: POST /landmarks/{landmarkId}/footprint。取れなければ 502 footprint_unavailable(登録は輪郭なしで通す)
-    decided_by: ""
-    date: ""
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者
+    date: "2026-11-23"
     related_oq: ""
   - id: API-35
     kind: バリデーション
     content: >-
       開催時間(hours。D-020)の時刻の形。いまは日付つきの日時(ISO 8601、+09:00)。学園祭は 2 日間なので、日付が要る。
-      デザインシステムの hours(表示用の文字列)とどう対応させるか(画面が日時から「11:00〜15:00」を作るか)も確かめる
-    state: 仮置き
-    placeholder: start・end は日付つきの日時(date-time)。表示用の文字列は画面が作る
-    decided_by: ""
-    date: ""
+      回答(2026-11-23、利用者): 内部は日付つきの日時でよい(2 日間あるため)。表示用の文字列(「11:00〜15:00」)は、画面が日時から作る
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者
+    date: "2026-11-23"
     related_oq: ""
   # --- PR #23(デザインシステム)の部品の型との照合(2026-11-23) ---
   - id: API-36
@@ -461,11 +461,11 @@ items:
       輪郭(footprint)の無い建物を許すか。デザインシステムの BuildingShapePreview は「形なし」を許し、概念設計は footprint: Landmark -> one Polygon(必ず 1 つ)。
       利用者の意見(2026-11-23): 許す(案 A)。OpenStreetMap に輪郭が無くても登録でき、footprint は null。
       輪郭の無い建物はカメラの正面に選ばれないが、一覧・見取り図・その棟の企画には使える。あとで取り直せる。
-      概念設計の footprint を lone(0 か 1)に変える必要があり、チームの合意待ち
-    state: 仮置き
-    placeholder: "利用者の意見: footprint は null を許す。登録は輪郭なしでも通す。チームの合意待ち"
-    decided_by: ""
-    date: ""
+      概念設計は、D-023(2026-11-23)で footprint を lone(0 か 1)に変えた
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者(D-023)
+    date: "2026-11-23"
     related_oq: ""
   - id: API-38
     kind: 状態遷移
@@ -506,9 +506,9 @@ items:
     content: >-
       場所に付けた運営の種類を外す操作(付け間違いの取り消し)。付ける操作(PUT /places/{placeId}/labels/{labelId})だけがあった。
       回答(2026-11-23、利用者): 足す。DELETE /places/{placeId}/labels/{labelId}(運営)。付いていなくても 204。種類そのものは消えない。
-      概念設計には、運営の種類を外す要求が無い(Request.unmarkPlace は来場者の自分用タグ。端末内)。Labeling.detach を呼ぶ同期の追加が要る
-    state: 仮置き
-    placeholder: "利用者の指示で操作を足した。概念設計に Request(例: unassignLabel)と同期を足すかは、概念設計側で決める。チームの合意待ち"
-    decided_by: ""
-    date: ""
+      概念設計には、運営の種類を外す要求が無い(Request.unmarkPlace は来場者の自分用タグ。端末内)。D-028(2026-11-23)で、Labeling.detach を呼ぶ同期 unassign-label が足された(Request.unassignLabel)
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者(D-028)
+    date: "2026-11-23"
     related_oq: ""

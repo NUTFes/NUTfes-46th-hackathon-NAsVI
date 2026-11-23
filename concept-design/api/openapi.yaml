@@ -280,7 +280,6 @@ paths:
       description: 付け間違えたときに外す。付いていなくても成功にする(何度送っても同じ結果)。種類そのものは消えない(消すのは DELETE /labels/{labelId})。
       security:
         - operatorAuth: []
-      x-needs-review: "API-41: 場所から種類を外す操作を足す(概念設計に対応する要求が無い)"
       responses:
         "204":
           description: 外した(または付いていなかった)
@@ -705,7 +704,6 @@ paths:
       description: >-
         サーバーが OpenStreetMap から建物の位置の輪郭を取り直し、差し替える(D-019)。本文は要らない。
         輪郭が取れなければ、輪郭は変えずに 502 footprint_unavailable を返す。
-      x-needs-review: "API-34: 取り直す操作のパスと、取れないときのエラー"
       security:
         - operatorAuth: []
       responses:
@@ -751,7 +749,6 @@ paths:
         既にあれば差し替える(何度送っても同じ結果)。
         概念の要求ではない(建物の付属データ。階ごとの見取り図は概念にしないと決めた。D-029)ので、x-request は付けない。
       x-no-request: 建物の付属データ(D-029)
-      x-needs-review: "API-7: 対応する要求が concepts.yaml に無い(setFloorPlan の仮置き)"
       security:
         - operatorAuth: []
       requestBody:
@@ -797,7 +794,6 @@ paths:
       summary: 階の見取り図を消す(運営)
       description: 概念の要求ではない(建物の付属データ。階ごとの見取り図は概念にしないと決めた。D-029)ので、x-request は付けない。
       x-no-request: 建物の付属データ(D-029)
-      x-needs-review: "API-7: 対応する要求が concepts.yaml に無い(removeFloorPlan の仮置き)"
       security:
         - operatorAuth: []
       responses:
@@ -830,7 +826,6 @@ paths:
         端末が認識した建物に付いている場所(landmarkId がその建物の場所)を返す(API-23)。
         屋外の企画は含まない(カメラに映っているので見えている)。
         無ければ items は空(同期 show-no-events。画面は「この棟には企画がない」と出す)。
-      x-needs-review: "API-23: 建物の id で出す(利用者の意見。チームの合意待ち)"
       responses:
         "200":
           description: 建物と、その建物に付いている場所
@@ -957,7 +952,6 @@ components:
 
     PlaceKind:
       type: string
-      x-needs-review: "API-28: 設備を Place.kind に足す(利用者の意見。チームの合意待ち)"
       enum: [event, parking, info, wc, rest, trash]
       description: >-
         場所の性質(Place.kind)。運営の種類(Label)とは別(OQ-3)。値は英語のコード(API-36。デザインシステムの部品と同じ)。
@@ -995,7 +989,6 @@ components:
     Period:
       type: object
       description: 開催時間の 1 つの時間帯(開始と終了の組。D-020)
-      x-needs-review: "API-35: 時刻の形(日付つきの日時か、時刻だけか)"
       required: [start, end]
       properties:
         start: {type: string, format: date-time}
@@ -1105,7 +1098,6 @@ components:
     Landmark:
       type: object
       required: [id, name, location, footprint, floors]
-      x-needs-review: "API-37: 輪郭の無い建物を許す(利用者の意見。概念設計の変更が要り、チームの合意待ち)"
       properties:
         id: {type: string}
         name: {type: string}
@@ -1123,7 +1115,6 @@ components:
           items: {$ref: "#/components/schemas/FloorPlan"}
     FloorPlan:
       type: object
-      x-needs-review: "API-29: 見取り図を足す(利用者の意見。チームの合意待ち)"
       required: [floor, plan, bounds]
       properties:
         floor: {type: integer}
@@ -1141,7 +1132,6 @@ components:
     Bounds:
       type: object
       description: 見取り図の図形の四辺(viewBox の上下左右)に当たる緯度経度。端末が場所の位置を図の上に換算する(API-30)
-      x-needs-review: "API-30: 四隅の緯度経度で換算する(利用者の意見。チームの合意待ち)"
       required: [north, south, east, west]
       properties:
         north: {type: number}
