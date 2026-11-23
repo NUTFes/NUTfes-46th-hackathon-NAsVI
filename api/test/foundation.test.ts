@@ -9,7 +9,6 @@ import { nowIso } from '../src/lib/time';
 import { normalize, escapeLike } from '../src/lib/normalize';
 import { all, first, run } from '../src/lib/db';
 import { requireOperator } from '../src/middleware/access';
-import { fetchFootprint } from '../src/osm';
 import * as config from '../src/config';
 import { migrateTestDb, operatorEnv, request, requestAsOperator, requestWithEnv } from './helpers';
 
@@ -229,7 +228,7 @@ it('D1 の補助は bind した値・空の結果を扱う', async () => {
   expect(await first(env.DB, 'SELECT value FROM meta WHERE key = ?', ['missing'])).toBeNull();
 });
 
-it('設定はテストから上書き・復元でき、OSM は通信せず未実装のエラーを返す', async () => {
+it('設定はテストから上書き・復元できる', async () => {
   const saved = { CONGESTION_TTL_MIN: config.CONGESTION_TTL_MIN, CLOSING_TIME: config.CLOSING_TIME, ORIGIN: config.ORIGIN, VENUE_BOUNDS: config.VENUE_BOUNDS };
   try {
     config.configureConfig({ CONGESTION_TTL_MIN: 5, CLOSING_TIME: '17:00', ORIGIN: { lat: 0, lng: 0 }, VENUE_BOUNDS: { north: 1, south: -1, east: 1, west: -1 } });
@@ -238,5 +237,4 @@ it('設定はテストから上書き・復元でき、OSM は通信せず未実
     expect(config.ORIGIN).toEqual({ lat: 0, lng: 0 });
     expect(config.VENUE_BOUNDS.north).toBe(1);
   } finally { config.configureConfig(saved); }
-  await expect(fetchFootprint(config.ORIGIN)).rejects.toThrow('未実装');
 });
