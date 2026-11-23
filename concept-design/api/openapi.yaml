@@ -18,7 +18,7 @@ servers:
   - url: /api
     description: >-
       デプロイ先は未定。非機能(API-21): 来場者の読み取りは同じ通信元から 1 分に 60 回まで、
-      スタンプは 1 分に 5 個まで(API-18)、応答は 10 秒まで、本文 1 MB まで
+      スタンプは 1 分に 5 個まで(API-18)、応答は 10 秒まで(/changes は除く。つなぎっぱなしの接続で、30 秒ごとに合図を送る)、本文 1 MB まで
 
 tags:
   - name: places
@@ -34,7 +34,7 @@ tags:
 x-excluded-requests:
   allowLocation: 端末内(API-5)。ブラウザの位置情報の許可で足りる
   refuseLocation: 端末内(API-5)
-  reportPosition: 端末内(API-5)。現在地をサーバーに送らない
+  reportPosition: 端末内(API-5)。現在地を継続的にはサーバーに送らない(スタンプを押すときの地点 at だけ送る)
   setPosition: 端末内(API-5)。P1 に入れるかも未決(OQ-2)
   chooseDestination: 端末内(API-5・D-013)
   clearDestination: 端末内(API-5・D-026)。着く前の「案内をやめる」も、着いた後の「案内を終える」も同じ操作で、サーバーに送らない
@@ -89,7 +89,7 @@ paths:
       x-request: registerPlace
       tags: [places]
       summary: 場所を登録する(運営)
-      description: 登録すると、検索の対象にもなる(同期 index-on-register)。
+      description: 登録すると、検索の対象にもなる(設備は除く。D-027。同期 index-on-register)。
       x-transaction: 場所の登録と検索への登録は、まとめて成功か失敗(API-1)
       security:
         - operatorAuth: []
@@ -186,7 +186,7 @@ paths:
       x-request: updatePlace
       tags: [places]
       summary: 場所を更新する(運営)
-      description: 渡した項目だけを更新する。同時に直したら、あとから送った方が残る(API-18)。名前を変えると、検索の対象も更新する(同期 reindex-on-update)。
+      description: 渡した項目だけを更新する。同時に直したら、あとから送った方が残る(API-18)。名前を変えると、検索の対象も更新する(設備は除く。D-027。同期 reindex-on-update)。
       x-transaction: 場所の更新と検索の更新は、まとめて成功か失敗(API-2)
       security:
         - operatorAuth: []
@@ -487,6 +487,8 @@ paths:
         一覧の応答には cursor(その時点の版の番号)が付く。つなぐときに since=<cursor> を渡すと、その後の出来事から流れてくる(API-42)。
         各出来事には id(版の番号)が付く。切れたら、ブラウザが自動でつなぎ直し、最後に受け取った id を Last-Event-ID に載せて送る。サーバーは、その続きから送り直す。
         続きの履歴が、サーバーが持っている範囲に無いときは、resync を流す。端末は、一覧を取り直す(取りこぼしを埋める)。持つ範囲の長さは、サーバーの実装が決める。
+        resync には id を付けない(版の番号を進めない。付けると、実在しない版で再接続する恐れがある)。
+        場所とスタンプの 2 つの一覧に付く cursor は、小さい方(古い方)を since に使う(取りこぼしを避けるため。出来事は、何度当てても同じ結果になる)。
         期限を過ぎたスタンプは流さない。端末が expiresAt を過ぎたら消す(API-38)。
         行き先にしていた場所の placeRemoved を受け取ったら、端末は案内を終える(API-5)。
         appVersionChanged を受け取ったら、画面は再読み込みを促す(破壊的変更をしたとき。API-20)。
@@ -526,7 +528,6 @@ paths:
                 event: appVersionChanged
                 data: {"version":"2026-11-23.2"}
 
-                id: 125
                 event: resync
                 data: {}
         "429":
@@ -692,11 +693,14 @@ paths:
       x-request: removeLandmark
       tags: [landmarks]
       summary: 建物を削除する(運営)
+      description: >-
+        建物を削除すると、その建物の階ごとの見取り図も一緒に消える(見取り図は建物に付く付属データ。D-029・API-29)。
+        場所が付いている建物は削除できない(409。API-27)。
       security:
         - operatorAuth: []
       responses:
         "204":
-          description: 削除した
+          description: 削除した(見取り図も消えた)
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":

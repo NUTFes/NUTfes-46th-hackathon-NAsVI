@@ -7,6 +7,7 @@ questions:
     owner: チーム
     status: open
     answer: null
+    note: 運営の認証は、API 設計(台帳 API-12、2026-11-23)で Cloudflare Access にする方針。出展者のアカウントは今回やらない(api/roadmap.md)。この問いの概念設計での扱いは、チームの決定待ち
 
   - id: OQ-2
     question: GPS が取れないとき、現在地を手で指定する操作を P1 に入れるか
