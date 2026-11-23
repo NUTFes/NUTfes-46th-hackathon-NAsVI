@@ -29,15 +29,19 @@ const placeCounts = computed(() => {
 });
 const deleteConflict = ref(false);
 const conflictTitle = ref<HTMLElement | null>(null);
-const relatedPlaces = computed(() => places.value.filter((place) => place.landmarkId === selectedId.value));
 const busy = ref(false);
 const notice = ref('');
 const selectedId = ref<string | null>(null);
+const relatedPlaces = computed(() => places.value.filter((place) => place.landmarkId === selectedId.value));
 const selected = computed(() => store.items.find((item) => item.id === selectedId.value) ?? null);
+function hasFootprint(item: Landmark) {
+  return item.footprint !== null && item.footprint.length >= 3;
+}
+
 // API の輪郭を北が上の確認用図形にする。頂点を操作する入力は設けない。
 const shape = computed(() => {
   const footprint = selected.value?.footprint;
-  if (!footprint) return null;
+  if (!footprint || footprint.length < 3) return null;
   const points = footprint.map(({ lat, lng }) => {
     const [x, y] = toXY(lat, lng);
     return [x, -y];
@@ -80,6 +84,7 @@ function reportSaveError(error: unknown) {
 }
 const confirmingDelete = ref(false);
 const locked = computed(() => busy.value || confirmingDelete.value);
+const deleteDialog = ref<HTMLDialogElement | null>(null);
 const cancelButton = ref<HTMLButtonElement | null>(null);
 const deleteButton = ref<HTMLButtonElement | null>(null);
 let controller: AbortController | null = null;
@@ -177,6 +182,9 @@ function save() {
     selectedId.value = item.id;
     Object.assign(draft, { name: item.name, lat: String(item.location.lat), lng: String(item.location.lng) });
     notice.value = id === null ? '建物を登録しました。' : '建物を更新しました。';
+    if (id === null && !hasFootprint(item)) {
+      notice.value += '輪郭は取得できませんでした。輪郭なしでも一覧・見取り図・建物の企画に使えます。必要なときに形を読み込み直せます。';
+    }
   }, reportSaveError);
 }
 
@@ -193,8 +201,11 @@ function reloadFootprint() {
 
 async function askDelete() {
   if (locked.value || !selected.value) return;
+  clearError();
+  deleteConflict.value = false;
   confirmingDelete.value = true;
   await nextTick();
+  deleteDialog.value?.showModal();
   cancelButton.value?.focus();
 }
 
@@ -205,10 +216,34 @@ async function cancelDelete() {
   deleteButton.value?.focus();
 }
 
+function handleDeleteKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    void cancelDelete();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const dialog = deleteDialog.value;
+  if (!dialog) return;
+  const buttons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+  const first = buttons[0];
+  const last = buttons.at(-1);
+  if (!first || !last) {
+    event.preventDefault();
+    dialog.focus();
+  } else if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 async function reportDeleteError(error: unknown, signal: AbortSignal) {
   reportError(error);
-  if (!(error instanceof ApiError) || error.status !== 409 || error.code !== 'landmark_in_use') return;
   confirmingDelete.value = false;
+  if (!(error instanceof ApiError) || error.status !== 409 || error.code !== 'landmark_in_use') return;
   deleteConflict.value = true;
   placesLoaded.value = false;
   placesError.value = false;
@@ -229,13 +264,20 @@ async function reportDeleteError(error: unknown, signal: AbortSignal) {
 function remove() {
   const item = selected.value;
   if (!confirmingDelete.value || !item) return;
-  return perform((signal) => adminSend('DELETE', '/landmarks/{landmarkId}', {
+  const result = perform((signal) => adminSend('DELETE', '/landmarks/{landmarkId}', {
     params: { landmarkId: item.id }, signal,
   }), () => {
     store.setAll(store.items.filter((entry) => entry.id !== item.id));
     resetForm();
     notice.value = '建物を削除しました。';
   }, reportDeleteError);
+  void result.then(async () => {
+    if (confirmingDelete.value || deleteConflict.value) return;
+    await nextTick();
+    if (selected.value) deleteButton.value?.focus();
+    else formElement.value?.querySelector<HTMLInputElement>('#landmark-name')?.focus();
+  });
+  return result;
 }
 
 onMounted(load);
@@ -264,7 +306,7 @@ onBeforeUnmount(() => controller?.abort());
             <tr v-for="item in store.items" :key="item.id" :class="{ selected: item.id === selectedId }">
               <th scope="row">{{ item.name }}</th>
               <td>{{ placesLoaded ? `${placeCounts.get(item.id) ?? 0}件` : '未取得' }}</td>
-              <td :class="{ missing: item.footprint === null }">{{ item.footprint === null ? '形なし' : '形あり' }}</td>
+              <td :class="{ missing: !hasFootprint(item) }">{{ hasFootprint(item) ? '形あり' : '形なし' }}</td>
               <td>{{ item.floors.length ? item.floors.map((plan) => `${plan.floor}階`).join('、') : '未登録' }}</td>
               <td><button type="button" :disabled="locked" :aria-label="`${item.name}を編集`" @click="edit(item)">編集</button></td>
             </tr>
@@ -315,7 +357,7 @@ onBeforeUnmount(() => controller?.abort());
           <svg v-if="shape" class="shape-preview" :viewBox="shape.viewBox" role="img" :aria-label="`${selected.name}の建物の形（北が上）`">
             <path :d="shape.d" />
           </svg>
-          <p v-else class="missing">形なし（カメラの正面に出ない）</p>
+          <p v-else class="missing">形なし（カメラの正面に出ない）。輪郭なしでも一覧・見取り図・建物の企画に使えます。必要なときに形を読み込み直せます。</p>
           <p>保存済みの位置で形を取得します。位置を変えたら先に更新してください。</p>
           <button type="button" :disabled="locked" @click="reloadFootprint">形を読み込み直す</button>
         </template>
@@ -323,14 +365,15 @@ onBeforeUnmount(() => controller?.abort());
         <p class="attribution">© OpenStreetMap contributors（ODbL）</p>
       </section>
       <button v-if="selected" ref="deleteButton" type="button" class="danger" :disabled="locked" @click="askDelete">建物を削除</button>
-      <section v-if="confirmingDelete && selected" role="alertdialog" aria-labelledby="delete-title" aria-describedby="delete-effects" class="delete-confirm" @keydown.esc.prevent="cancelDelete">
+      <dialog v-if="confirmingDelete && selected" ref="deleteDialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-effects" tabindex="-1" class="delete-confirm" @keydown="handleDeleteKeydown" @cancel.prevent="cancelDelete">
         <h3 id="delete-title">「{{ selected.name }}」を削除しますか？</h3>
+        <p v-if="busy" role="status">削除しています。</p>
         <p id="delete-effects">階ごとの見取り図も消えます。場所が付いている建物は削除できません。先に場所の建物を空にするか、付け替えてください。</p>
         <div class="actions">
           <button ref="cancelButton" type="button" :disabled="busy" @click="cancelDelete">やめる</button>
           <button type="button" class="danger" :disabled="busy" @click="remove">削除する</button>
         </div>
-      </section>
+      </dialog>
     </section>
   </main>
 </template>
@@ -358,10 +401,12 @@ a { color: var(--admin-action); }
 input:focus-visible, button:focus-visible, a:focus-visible, h3[tabindex]:focus { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
 .field-error { color: var(--admin-danger-text); }
 input[aria-invalid="true"] { border-color: var(--admin-danger); }
-.missing { color: var(--admin-danger-text); }
+.missing { color: var(--admin-muted); }
 .shape-preview { box-sizing: border-box; width: 100%; aspect-ratio: 2; padding: var(--admin-space-lg); border: thin solid var(--admin-border); border-radius: var(--admin-radius); background: var(--admin-surface); }
 .shape-preview path { fill: var(--admin-selected); stroke: var(--admin-action); vector-effect: non-scaling-stroke; }
 .attribution { color: var(--admin-muted); }
 .danger, .delete-confirm { border: thin solid var(--admin-danger); color: var(--admin-danger-text); background: var(--admin-danger-bg); }
-.delete-confirm { padding: var(--admin-space-lg); border-radius: var(--admin-radius); }
+.delete-confirm[open] { display: grid; gap: var(--admin-space-lg); }
+.delete-confirm::backdrop { background: var(--admin-selected); }
+.delete-confirm { box-sizing: border-box; max-width: 100%; padding: var(--admin-space-lg); border-radius: var(--admin-radius); }
 </style>

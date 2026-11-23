@@ -134,7 +134,8 @@ describe('建物の一覧・登録・更新', () => {
       body: JSON.stringify({ name: '新しい棟', location: { lat: 37.425, lng: 138.778 } }),
     }));
     expect(store.items).toEqual([saved]);
-    expect(wrapper.text()).toContain('建物を登録しました。');
+    expect(wrapper.get('main [role="status"]').text()).toContain('建物を登録しました。輪郭は取得できませんでした。');
+    expect(wrapper.get('main [role="status"]').text()).toContain('輪郭なしでも一覧・見取り図・建物の企画に使えます');
     expect(wrapper.text()).toContain('形なし（カメラの正面に出ない）');
     expect(wrapper.find('[role="alert"]').exists()).toBe(false);
   });
@@ -281,6 +282,8 @@ describe('建物の削除', () => {
     await editFirst(wrapper);
     await button(wrapper, '建物を削除').trigger('click');
     expect(wrapper.get('[role="alertdialog"]').text()).toContain('階ごとの見取り図も消えます');
+    expect(wrapper.get('dialog').attributes('aria-modal')).toBe('true');
+    expect((wrapper.get('dialog').element as HTMLDialogElement).open).toBe(true);
     expect(document.activeElement).toBe(button(wrapper, 'やめる').element);
     await button(wrapper, 'やめる').trigger('click');
     expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
@@ -289,6 +292,53 @@ describe('建物の削除', () => {
     await wrapper.get('[role="alertdialog"]').trigger('keydown', { key: 'Escape' });
     expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('削除確認のTab・Shift+Tabを閉じ込め、ブラウザの取消しで戻る', async () => {
+    const { wrapper } = await render();
+    await editFirst(wrapper);
+    await button(wrapper, '建物を削除').trigger('click');
+    await button(wrapper, 'やめる').trigger('keydown', { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(button(wrapper, '削除する').element);
+    await button(wrapper, '削除する').trigger('keydown', { key: 'Tab' });
+    expect(document.activeElement).toBe(button(wrapper, 'やめる').element);
+    await wrapper.get('dialog').trigger('cancel');
+    expect(wrapper.find('dialog').exists()).toBe(false);
+    expect(document.activeElement).toBe(button(wrapper, '建物を削除').element);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('削除送信中はTab・Esc・cancelで確認から抜けず、二重送信しない', async () => {
+    const { wrapper } = await render();
+    await editFirst(wrapper);
+    await button(wrapper, '建物を削除').trigger('click');
+    let complete!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => { complete = resolve; }));
+    await button(wrapper, '削除する').trigger('click');
+    await button(wrapper, '削除する').trigger('click');
+    await wrapper.get('dialog').trigger('keydown', { key: 'Tab' });
+    expect(document.activeElement).toBe(wrapper.get('dialog').element);
+    await wrapper.get('dialog').trigger('keydown', { key: 'Escape' });
+    await wrapper.get('dialog').trigger('cancel');
+    expect(wrapper.find('dialog').exists()).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    complete(new Response(null, { status: 204 }));
+    await flushPromises();
+    expect(wrapper.find('dialog').exists()).toBe(false);
+    expect(document.activeElement).toBe(wrapper.get('#landmark-name').element);
+  });
+
+  it('削除が401で失敗したら確認を閉じ、共通エラーを読める状態に戻す', async () => {
+    const { wrapper, store } = await render();
+    await editFirst(wrapper);
+    await button(wrapper, '建物を削除').trigger('click');
+    fetchMock.mockResolvedValueOnce(json({ code: 'unauthorized', message: '認証し直してください' }, 401));
+    await button(wrapper, '削除する').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('dialog').exists()).toBe(false);
+    expect(wrapper.get('[role="alert"]').text()).toContain('unauthorized');
+    expect(document.activeElement).toBe(button(wrapper, '建物を削除').element);
+    expect(store.items).toEqual([building()]);
   });
 
   it('確認後にだけ DELETE し、204 で一覧と編集欄から消す', async () => {
@@ -304,6 +354,7 @@ describe('建物の削除', () => {
     expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
     expect(wrapper.text()).toContain('建物を削除しました。');
     expect((wrapper.get('#landmark-name').element as HTMLInputElement).value).toBe('');
+    expect(document.activeElement).toBe(wrapper.get('#landmark-name').element);
   });
 
   it('使用中の409で設備を含む最新の関連場所と管理画面へのリンクを示す', async () => {
@@ -388,6 +439,21 @@ describe('建物の形の確認と読み込み直し', () => {
     expect(wrapper.text()).toContain('輪郭は編集できません');
     expect(wrapper.findAll('main input').map((input) => input.attributes('name'))).toEqual(['name', 'lat', 'lng']);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([[], footprint.slice(0, 1), footprint.slice(0, 2)].map((points) => [points]))('頂点不足の輪郭（%j）を描画せず、形なしとして取り直せる', async (points) => {
+    const { wrapper } = await render([building({ footprint: points })]);
+    await editFirst(wrapper);
+    expect(wrapper.find('main svg').exists()).toBe(false);
+    expect(wrapper.get('tbody').text()).toContain('形なし');
+    expect(wrapper.text()).not.toMatch(/Infinity|NaN/);
+    expect(wrapper.text()).toContain('輪郭なしでも一覧・見取り図・建物の企画に使えます');
+    expect(button(wrapper, '形を読み込み直す').attributes('disabled')).toBeUndefined();
+    fetchMock.mockResolvedValueOnce(json(building()));
+    await button(wrapper, '形を読み込み直す').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('tbody').text()).toContain('形あり');
+    expect(wrapper.get('main svg').attributes('viewBox')).not.toMatch(/Infinity|NaN/);
   });
 
   it('輪郭のない建物でも取り直せ、本文なしの専用 POST の結果を反映する', async () => {
