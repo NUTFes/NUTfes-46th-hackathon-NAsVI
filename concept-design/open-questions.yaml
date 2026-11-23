@@ -5,9 +5,9 @@ questions:
     question: 場所の登録を行う運営を、どう識別するか(運営者用の登録ページの認証。運営のみか、出展者も含めるか)。スタンプは来場者が押すので、報告者の権限は要らない
     blocks: [concepts.syncs, journey.F1, journey.F5, api.権限]
     owner: チーム
-    status: open
-    answer: null
-    note: 運営の認証は、API 設計(台帳 API-12、2026-11-23)で Cloudflare Access にする方針。出展者のアカウントは今回やらない(api/roadmap.md)。この問いの概念設計での扱いは、チームの決定待ち
+    status: resolved
+    answer: 運営(実行委員)だけが登録・管理する。出展者のアカウントは今回やらない(D-033。API 設計の台帳 API-12 で確定済み)
+    note: 運営の認証は Cloudflare Access(API-12、2026-11-23)。出展者の編集は api/roadmap.md に展望として残した。チームの確認は、決定の記録(D-033)で待つ
 
   - id: OQ-2
     question: GPS が取れないとき、現在地を手で指定する操作を P1 に入れるか
