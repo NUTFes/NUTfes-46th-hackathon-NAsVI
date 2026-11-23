@@ -10,14 +10,17 @@
     "generate:types": "openapi-typescript ../concept-design/api/openapi.yaml -o src/schema.d.ts"
   },
   "dependencies": {
-    "hono": "^4.0.0"
+    "hono": "^4.11.2",
+    "zod": "^4.6.0",
+    "@hono/zod-validator": "^0.9.1",
+    "jose": "^6.2.0"
   },
   "devDependencies": {
     "wrangler": "4.124.0",
     "@cloudflare/workers-types": "latest",
-    "@cloudflare/vitest-pool-workers": "0.23.0",
     "vitest": "~4.1.0",
     "typescript": "~5.9.3",
-    "openapi-typescript": "^7.0.0"
+    "openapi-typescript": "^7.0.0",
+    "@cloudflare/vitest-plugin": "1.9.0"
   }
 }
