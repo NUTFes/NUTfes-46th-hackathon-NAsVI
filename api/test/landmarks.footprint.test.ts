@@ -19,7 +19,7 @@ const overpass = { version: 0.6, elements: [{
   ],
 }] };
 const fetchMock = vi.fn<typeof fetch>();
-let bindings: Env;
+let bindings: Env & { OSM_CONTACT?: string };
 
 beforeAll(async () => {
   vi.stubGlobal('fetch', fetchMock);
@@ -81,6 +81,15 @@ it('取得した輪郭と取得時刻を更新し、階を昇順に含むLandmar
   expect(fetchMock).toHaveBeenCalledTimes(1);
   const init = fetchMock.mock.calls[0][1]!;
   expect(new URLSearchParams(String(init.body)).get('data')).toContain('around:10,37.4246,138.7779');
+  expect(new Headers(init.headers).get('User-Agent')).toBe('NAsVI/1.0 (building footprint retrieval; contact: unset)');
+});
+
+it('OSM_CONTACTを輪郭取得のUser-Agentに渡す', async () => {
+  bindings.OSM_CONTACT = 'footprint@example.invalid';
+  fetchMock.mockResolvedValueOnce(Response.json(overpass));
+  expect((await reload()).status).toBe(200);
+  expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('User-Agent'))
+    .toBe('NAsVI/1.0 (building footprint retrieval; contact: footprint@example.invalid)');
 });
 
 it('輪郭と階のない建物でも取得に成功すれば更新し、floorsは空で返す', async () => {
@@ -97,20 +106,29 @@ it('輪郭と階のない建物でも取得に成功すれば更新し、floors�
   expect(await saved()).toMatchObject({ footprint: JSON.stringify(footprint), footprint_at: now });
 });
 
-it.each(['結果なし', '非2xx', '通信エラー', '頂点不足'])('%sでは502を返し、輪郭・取得時刻・階を変えない', async failure => {
-  const before = await saved();
-  const floors = await env.DB.prepare("SELECT * FROM floor_plans WHERE landmark_id = 'lm_a' ORDER BY floor").all();
-  if (failure === '結果なし') fetchMock.mockResolvedValueOnce(Response.json({ elements: [] }));
-  if (failure === '非2xx') fetchMock.mockResolvedValueOnce(new Response('unavailable', { status: 503 }));
-  if (failure === '頂点不足') fetchMock.mockResolvedValueOnce(Response.json({ elements: [{
-    ...overpass.elements[0], geometry: overpass.elements[0].geometry.slice(0, 2),
-  }] }));
-  await expectProblem(await reload(), 502, 'footprint_unavailable');
-  expect(await saved()).toEqual(before);
-  expect((await env.DB.prepare("SELECT * FROM floor_plans WHERE landmark_id = 'lm_a' ORDER BY floor").all()).results)
-    .toEqual(floors.results);
-  expect(fetchMock).toHaveBeenCalledTimes(1);
-});
+it.each(['結果なし', '非2xx', '通信エラー', '頂点不足', '本文サイズ超過', 'content-length超過', '頂点数超過'])(
+  '%sでは502を返し、輪郭・取得時刻・階を変えない', async failure => {
+    const before = await saved();
+    const floors = await env.DB.prepare("SELECT * FROM floor_plans WHERE landmark_id = 'lm_a' ORDER BY floor").all();
+    if (failure === '結果なし') fetchMock.mockResolvedValueOnce(Response.json({ elements: [] }));
+    if (failure === '非2xx') fetchMock.mockResolvedValueOnce(new Response('unavailable', { status: 503 }));
+    if (failure === '頂点不足') fetchMock.mockResolvedValueOnce(Response.json({ elements: [{
+      ...overpass.elements[0], geometry: overpass.elements[0].geometry.slice(0, 2),
+    }] }));
+    if (failure === '本文サイズ超過') fetchMock.mockResolvedValueOnce(Response.json({ ...overpass, padding: ' '.repeat(2 * 1024 * 1024) }));
+    if (failure === 'content-length超過') fetchMock.mockResolvedValueOnce(Response.json(overpass, {
+      headers: { 'content-length': String(2 * 1024 * 1024 + 1) },
+    }));
+    if (failure === '頂点数超過') fetchMock.mockResolvedValueOnce(Response.json({
+      elements: Array.from({ length: 1001 }, () => overpass.elements[0]),
+    }));
+    await expectProblem(await reload(), 502, 'footprint_unavailable');
+    expect(await saved()).toEqual(before);
+    expect((await env.DB.prepare("SELECT * FROM floor_plans WHERE landmark_id = 'lm_a' ORDER BY floor").all()).results)
+      .toEqual(floors.results);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  },
+);
 
 it('元の輪郭がnullのときも取得失敗ではnullと取得時刻を保持する', async () => {
   await env.DB.prepare("UPDATE landmarks SET footprint = NULL, footprint_at = NULL WHERE id = 'lm_a'").run();
@@ -165,5 +183,17 @@ it('DB更新が失敗した場合は500を返し、以前の輪郭を保持す�
     expect(await saved()).toEqual(before);
   } finally {
     await env.DB.exec('DROP TRIGGER reject_footprint_update');
+  }
+});
+
+it('保存後の再読込で建物が消えていた場合は500 internal_errorを返す', async () => {
+  await env.DB.exec(`CREATE TRIGGER remove_saved_landmark AFTER UPDATE OF footprint ON landmarks WHEN NEW.id = 'lm_a' BEGIN DELETE FROM landmarks WHERE id = NEW.id; END`);
+  try {
+    fetchMock.mockResolvedValueOnce(Response.json(overpass));
+    await expectProblem(await reload(), 500, 'internal_error');
+    expect(await saved()).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  } finally {
+    await env.DB.exec('DROP TRIGGER remove_saved_landmark');
   }
 });

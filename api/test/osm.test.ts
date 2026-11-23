@@ -70,7 +70,7 @@ it('OverpassへPOSTを1回だけ送り、User-Agent・位置・around・out geom
   expect(init?.method).toBe('POST');
   expect(init?.redirect).toBe('error');
   const headers = new Headers(init?.headers);
-  expect(headers.get('User-Agent')).toBe('NASVI/1.0 (building footprint retrieval)');
+  expect(headers.get('User-Agent')).toBe('NAsVI/1.0 (building footprint retrieval; contact: unset)');
   expect(headers.get('Content-Type')).toBe('application/x-www-form-urlencoded');
   const query = new URLSearchParams(String(init?.body)).get('data')!;
   expect(query).toContain('way["building"](around:10,37.4246,138.7779)');
@@ -79,6 +79,88 @@ it('OverpassへPOSTを1回だけ送り、User-Agent・位置・around・out geom
   expect(query).toContain('[timeout:8]');
   expect(query).not.toContain('is_in');
   expect(init?.signal?.aborted).toBe(false);
+});
+
+it.each([undefined, {}, { contact: '' }, { contact: '   ' }, { contact: ' footprint@example.invalid ' }])(
+  '任意の連絡先をUser-Agentに含め、未設定・空ならunsetにする (%j)', async options => {
+    respond([way]);
+    expect(await fetchFootprint(location, options)).toEqual(footprint);
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('User-Agent'))
+      .toBe(`NAsVI/1.0 (building footprint retrieval; contact: ${options?.contact?.trim() || 'unset'})`);
+  },
+);
+
+it('content-lengthが2 MBを超えたら本文を読まずにキャンセルする', async () => {
+  const pull = vi.fn();
+  const cancel = vi.fn();
+  const body = new ReadableStream<Uint8Array>({ pull, cancel }, { highWaterMark: 0 });
+  fetchMock.mockResolvedValueOnce(new Response(body, { headers: { 'content-length': String(2 * 1024 * 1024 + 1) } }));
+  expect(await fetchFootprint(location)).toBeNull();
+  expect(pull).not.toHaveBeenCalled();
+  expect(cancel).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it.each([undefined, '1'])('本文は実バイト数で2 MBに制限し、超過後は読み続けない (content-length: %s)', async length => {
+  const limit = 2 * 1024 * 1024;
+  const bytes = new TextEncoder().encode(JSON.stringify({ elements: [way], padding: 'あ'.repeat(limit / 3) }));
+  expect(bytes.byteLength).toBeGreaterThan(limit);
+  const chunks = [bytes.subarray(0, limit), bytes.subarray(limit), new Uint8Array([32])];
+  const pull = vi.fn((controller: ReadableStreamDefaultController<Uint8Array>) => controller.enqueue(chunks.shift()!));
+  const cancel = vi.fn();
+  const body = new ReadableStream<Uint8Array>({ pull, cancel }, { highWaterMark: 0 });
+  fetchMock.mockResolvedValueOnce(new Response(body, { headers: length ? { 'content-length': length } : {} }));
+  expect(await fetchFootprint(location)).toBeNull();
+  expect(pull).toHaveBeenCalledTimes(2);
+  expect(cancel).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it('本文サイズがちょうど2 MBなら受け付ける', async () => {
+  const json = JSON.stringify({ elements: [way] });
+  const body = json + ' '.repeat(2 * 1024 * 1024 - new TextEncoder().encode(json).byteLength);
+  fetchMock.mockResolvedValueOnce(new Response(body, { headers: { 'content-length': String(2 * 1024 * 1024) } }));
+  expect(await fetchFootprint(location)).toEqual(footprint);
+});
+
+function circle(vertices: number) {
+  const points = Array.from({ length: vertices }, (_, i) => ({
+    lat: location.lat + Math.sin(i * 2 * Math.PI / vertices) * 0.0001,
+    lon: location.lng + Math.cos(i * 2 * Math.PI / vertices) * 0.0001,
+  }));
+  return [...points, points[0]];
+}
+
+it('wayの輪の頂点数が5000を超えたら、小さい候補があってもnullを返す', async () => {
+  respond([way, { ...way, geometry: circle(5001) }]);
+  expect(await fetchFootprint(location)).toBeNull();
+});
+
+it('relationの分割メンバーを合わせた頂点数が5000を超えたらnullを返す', async () => {
+  const points = circle(5001);
+  respond([way, { ...relation, members: [
+    { ...relation.members[0], geometry: points.slice(0, 2501) },
+    { ...relation.members[1], geometry: points.slice(2500) },
+  ] }]);
+  expect(await fetchFootprint(location)).toBeNull();
+});
+
+it('個々の輪が小さくても全要素の頂点総数が5000を超えたらnullを返す', async () => {
+  respond(Array.from({ length: 1001 }, () => way));
+  expect(await fetchFootprint(location)).toBeNull();
+});
+
+it('選択しないメンバーや正規化で除く重複点も頂点総数に含める', async () => {
+  respond([way, { ...relation, members: [{
+    type: 'way', role: 'unused', geometry: Array.from({ length: 5001 }, () => way.geometry[0]),
+  }] }]);
+  expect(await fetchFootprint(location)).toBeNull();
+});
+
+it('閉じ点を含む頂点総数がちょうど5000なら受け付ける', async () => {
+  const points = circle(4999);
+  respond([{ ...way, geometry: points }]);
+  expect(await fetchFootprint(location)).toEqual(points.slice(0, -1).map(p => ({ lat: p.lat, lng: p.lon })));
 });
 
 it.each([[largerWay, way], [way, largerWay]])('候補の順序によらず位置を含む面積最小の輪郭を選ぶ (%#)', async (...elements) => {
@@ -176,17 +258,22 @@ it('8秒でAbortControllerが通信を中止し、nullを返す', async () => {
 
 it('本文の読み取り中にも8秒のtimeoutを適用する', async () => {
   vi.useFakeTimers();
-  fetchMock.mockImplementationOnce(async (_input, init) => ({
-    ok: true,
-    json: () => new Promise((_resolve, reject) => {
-      init!.signal!.addEventListener('abort', () => reject(new DOMException('Timed out', 'AbortError')), { once: true });
-    }),
-  } as unknown as Response));
+  const cancel = vi.fn();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(new TextEncoder().encode('{"elements":[')); },
+    cancel,
+  });
+  fetchMock.mockResolvedValueOnce(new Response(body));
   const pending = fetchFootprint(location);
-  await vi.advanceTimersByTimeAsync(8_000);
+  await vi.advanceTimersByTimeAsync(7_999);
+  expect(cancel).not.toHaveBeenCalled();
+  expect(fetchMock.mock.calls[0][1]!.signal!.aborted).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
   expect(await pending).toBeNull();
+  expect(cancel).toHaveBeenCalledTimes(1);
   expect(fetchMock.mock.calls[0][1]!.signal!.aborted).toBe(true);
   expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(vi.getTimerCount()).toBe(0);
 });
 
 it('成功と通信エラーのどちらもtimeoutのタイマーを解除する', async () => {

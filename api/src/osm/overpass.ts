@@ -3,7 +3,8 @@
  * 共有サービスの負荷を抑えるため、半径 10m の building way/relation を
  * out geom で一度だけ問い合わせる。再試行・別エンドポイントへの迂回・
  * リダイレクトはしない。サーバー timeout は 8 秒、AbortController も 8 秒。
- * User-Agent: NASVI/1.0 (building footprint retrieval)。取得結果は D1 に保存する。
+ * User-Agent は NAsVI/1.0 と連絡先を含める。取得結果は D1 に保存する。
+ * 警告: 本番では OSM_CONTACT(wrangler の vars)に連絡先を設定すること。
  * OSM データの利用は ODbL と OpenStreetMap contributors の帰属表示に従う。
  */
 import type { components } from '../schema';
@@ -12,6 +13,58 @@ export type Point = components['schemas']['Point'];
 
 const endpoint = 'https://overpass-api.de/api/interpreter';
 const timeoutMs = 8_000;
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_VERTICES = 5_000;
+
+async function readBody(response: Response, signal: AbortSignal): Promise<unknown> {
+  if (Number(response.headers.get('content-length')) > MAX_BODY_BYTES) {
+    void response.body?.cancel().catch(() => {});
+    return null;
+  }
+  if (!response.body || signal.aborted) return null;
+  const reader = response.body.getReader();
+  const cancel = () => { void reader.cancel().catch(() => {}); };
+  signal.addEventListener('abort', cancel, { once: true });
+  let complete = false;
+  try {
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    let bytes = 0;
+    while (!signal.aborted) {
+      const { done, value } = await reader.read();
+      if (signal.aborted) return null;
+      if (done) {
+        complete = true;
+        return JSON.parse(chunks.join('') + decoder.decode());
+      }
+      bytes += value.byteLength;
+      if (bytes > MAX_BODY_BYTES) return null;
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    return null;
+  } finally {
+    signal.removeEventListener('abort', cancel);
+    if (!complete) cancel();
+    reader.releaseLock();
+  }
+}
+
+// Count raw vertices, including closing points and unused relation members,
+// before geometry normalization or candidate selection can consume more work.
+function withinVertexLimit(elements: unknown[]): boolean {
+  let total = 0;
+  for (const element of elements) {
+    if (!record(element)) continue;
+    if (Array.isArray(element.geometry)) total += element.geometry.length;
+    if (total > MAX_VERTICES) return false;
+    if (!Array.isArray(element.members)) continue;
+    for (const member of element.members) {
+      if (record(member) && Array.isArray(member.geometry)) total += member.geometry.length;
+      if (total > MAX_VERTICES) return false;
+    }
+  }
+  return true;
+}
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -51,6 +104,7 @@ function area(ring: Point[]): number {
 }
 
 function polygon(points: Point[]): Point[] | null {
+  if (points.length - 1 > MAX_VERTICES) return null;
   if (!samePoint(points[0], points[points.length - 1])) return null;
   const ring = points.slice(0, -1);
   if (new Set(ring.map(p => `${p.lat},${p.lng}`)).size < 3 || area(ring) === 0) return null;
@@ -118,7 +172,7 @@ function candidates(element: unknown, location: Point): Point[][] {
   return shells.filter(ring => contains(ring, location));
 }
 
-export async function fetchFootprint(location: Point): Promise<Point[] | null> {
+export async function fetchFootprint(location: Point, options?: { contact?: string }): Promise<Point[] | null> {
   if (!validPoint(location)) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -129,16 +183,17 @@ export async function fetchFootprint(location: Point): Promise<Point[] | null> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'NASVI/1.0 (building footprint retrieval)',
+        'User-Agent': `NAsVI/1.0 (building footprint retrieval; contact: ${options?.contact?.trim() || 'unset'})`,
       },
       body: new URLSearchParams({ data: query }).toString(),
       signal: controller.signal,
       redirect: 'error',
     });
     if (!response.ok) return null;
-    const data: unknown = await response.json();
+    const data = await readBody(response, controller.signal);
     // Overpass can return partial results with a runtime error in a 200 body.
     if (controller.signal.aborted || !record(data) || data.remark || !Array.isArray(data.elements)) return null;
+    if (!withinVertexLimit(data.elements)) return null;
     let best: Point[] | null = null;
     for (const element of data.elements) {
       for (const ring of candidates(element, location)) {

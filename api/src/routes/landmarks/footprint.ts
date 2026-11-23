@@ -20,14 +20,16 @@ export function register(app: Hono<AppEnv>) {
     try {
       const landmark = await first<LandmarkRow>(c.env.DB, 'SELECT * FROM landmarks WHERE id = ?', [id]);
       if (!landmark) return problem(c, 404, 'not_found', `建物 ${id} は見つかりません`);
-      const footprint = await fetchFootprint({ lat: landmark.lat, lng: landmark.lng });
+      const footprint = await fetchFootprint({ lat: landmark.lat, lng: landmark.lng }, {
+        contact: (c.env as typeof c.env & { OSM_CONTACT?: string }).OSM_CONTACT,
+      });
       if (!footprint) {
         return problem(c, 502, 'footprint_unavailable', 'この位置の建物の輪郭が地図データに見つかりません');
       }
       await run(c.env.DB, 'UPDATE landmarks SET footprint = ?, footprint_at = ? WHERE id = ?',
         [JSON.stringify(footprint), nowIso(c.env), id]);
       const saved = await first<LandmarkRow>(c.env.DB, 'SELECT * FROM landmarks WHERE id = ?', [id]);
-      if (!saved) return problem(c, 404, 'not_found', `建物 ${id} は見つかりません`);
+      if (!saved) return problem(c, 500, 'internal_error', '時間をおいて、もう一度試してください');
       const floors = await all<FloorRow>(c.env.DB,
         'SELECT * FROM floor_plans WHERE landmark_id = ? ORDER BY floor ASC', [id]);
       const result: Landmark = {
