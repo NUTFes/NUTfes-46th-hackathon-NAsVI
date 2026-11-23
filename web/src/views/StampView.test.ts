@@ -4,6 +4,8 @@ import { createPinia, setActivePinia } from 'pinia';
 import { ref } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { IDBFactory } from 'fake-indexeddb';
+import { CLOSING_TIME, configureConfig } from '../../../api/src/config';
+import tokenCss from '../../../design-system/claude-design/tokens.css?raw';
 import { createStorage, getStorage, type StorageRepositories } from '../storage';
 import { useStampsStore } from '../stores/stamps';
 import type { Position, Stamp, StampKind } from '../types';
@@ -31,6 +33,7 @@ let repo: StorageRepositories;
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 let pinia: ReturnType<typeof createPinia>;
 const wrappers: VueWrapper[] = [];
+const themeElements: HTMLElement[] = [];
 
 function stamp(id = 's-04-mine', kind: StampKind = 'congestion-3', expiresAt = NOW + 30 * 60_000): Stamp {
   return {
@@ -43,19 +46,19 @@ function json(body: unknown, status = 201) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-function problem(code: string, message: string, status: number) {
+function problem(code: string, message: string, status: number, headers: Record<string, string> = {}) {
   return new Response(JSON.stringify({ code, message }), {
-    status, headers: { 'Content-Type': 'application/problem+json' },
+    status, headers: { 'Content-Type': 'application/problem+json', ...headers },
   });
 }
 
-async function render() {
+async function render(attachTo?: HTMLElement, attrs?: Record<string, string>) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: ['/', '/stamp', '/noloc'].map(path => ({ path, component: { template: '<div />' } })),
   });
   await router.push('/stamp');
-  const wrapper = mount(StampView, { global: { plugins: [pinia, router] } });
+  const wrapper = mount(StampView, { attachTo, attrs, global: { plugins: [pinia, router] } });
   wrappers.push(wrapper);
   await flushPromises();
   return wrapper;
@@ -87,6 +90,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   wrappers.splice(0).forEach(wrapper => wrapper.unmount());
+  themeElements.splice(0).forEach(element => element.remove());
   await repo.close();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -94,6 +98,59 @@ afterEach(async () => {
 });
 
 describe('StampView', () => {
+  it.each([
+    ['dark', '#130a22', '#f4f0ff', '#a78bfa', '#f9a8d4'],
+    ['light', '#f6f4fa', '#1e0b3a', '#6d28d9', '#f472b6'],
+  ])('%s は実際の tokens.css の色を解決し、混雑ボタンにも適用する', async (theme, page, text, action, feeling) => {
+    const style = document.createElement('style');
+    style.textContent = tokenCss;
+    document.head.append(style);
+    const host = document.createElement('div');
+    host.setAttribute('data-theme', theme);
+    document.body.append(host);
+    themeElements.push(style, host);
+    // happy-dom は継承したカスタムプロパティを getPropertyValue で返さないため、
+    // 実際の CSS と上書き値を対象要素に適用して解決を確かめる。
+    const wrapper = await render(host, { 'data-theme': theme, style: '--bg-surface: #123456' });
+    const element = wrapper.get('main').element as HTMLElement;
+    expect(element.style.getPropertyValue('--stamp-page')).toBe(page);
+    expect(element.style.getPropertyValue('--stamp-text')).toBe(text);
+    expect(element.style.getPropertyValue('--stamp-action')).toBe(action);
+    expect(element.style.getPropertyValue('--stamp-feeling')).toBe(feeling);
+    expect(element.style.getPropertyValue('--stamp-surface')).toBe('#123456');
+    for (const button of wrapper.findAll('.congestion-button')) {
+      expect((button.element as HTMLElement).style.backgroundColor).not.toBe('');
+      expect((button.element as HTMLElement).style.color).not.toBe('');
+    }
+    expect((wrapper.get('button[aria-label="混雑3"]').element as HTMLElement).style.backgroundColor).toBe('#f97316');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('ライトの CSS 変数や基礎色が欠けても、最寄りテーマの既定値を使い、切り替えに追従する', async () => {
+    const outer = document.createElement('div');
+    outer.setAttribute('data-theme', 'dark');
+    const inner = document.createElement('div');
+    inner.setAttribute('data-theme', 'light');
+    outer.append(inner);
+    document.body.append(outer);
+    themeElements.push(outer);
+    const wrapper = await render(inner, { style: '--bg-page: var(--S-04-missing)' });
+    const element = wrapper.get('main').element as HTMLElement;
+    expect(element.style.getPropertyValue('--stamp-page')).toBe('#f6f4fa');
+    expect(element.style.getPropertyValue('--stamp-text')).toBe('#1e0b3a');
+    expect(element.style.getPropertyValue('--stamp-danger')).toBe('#b91c1c');
+    expect(element.style.getPropertyValue('--stamp-border')).toBe('#1e0b3a26');
+    inner.setAttribute('data-theme', 'dark');
+    await flushPromises();
+    expect(element.style.getPropertyValue('--stamp-page')).toBe('#130a22');
+    expect(element.style.getPropertyValue('--stamp-text')).toBe('#f4f0ff');
+    inner.removeAttribute('data-theme');
+    outer.setAttribute('data-theme', 'light');
+    await flushPromises();
+    expect(element.style.getPropertyValue('--stamp-page')).toBe('#f6f4fa');
+    expect(element.style.getPropertyValue('--stamp-text')).toBe('#1e0b3a');
+  });
+
   it('8種類を表示し、押す地点・精度・取得からの経過時間と公開を説明する', async () => {
     const wrapper = await render();
     expect(wrapper.findAll('.choices button')).toHaveLength(8);
@@ -203,6 +260,24 @@ describe('StampView', () => {
     expect(await repo.proofs.get('s-04-expired')).toBeUndefined();
   });
 
+  it('感想の期限は既存の閉場設定を案内し、押した後の残り時間はサーバーの expiresAt を使う', async () => {
+    const original = CLOSING_TIME;
+    try {
+      configureConfig({ CLOSING_TIME: '17:45' });
+      fetchMock.mockResolvedValueOnce(json({ ...stamp('s-04-closing', 'fun', NOW + 90 * 60_000), proof: 's-04-proof' }));
+      const wrapper = await render();
+      expect(wrapper.get('section[aria-labelledby="stamp-feeling-title"]').text())
+        .toContain('その日の閉場（17:45）まで有効です');
+      await pick(wrapper, '面白い');
+      expect(wrapper.get('.my-stamp').text()).toContain('あと 90 分で消えます');
+      expect(wrapper.get('.my-stamp').text()).not.toContain('17:45');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(wrapper.get('.my-stamp').text()).toContain('あと 89 分で消えます');
+    } finally {
+      configureConfig({ CLOSING_TIME: original });
+    }
+  });
+
   it('残り時間を更新し、expiresAt と同時刻に通知と一覧から消す', async () => {
     fetchMock.mockResolvedValueOnce(json({ ...stamp('s-04-short', 'fun', NOW + 3000), proof: 'proof' }));
     const wrapper = await render();
@@ -271,18 +346,48 @@ describe('StampView', () => {
     expect(await repo.proofs.get(value.id)).toBeUndefined();
   });
 
-  it.each([
-    ['out_of_venue', '会場の外には押せません', 400],
-    ['too_many_requests', 'しばらく待ってから押してください', 429],
-  ])('送信が %s のとき失敗を伝え、成功表示や proof を作らない', async (code, message, status) => {
-    fetchMock.mockResolvedValueOnce(problem(code as string, message as string, status as number));
+  it('400 out_of_venue はサーバーの message に頼らず、会場外では押せないことを案内する', async () => {
+    fetchMock.mockResolvedValueOnce(problem('out_of_venue', 'S-04: server detail', 400));
     const wrapper = await render();
     await pick(wrapper);
-    expect(wrapper.get('[role="alert"]').text()).toBe(message);
+    expect(wrapper.get('[role="alert"]').text()).toBe('会場の外にいるため、スタンプを押せません。会場内で現在地を確認してからお試しください。');
+    expect(wrapper.text()).not.toContain('S-04: server detail');
     expect(wrapper.find('.toast').exists()).toBe(false);
     expect(await repo.proofs.list()).toEqual([]);
     expect(useStampsStore().items).toEqual([]);
     expect(wrapper.get('button[aria-label="混雑3"]').attributes('disabled')).toBeUndefined();
+  });
+
+  describe.each(['押す', '取り消す'])('429 (%s)', operation => {
+    it.each([
+      ['45', 'あと 45 秒ほどおいてからやり直してください。'],
+      [' 12 ', 'あと 12 秒ほどおいてからやり直してください。'],
+      ['0', 'あと 0 秒ほどおいてからやり直してください。'],
+      [new Date(NOW + 45_000).toUTCString(), 'あと 45 秒ほどおいてからやり直してください。'],
+      [new Date(NOW - 1000).toUTCString(), 'あと 0 秒ほどおいてからやり直してください。'],
+      ...[undefined, '', '-1', 'invalid', '1.5', 'Infinity', '1e3', '9007199254740992', 'invalid GMT'].map(value =>
+        [value, '短い間に送りすぎました。しばらく待ってからやり直してください。']),
+    ])('Retry-After=%s に応じた待ち時間を案内する', async (value, message) => {
+      if (operation === '取り消す') await own(stamp(), 's-04-keep');
+      fetchMock.mockResolvedValueOnce(problem('too_many_requests', 'S-04: server detail', 429,
+        value === undefined ? {} : { 'Retry-After': value }));
+      const wrapper = await render();
+      if (operation === '押す') await pick(wrapper);
+      else {
+        await wrapper.get('.my-stamp button').trigger('click');
+        await flushPromises();
+      }
+      expect(wrapper.get('[role="alert"]').text()).toBe(message);
+      expect(wrapper.find('.toast').exists()).toBe(false);
+      expect(await repo.proofs.list()).toHaveLength(operation === '押す' ? 0 : 1);
+      expect(useStampsStore().items).toHaveLength(operation === '押す' ? 0 : 1);
+      if (operation === '取り消す') {
+        expect(wrapper.findAll('.my-stamp')).toHaveLength(1);
+        expect((await repo.proofs.get('s-04-mine'))?.proof).toBe('s-04-keep');
+      }
+      expect(wrapper.get('button[aria-label="混雑3"]').attributes('disabled')).toBeUndefined();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('通信エラー時は成功扱いせず再試行の案内を出す', async () => {
@@ -293,9 +398,24 @@ describe('StampView', () => {
     expect(await repo.proofs.list()).toEqual([]);
   });
 
-  it.each([403, 429, 500])('取り消しに失敗 (%s) したときは proof と一覧を残す', async status => {
+  it('取り消しが 403 not_stamp_owner のときは期限切れ・別端末の案内を出し、proof と一覧を残す', async () => {
+    fetchMock.mockResolvedValueOnce(json({ ...stamp(), proof: 's-04-keep' }));
+    const wrapper = await render();
+    await pick(wrapper);
+    fetchMock.mockResolvedValueOnce(problem('not_stamp_owner', 'S-04: server detail', 403));
+    await wrapper.get('.toast button').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toBe('期限切れか、別の端末で押したスタンプの可能性があります');
+    expect(wrapper.findAll('.my-stamp')).toHaveLength(1);
+    expect(wrapper.find('.toast').exists()).toBe(true);
+    expect((await repo.proofs.get('s-04-mine'))?.proof).toBe('s-04-keep');
+    expect(useStampsStore().items).toEqual([stamp()]);
+    expect(wrapper.get('.my-stamp button').attributes('disabled')).toBeUndefined();
+  });
+
+  it('取り消しが 500 のときは proof と一覧を残す', async () => {
     await own(stamp(), 's-04-keep');
-    fetchMock.mockResolvedValueOnce(problem('not_stamp_owner', '取り消せませんでした', status));
+    fetchMock.mockResolvedValueOnce(problem('internal_error', '取り消せませんでした', 500));
     const wrapper = await render();
     await wrapper.get('.my-stamp button').trigger('click');
     await flushPromises();

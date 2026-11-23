@@ -1,27 +1,59 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
-import { ApiError, apiSend } from '../api/client';
+import { CLOSING_TIME } from '../../../api/src/config';
+import { ApiError } from '../api/client';
+import type { components } from '../api/generated/schema';
 import { usePosition } from '../services/position';
 import { getStorage, type StampProof, type StorageRepositories } from '../storage';
 import { useStampsStore } from '../stores/stamps';
-import type { Stamp, StampKind } from '../types';
+import type { PressedStamp, Stamp, StampKind } from '../types';
 
-// design-system/tokens.json の意味トークン。未読込の画面でも同じ値で表示する。
+// map/layers の resolveColors と同じ最寄りテーマ・解決済み値を使う。
+// 出典: design-system/claude-design/tokens.css。CSS 変数があればその値を優先する。
+const COLOR_TOKENS = {
+  page: ['bg-page', '#130a22', '#f6f4fa'], // color.dark/light.bg-page
+  surface: ['bg-surface', '#1c1032', '#ffffff'], // color.dark/light.bg-surface
+  text: ['text-primary', '#f4f0ff', '#1e0b3a'], // color.dark/light.text-primary
+  secondary: ['text-secondary', '#b4a9cf', '#5b5274'], // color.dark/light.text-secondary
+  action: ['action-primary', '#a78bfa', '#6d28d9'], // color.dark/light.action-primary
+  border: ['border-subtle', '#a78bfa47', '#1e0b3a26'], // color.dark/light.border-subtle
+  danger: ['danger-text', '#fecaca', '#b91c1c'], // color.dark/light.danger-text
+  'danger-bg': ['danger-bg', '#2d1520', '#fef2f2'], // color.dark/light.danger-bg
+  stale: ['stale', '#fdba74', '#c2410c'], // color.dark/light.stale
+  pressed: ['state-pressed', '#ffffff1f', '#1e0b3a14'], // color.dark/light.state-pressed
+  feeling: ['feeling', '#f9a8d4', '#f472b6'], // color.dark/light.feeling
+  'feeling-on': ['feeling-on', '#1e0b3a', '#1e0b3a'], // color.dark/light.feeling-on
+  'congestion-border': ['congestion-border', '#fdba74', '#c2410c'], // color.dark/light.congestion-border
+  'congestion-1': ['congestion-1', '#ffedd5', '#ffedd5'], // color.dark/light.congestion-1
+  'congestion-2': ['congestion-2', '#fdba74', '#fdba74'], // color.dark/light.congestion-2
+  'congestion-3': ['congestion-3', '#f97316', '#f97316'], // color.dark/light.congestion-3
+  'congestion-4': ['congestion-4', '#c2410c', '#c2410c'], // color.dark/light.congestion-4
+  'congestion-5': ['congestion-5', '#7c2d12', '#7c2d12'], // color.dark/light.congestion-5
+  'congestion-1-on': ['congestion-1-on', '#1e0b3a', '#1e0b3a'], // color.dark/light.congestion-1-on
+  'congestion-2-on': ['congestion-2-on', '#1e0b3a', '#1e0b3a'], // color.dark/light.congestion-2-on
+  'congestion-3-on': ['congestion-3-on', '#1e0b3a', '#1e0b3a'], // color.dark/light.congestion-3-on
+  'congestion-4-on': ['congestion-4-on', '#ffffff', '#ffffff'], // color.dark/light.congestion-4-on
+  'congestion-5-on': ['congestion-5-on', '#ffffff', '#ffffff'], // color.dark/light.congestion-5-on
+} as const;
+
+function resolveColors(element: HTMLElement | null): Record<string, string> {
+  const theme = element?.closest('[data-theme]')?.getAttribute('data-theme') === 'light' ? 2 : 1;
+  const style = element ? getComputedStyle(element) : null;
+  // 未解決の var()（基礎色が欠けた場合や DOM テスト）も循環を避けて解決する。
+  function resolveVariable(name: string, seen = new Set<string>()): string {
+    if (!style || seen.has(name)) return '';
+    seen.add(name);
+    const value = style.getPropertyValue(name).trim();
+    const variable = /^var\((--[\w-]+)\)$/.exec(value);
+    return variable ? resolveVariable(variable[1], seen) : value.includes('var(') ? '' : value;
+  }
+  return Object.fromEntries(Object.entries(COLOR_TOKENS).map(([key, values]) => [
+    `--stamp-${key}`, resolveVariable(`--${values[0]}`) || values[theme],
+  ]));
+}
+
 const TOKENS = {
-  '--stamp-page': 'var(--bg-page, #130a22)', // color.dark.bg-page
-  '--stamp-surface': 'var(--bg-surface, #1c1032)', // color.dark.bg-surface
-  '--stamp-text': 'var(--text-primary, #f4f0ff)', // color.dark.text-primary
-  '--stamp-secondary': 'var(--text-secondary, #b4a9cf)', // color.dark.text-secondary
-  '--stamp-action': 'var(--action-primary, #a78bfa)', // color.dark.action-primary
-  '--stamp-border': 'var(--border-subtle, #a78bfa47)', // color.dark.border-subtle
-  '--stamp-danger': 'var(--danger-text, #fecaca)', // color.dark.danger-text
-  '--stamp-danger-bg': 'var(--danger-bg, #2d1520)', // color.dark.danger-bg
-  '--stamp-stale': 'var(--stale, #fdba74)', // color.dark.stale
-  '--stamp-pressed': 'var(--state-pressed, #ffffff1f)', // color.dark.state-pressed
-  '--stamp-feeling': 'var(--feeling, #f9a8d4)', // color.dark.feeling
-  '--stamp-feeling-on': 'var(--feeling-on, #1e0b3a)', // color.dark.feeling-on
-  '--stamp-congestion-border': 'var(--congestion-border, #fdba74)', // color.dark.congestion-border
   '--stamp-space-1': 'var(--space-1, 4px)', // space.1
   '--stamp-space-2': 'var(--space-2, 8px)', // space.2
   '--stamp-space-3': 'var(--space-3, 12px)', // space.3
@@ -41,13 +73,12 @@ const TOKENS = {
   '--stamp-action-weight': '700', // font.weight.bold / typography.action
   '--stamp-action-leading': '1.4', // tokens.css .action
 };
-// color.dark/light.congestion-1〜5 と congestion-1〜5-on（両テーマで共通）。
 const CONGESTION = [
-  { kind: 'congestion-1', label: '混雑1 空いている', number: 1, color: 'var(--congestion-1, #ffedd5)', on: 'var(--congestion-1-on, #1e0b3a)' },
-  { kind: 'congestion-2', label: '混雑2', number: 2, color: 'var(--congestion-2, #fdba74)', on: 'var(--congestion-2-on, #1e0b3a)' },
-  { kind: 'congestion-3', label: '混雑3', number: 3, color: 'var(--congestion-3, #f97316)', on: 'var(--congestion-3-on, #1e0b3a)' },
-  { kind: 'congestion-4', label: '混雑4', number: 4, color: 'var(--congestion-4, #c2410c)', on: 'var(--congestion-4-on, #ffffff)' },
-  { kind: 'congestion-5', label: '混雑5 とても混んでいる', number: 5, color: 'var(--congestion-5, #7c2d12)', on: 'var(--congestion-5-on, #ffffff)' },
+  { kind: 'congestion-1', label: '混雑1 空いている', number: 1 },
+  { kind: 'congestion-2', label: '混雑2', number: 2 },
+  { kind: 'congestion-3', label: '混雑3', number: 3 },
+  { kind: 'congestion-4', label: '混雑4', number: 4 },
+  { kind: 'congestion-5', label: '混雑5 とても混んでいる', number: 5 },
 ] as const;
 // 地図の stamps 層と同じ感想のマーク。
 const FEELINGS = [
@@ -60,6 +91,8 @@ const TOAST_MS = 6000; // Toast.durationMs
 
 const { position, status, allow } = usePosition();
 const stamps = useStampsStore();
+const root = ref<HTMLElement | null>(null);
+const colors = ref(resolveColors(null));
 const proofs = ref<StampProof[]>([]);
 const ready = ref(false);
 const busy = ref(false);
@@ -73,6 +106,7 @@ let unsubscribe: (() => void) | undefined;
 let timer: ReturnType<typeof setInterval> | undefined;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let disposed = false;
+let themeObserver: MutationObserver | undefined;
 
 const point = computed(() => {
   const value = position.value;
@@ -99,7 +133,8 @@ function title(kind: StampKind): string {
 
 function badgeStyle(kind: StampKind) {
   const congestion = CONGESTION.find(item => item.kind === kind);
-  return { background: congestion?.color ?? 'var(--stamp-feeling)', color: congestion?.on ?? 'var(--stamp-feeling-on)' };
+  const key = congestion?.kind ?? 'feeling';
+  return { background: colors.value[`--stamp-${key}`], color: colors.value[`--stamp-${key}-on`] };
 }
 
 function age(takenAt: number): string {
@@ -115,6 +150,42 @@ function remaining(stamp: Stamp): string {
 function warnMemory(mode: 'indexeddb' | 'memory') {
   storageWarning.value = mode === 'memory'
     ? 'この端末では保存が使えません。画面を再読み込みすると、取り消せなくなります。' : '';
+}
+
+function rateLimitMessage(response: Response): string {
+  // API-18。秒数・HTTP 日付のどちらも使えなければ、待ち時間を推測しない。
+  const value = response.headers.get('Retry-After')?.trim() ?? '';
+  const retryAt = Date.parse(value);
+  const seconds = /^\d+$/.test(value) ? Number(value)
+    : Number.isFinite(retryAt) && new Date(retryAt).toUTCString() === value
+      ? Math.max(0, Math.ceil((retryAt - Date.now()) / 1000)) : NaN;
+  return Number.isSafeInteger(seconds)
+    ? `あと ${seconds} 秒ほどおいてからやり直してください。`
+    : '短い間に送りすぎました。しばらく待ってからやり直してください。';
+}
+
+// 共有クライアントは応答ヘッダーを返さないため、この画面内で読み取る。
+// API の基底 URL・本文・proof ヘッダーは共有クライアントと同じ契約を保つ。
+async function stampRequest(path: string, init: RequestInit): Promise<Response> {
+  const base = (import.meta.env.VITE_API_BASE || '/api').replace(/\/+$/, '');
+  const headers = new Headers(init.headers);
+  headers.set('Accept', 'application/json, application/problem+json');
+  const response = await fetch(`${base}${path}`, { ...init, headers });
+  if (response.ok) return response;
+  if (response.status === 429) {
+    throw new ApiError({ code: 'too_many_requests', message: rateLimitMessage(response) }, 429);
+  }
+  const contentType = response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();
+  if (contentType === 'application/problem+json') {
+    const problem: unknown = await response.json().catch(() => null);
+    if (typeof problem === 'object' && problem !== null
+      && 'code' in problem && typeof problem.code === 'string'
+      && 'message' in problem && typeof problem.message === 'string'
+      && (!('field' in problem) || typeof problem.field === 'string')) {
+      throw new ApiError(problem as components['schemas']['Error'], response.status);
+    }
+  }
+  throw new ApiError({ code: 'internal_error', message: '時間をおいて、もう一度試してください' }, response.status);
 }
 
 async function loadProofs() {
@@ -143,7 +214,11 @@ async function press(kind: StampKind) {
   busy.value = true;
   error.value = '';
   try {
-    const { proof, ...stamp } = await apiSend('POST', '/stamps', { body: { kind, at } });
+    const body: components['schemas']['StampInput'] = { kind, at };
+    const response = await stampRequest('/stamps', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const { proof, ...stamp } = await response.json() as PressedStamp;
     const ownership = { stampId: stamp.id, proof, expiresAt: stamp.expiresAt };
     // proof は公開ストア・キャッシュに混ぜず、専用の端末内ストアに保存する。
     proofs.value = [...proofs.value.filter(item => item.stampId !== stamp.id), ownership];
@@ -160,7 +235,9 @@ async function press(kind: StampKind) {
       toastTimer = setTimeout(() => { toast.value = null; }, TOAST_MS);
     }
   } catch (cause) {
-    error.value = cause instanceof ApiError ? cause.message
+    error.value = cause instanceof ApiError && cause.status === 400 && cause.code === 'out_of_venue'
+      ? '会場の外にいるため、スタンプを押せません。会場内で現在地を確認してからお試しください。'
+      : cause instanceof ApiError ? cause.message
       : '送信を確認できませんでした。自分のスタンプを確認し、通信が戻ってからお試しください。';
   } finally {
     busy.value = false;
@@ -174,8 +251,8 @@ async function retract(stamp: Stamp) {
   error.value = '';
   try {
     try {
-      await apiSend('DELETE', '/stamps/{stampId}', {
-        params: { stampId: stamp.id }, headers: { 'X-Stamp-Proof': ownership.proof },
+      await stampRequest(`/stamps/${encodeURIComponent(stamp.id)}`, {
+        method: 'DELETE', headers: { 'X-Stamp-Proof': ownership.proof },
       });
     } catch (cause) {
       // 別の表示から取り消した場合や期限切れも、手元から消してよい。
@@ -190,7 +267,9 @@ async function retract(stamp: Stamp) {
       storageWarning.value = 'スタンプは取り消しましたが、端末の保存を更新できませんでした。';
     }
   } catch (cause) {
-    error.value = cause instanceof ApiError ? cause.message
+    error.value = cause instanceof ApiError && cause.status === 403 && cause.code === 'not_stamp_owner'
+      ? '期限切れか、別の端末で押したスタンプの可能性があります'
+      : cause instanceof ApiError ? cause.message
       : '取り消しを確認できませんでした。通信が戻ってから、もう一度取り消してください。';
   } finally {
     busy.value = false;
@@ -198,6 +277,12 @@ async function retract(stamp: Stamp) {
 }
 
 onMounted(() => {
+  const updateColors = () => { colors.value = resolveColors(root.value); };
+  updateColors();
+  themeObserver = new MutationObserver(updateColors);
+  for (let element = root.value; element; element = element.parentElement) {
+    themeObserver.observe(element, { attributes: true, attributeFilter: ['data-theme'] });
+  }
   timer = setInterval(() => { now.value = Date.now(); }, 1000);
   void loadProofs();
 });
@@ -205,12 +290,13 @@ onUnmounted(() => {
   disposed = true;
   clearInterval(timer);
   clearTimeout(toastTimer);
+  themeObserver?.disconnect();
   unsubscribe?.();
 });
 </script>
 
 <template>
-  <main class="stamp-view" :style="TOKENS">
+  <main ref="root" class="stamp-view" :style="{ ...TOKENS, ...colors }">
     <header>
       <h1>スタンプを押す</h1>
       <RouterLink to="/">マップへ戻る</RouterLink>
@@ -242,13 +328,15 @@ onUnmounted(() => {
       <div class="congestion choices">
         <button v-for="item in CONGESTION" :key="item.kind" type="button"
           class="congestion-button" :aria-label="item.label" :disabled="!canPress"
-          :style="{ background: item.color, color: item.on }" @click="press(item.kind)">{{ item.number }}</button>
+          :style="badgeStyle(item.kind)" @click="press(item.kind)">{{ item.number }}</button>
       </div>
       <p class="scale secondary"><span>空いている</span><span>とても混んでいる</span></p>
     </section>
 
     <section class="panel" aria-labelledby="stamp-feeling-title" :aria-busy="busy">
       <h2 id="stamp-feeling-title">感想</h2>
+      <!-- D-022 / API-17。時刻は既存設定を参照し、押した後の残り時間は expiresAt から表示する。 -->
+      <p class="secondary">感想のスタンプは、その日の閉場（{{ CLOSING_TIME }}）まで有効です。</p>
       <div class="feelings choices">
         <button v-for="item in FEELINGS" :key="item.kind" type="button" class="feeling-button"
           :aria-label="item.label" :disabled="!canPress" @click="press(item.kind)">
