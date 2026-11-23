@@ -233,7 +233,14 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: 指定した場所が無い(消されたなど)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: not_found
+                message: 場所 pl_99 は見つかりません
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -791,7 +798,14 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: 指定した建物か、その階の見取り図が無い
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: not_found
+                message: 建物 lm_a の 1 階の見取り図は見つかりません
         "500":
           $ref: "#/components/responses/InternalError"
 

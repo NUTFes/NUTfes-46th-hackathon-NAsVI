@@ -290,8 +290,8 @@ items:
       API-14 で場所に landmarkId を足したので、「近く」でなく「landmarkId がその建物の場所」で返す案もある(OQ-10 の near が要らなくなる)。
       回答: 建物の id で出す(案 A)。landmarkId がその建物の場所を返す。
       理由: 屋外の模擬店は、カメラで映している時点で既に見えている(利用者)。
-      概念設計の同期 show-building-events・show-no-events の where(近く = near)と食い違うので、反映はチームが決める。OQ-10 のうち near の範囲は、この API では要らなくなる
-      利用者の意見: その棟の企画は建物の id で出し、「近く」(OQ-10 の near)は要らない。同期 show-building-events・show-no-events を直すか、OQ-10 をどう閉じるかはチームが決める(ゲート 2 の質問 7 の回答 A)。
+      概念設計の同期 show-building-events・show-no-events の where は、D-024 で「建物の一致」に変わり、この API と合った(2026-11-23)。OQ-10 のうち near の範囲は要らなくなり、残るのは「迷っている」の判定だけ
+      利用者の意見: その棟の企画は建物の id で出し、「近く」(OQ-10 の near)は要らない(ゲート 2 の質問 7 の回答 A)。
     state: 仮置き
     placeholder: "利用者の意見: その棟の企画は、landmarkId がその建物の場所で返す(near は使わない)。チームの合意待ち"
     decided_by: ""
