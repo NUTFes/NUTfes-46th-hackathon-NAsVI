@@ -99,9 +99,8 @@ questions:
     question: 階ごとの見取り図(階の画像と、四隅の緯度経度)を、新しい概念にするか。Place・Landmark とは目的が違う(API-29・30、wireframe の ※)
     blocks: [concepts, api.landmarks, screens.building]
     owner: チーム
-    status: open
-    answer: null
-    note: API 設計とデザインシステムは、どちらも見取り図を前提にしている。concepts.yaml には、まだ概念を足していない(D-017)。
+    status: resolved
+    answer: 概念にしない。建物の付属データとして、API と画面で扱う(D-029)
 
   - id: OQ-15
     question: 建物の輪郭の出どころと配り方。OpenStreetMap を正にして固定するか、運営が建物の輪郭を登録・修正できるようにするか。端末へは静的ファイルで同梱するか、サーバーから返すか
