@@ -157,7 +157,11 @@ it('D1 には proof そのものを保存せず、その SHA-256 ハッシュだ
 });
 
 it('stampPressed を保存して main Hub に配信し、履歴・配信のどちらにも proof を含めない', async () => {
+  const batch = vi.spyOn(env.DB, 'batch');
   const { proof, ...stamp } = await pressed();
+  expect(batch).toHaveBeenCalledTimes(1);
+  // The stamp INSERT and commitWithChange's INSERT ... RETURNING suffice.
+  expect(batch.mock.calls[0][0]).toHaveLength(2);
   const stored = await changeRow();
   expect(stored).toEqual({ id: expect.any(Number), type: 'stampPressed', payload: expect.any(String), created_at: now });
   expect(JSON.parse(stored!.payload)).toEqual(stamp);
@@ -209,6 +213,8 @@ it('固定時刻がオフセット付きでも保存・応答の時刻は UTC', 
   const stamp = await pressed({ kind: 'good', at }, { NOW: '2026-11-29T00:30:00+09:00' });
   expect(stamp.pressedAt).toBe('2026-11-28T15:30:00.000Z');
   expect(stamp.expiresAt).toBe('2026-11-29T07:00:00.000Z');
+  expect((await changeRow())!.created_at).toBe(stamp.pressedAt);
+  expect(JSON.parse(String(publish.mock.calls[0][1]?.body)).createdAt).toBe(stamp.pressedAt);
 });
 
 it.each([
