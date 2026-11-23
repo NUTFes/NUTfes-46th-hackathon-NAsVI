@@ -424,3 +424,21 @@ decisions:
       前提(崩れたら見直す条件): 種類の付け外しを、場所の登録・更新と別の操作として見せたくなったとき。
     status: resolved
     derived_from: D-028、API-6・7、デザインシステムの O1
+
+  - id: D-033
+    problem: 場所・建物を登録・管理する運営を、誰にするか(OQ-1)。実行委員(運営)だけか、企画・出店の担当者も自分の分を編集できるか
+    options:
+      - 実行委員(運営)だけが登録・管理する(案 A)
+      - 企画・出店が、自分の企画だけを登録・編集する(案 B。Place に持ち主の状態と、ロール・所有の表が要る)
+      - 実行委員が全体を管理し、企画・出店は自分の分だけ編集する(案 C。A と B の併用)
+    adopted: 実行委員(運営)だけ(案 A)
+    reason: >-
+      API 設計の台帳 API-12 で確定済み(2026-11-22 sabo10p、認証の方法は 2026-11-23 に利用者が Cloudflare Access に変更)。
+      概念設計の側の記録(OQ-1)が open のまま残っていたので、ここで揃えた。新しい判断ではない。
+      画面設計(screens.yaml)に企画・出店向けの画面がなく、運営の画面は op_places と op_landmarks の 2 つだけ。
+      運営の画面と管理系の API を Cloudflare Access で守り、Access を通った人を「場所を管理できる実行者」とみなす。
+      ロール表も所有表も、Place の持ち主の状態も要らない。
+      捨てた案 B・C は、出展者が自分の企画を編集する画面を作ることになったときに見直す(前提が崩れる条件)。
+      そのときは、Place に持ち主の状態を足し、where の「場所を管理できる」を、管理者か、持ち主の出展者、に変える(api/roadmap.md の展望 1・2)。
+    status: resolved
+    derived_from: OQ-1、API-12、api/roadmap.md、screens.yaml(op_places・op_landmarks・O1)
