@@ -16,7 +16,7 @@ questions:
     answer: null
 
   - id: OQ-3
-    question: 種類(カテゴリ)で選ぶ F4 を P1 に入れるか。Place.kind(企画 / 駐車場)との線引きはどうするか
+    question: 種類(カテゴリ)で選ぶ F4 を P1 に入れるか。Place.kind(企画・駐車場・設備)との線引きはどうするか
     blocks: [concepts.Labeling, input.F4]
     owner: チーム
     status: open
@@ -66,11 +66,12 @@ questions:
     answer: null
 
   - id: OQ-10
-    question: 「迷っている」をどう判定するか(行き先から遠ざかる、同じ所に長く留まる、など)。建物の近くとみなす範囲(near)
+    question: 「迷っている」をどう判定するか(行き先から遠ざかる、同じ所に長く留まる、など)
     blocks: [concepts.syncs, journey.F5]
     owner: チーム
     status: open
     answer: null
+    note: 建物の「近く」とみなす範囲(near)は、建物との結びつきで決める形に変えたので要らなくなった(D-024)。残るのは「迷っている」の判定だけ。
 
   - id: OQ-11
     question: 建物の認識の実装(ブラウザ内で動く小型の視覚モデルか、既存の MindAR か)。映像から判定までを端末内で通し、画像を保存・送信せず結果だけ見せる条件を満たせるか
@@ -117,3 +118,20 @@ questions:
     status: open
     answer: null
     note: PR #4 の試作は 99 棟・約 26KB の静的ファイル。読み込み直し(reload-footprint)の結果をどう端末へ届けるかに関わる。
+
+  - id: OQ-17
+    question: 輪郭の無い建物(D-023)を、運営にどう知らせるか。カメラの正面に出ない建物があることを、受け入れてよいか
+    blocks: [concepts.syncs, api.landmarks]
+    owner: チーム
+    status: open
+    answer: null
+    note: 概念は D-023 で、輪郭の無い建物を認めた。API-37(footprint の null)は合意待ち。運営が輪郭を直さない方針(D-019)なので、取れない建物は登録の画面で気づける必要がある。
+
+  - id: OQ-18
+    question: 行き先に「着いた」とみなす距離(ワイヤーフレームの仮置きは 20 m)と、現在地が「古い」とみなす時間(30 秒、仮置き)
+    blocks: [journey.F2, design-system.DestinationCard]
+    owner: チーム
+    status: open
+    answer: null
+    note: どちらも設計の根拠が無い仮置き。端末が計算する値で、概念の状態には入れない(D-026)。デザインシステムの DestinationCard と、画面 V1-n の「着きました」が使っている。
+
