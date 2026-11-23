@@ -15,6 +15,10 @@ const input: PlaceInput = {
     { start: '2026-11-29T02:00:00.000Z', end: '2026-11-29T06:00:00.000Z' },
   ],
 };
+const utcHours = [
+  { start: '2026-11-28T02:00:00.000Z', end: '2026-11-28T06:00:00.000Z' },
+  { start: '2026-11-29T02:00:00.000Z', end: '2026-11-29T06:00:00.000Z' },
+];
 const publish = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }));
 const externalFetch = vi.fn(() => Promise.reject(new Error('External network is disabled in tests')));
 let bindings: Env;
@@ -64,7 +68,7 @@ it('201 の Place と、場所・検索文字列・全開催時間・placeAdded 
   expect(response.status).toBe(201);
   expect(response.headers.get('content-type')).toContain('application/json');
   const place = await response.json() as Place;
-  expect(place).toEqual({ ...input, id: expect.any(String), labelIds: [] });
+  expect(place).toEqual({ ...input, hours: utcHours, id: expect.any(String), labelIds: [] });
   expect(place.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   expect(batch).toHaveBeenCalledTimes(1);
   expect(batch.mock.calls[0][0]).toHaveLength(4);
@@ -73,7 +77,7 @@ it('201 の Place と、場所・検索文字列・全開催時間・placeAdded 
     description: input.description, search_text: 'abc フード', landmark_id: 'kougi', floor: 1, updated_at: now,
   });
   expect((await env.DB.prepare('SELECT * FROM place_hours ORDER BY start_at').all()).results).toEqual(
-    input.hours!.map(period => ({ place_id: place.id, start_at: period.start, end_at: period.end })),
+    utcHours.map(period => ({ place_id: place.id, start_at: period.start, end_at: period.end })),
   );
   expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM place_labels').first('n')).toBe(0);
   const changes = (await env.DB.prepare('SELECT * FROM changes').all()).results;
@@ -129,6 +133,13 @@ it.each([
 ])('hours の開始時刻が重複(%s)すると 400 invalid_input(field=hours)で何も保存しない', async (_name, a, b) => {
   const end = '2026-11-29T00:00:00Z';
   const response = await create({ ...input, hours: [{ start: a, end }, { start: b, end }] });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ code: 'invalid_input', field: 'hours' });
+  await expectNoWrites();
+});
+
+it('end が start より前の hours は 400 invalid_input(field=hours)で何も保存しない', async () => {
+  const response = await create({ ...input, hours: [{ start: '2026-11-28T06:00:00Z', end: '2026-11-28T02:00:00Z' }] });
   expect(response.status).toBe(400);
   expect(await response.json()).toMatchObject({ code: 'invalid_input', field: 'hours' });
   await expectNoWrites();

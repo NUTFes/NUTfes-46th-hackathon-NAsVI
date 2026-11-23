@@ -41,9 +41,11 @@ export function register(app: Hono<AppEnv>) {
     }
 
     const input = parsed.data;
-    const starts = (input.hours ?? []).flatMap(period => [period.start, String(Date.parse(period.start))]);
-    if (new Set(starts).size !== starts.length) {
-      return problem(c, 400, 'invalid_input', 'hours の開始時刻が重複しています', 'hours');
+    const hours = (input.hours ?? []).map(period => ({
+      start: new Date(period.start).toISOString(), end: new Date(period.end).toISOString(),
+    }));
+    if (hours.some(period => period.end < period.start) || new Set(hours.map(period => period.start)).size !== hours.length) {
+      return problem(c, 400, 'invalid_input', 'hours の時間帯が正しくありません', 'hours');
     }
     try {
       if (input.landmarkId != null) {
@@ -55,7 +57,7 @@ export function register(app: Hono<AppEnv>) {
       const place: components['schemas']['Place'] = {
         id: newId(), name: input.name, kind: input.kind, location: input.location,
         description: input.description, landmarkId: input.landmarkId ?? null,
-        floor: input.floor ?? null, hours: input.hours ?? [], labelIds: [],
+        floor: input.floor ?? null, hours, labelIds: [],
       };
       const stmts = [c.env.DB.prepare(`
         INSERT INTO places (id, name, kind, lat, lng, description, search_text, landmark_id, floor, updated_at)
