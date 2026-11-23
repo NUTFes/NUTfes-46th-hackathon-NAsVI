@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
-import App from '../App.vue';
+import PlaceCard from './PlaceCard.vue';
 import { routes } from '../router';
 import * as geo from '../domain/geo';
 import { usePosition } from '../services/position';
@@ -54,7 +54,8 @@ async function openCard(id = place.id) {
   const router = createRouter({ history: createMemoryHistory(), routes });
   await router.push({ name: 'card', params: { id } });
   await router.isReady();
-  const wrapper = mount(App, { attachTo: document.body, global: { plugins: [pinia, router] } });
+  // アプリ起動時の同期を介さず、場所カード自身の表示・操作を検証する。
+  const wrapper = mount(PlaceCard, { attachTo: document.body, global: { plugins: [pinia, router] } });
   await flushPromises();
   return { wrapper, router };
 }
