@@ -4,7 +4,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { IDBDatabase, IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
-import tokensJson from '../../../design-system/tokens.json?raw';
+import { appColors } from '../app/tokens';
 import * as localStorage from '../storage';
 import { usePlacesStore } from '../stores/places';
 import type { Place } from '../types';
@@ -19,23 +19,15 @@ let storage: localStorage.StorageRepositories;
 let instances: localStorage.StorageRepositories[];
 let wrappers: VueWrapper[];
 const fetchMock = vi.fn(() => { throw new Error('External communication is forbidden'); });
-const colorTokens = {
-  '--page': 'bg-page', '--surface': 'bg-surface', '--text': 'text-primary',
-  '--secondary': 'text-secondary', '--primary': 'action-primary', '--on-primary': 'action-on-primary',
-  '--border': 'border-subtle', '--pressed': 'state-pressed', '--danger': 'danger',
-  '--danger-bg': 'danger-bg', '--danger-text': 'danger-text',
-};
+const colorTokens = [
+  'bg-page', 'bg-surface', 'text-primary', 'text-secondary', 'action-primary', 'action-on-primary',
+  'border-subtle', 'danger', 'danger-bg', 'danger-text',
+];
 function expectTheme(wrapper: VueWrapper, theme: 'light' | 'dark') {
-  const tokens: unknown = JSON.parse(tokensJson);
-  function resolve(path: string): string {
-    const node = path.split('.').reduce<unknown>((value, key) => (value as Record<string, unknown>)[key], tokens);
-    const value = (node as { $value: string | { components: number[]; alpha?: number } }).$value;
-    if (typeof value === 'string') return resolve(value.slice(1, -1));
-    return `rgb(${value.components.map(component => component * 255).join(' ')} / ${value.alpha ?? 1})`;
-  }
+  const expected = appColors(theme);
   const style = wrapper.get<HTMLElement>('.tags-page').element.style;
-  for (const [property, name] of Object.entries(colorTokens)) {
-    expect(style.getPropertyValue(property), property).toBe(resolve(`color.${theme}.${name}`));
+  for (const name of colorTokens) {
+    expect(style.getPropertyValue(`--app-${name}`), name).toBe(expected[`--app-${name}`]);
   }
 }
 
@@ -94,6 +86,24 @@ async function pressEnter(wrapper: VueWrapper, options: KeyboardEventInit = {}) 
 }
 
 describe('TagsView', () => {
+  it('作成欄は入力と「作る」が 1 行で、エラーは入力の下に出る（TagCreateField）', async () => {
+    const { wrapper } = await render();
+    const line = wrapper.get('.create-row');
+    expect(line.find('input').attributes('placeholder')).toBe('タグの名前');
+    expect(line.get('button').text()).toBe('作る');
+    expect(line.get('button').attributes('type')).toBe('submit');
+    await submit(wrapper, '');
+    expect(wrapper.find('#tag-input-error').exists()).toBe(true);
+    expect(wrapper.find('.create-row #tag-input-error').exists()).toBe(false);
+  });
+
+  it('行頭アイコンと、選択状態の箱を表示する（CheckRow）', async () => {
+    const { wrapper } = await render();
+    const icons = wrapper.findAll('.check-row .tag-icon').map(icon => icon.attributes('data-icon'));
+    expect(icons).toEqual(['flag', 'star']);
+    expect(row(wrapper, '行きたい場所').find('.check-mark svg').exists()).toBe(false);
+  });
+
   it.each(['light', 'dark', undefined, 'unknown'])('data-theme=%s の色をトークンから解決する', async theme => {
     const host = document.createElement('div');
     if (theme !== undefined) host.dataset.theme = theme;
@@ -153,7 +163,7 @@ describe('TagsView', () => {
     await row(wrapper, tag.title).trigger('click');
     await idle(wrapper);
     expect(row(wrapper, tag.title).attributes('aria-checked')).toBe('true');
-    expect(row(wrapper, tag.title).get('.check-mark').text()).toBe('✓');
+    expect(row(wrapper, tag.title).find('.check-mark [data-icon="check"]').exists()).toBe(true);
     expect(await storage.tagLinks.list(first.id)).toEqual([{ placeId: first.id, tagId: tag.id }]);
     const { wrapper: reopened } = await render();
     expect(row(reopened, tag.title).attributes('aria-checked')).toBe('true');
@@ -353,7 +363,7 @@ describe('TagsView', () => {
     const { wrapper } = await render();
     expect(wrapper.get('[role="alert"]').text()).toContain('タグを読み込めませんでした');
     expect(wrapper.get('input').attributes('disabled')).toBeDefined();
-    await wrapper.get('.banner button').trigger('click');
+    await wrapper.get('.nv-banner button').trigger('click');
     await idle(wrapper);
     expect(wrapper.findAll('[role="checkbox"]')).toHaveLength(2);
     expect(wrapper.find('[role="alert"]').exists()).toBe(false);
