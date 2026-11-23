@@ -15,7 +15,7 @@ export const project: ProjectFn = (view, W, H, x, y, z = 0) => {
   return [W / 2 + rx * view.k, view.cy - ry * view.k * TILT - z * view.k * ZS, ry];
 };
 
-/** 画面座標 (sx, sy) を地面 (z=0) 上のワールド座標 [x, y] へ。 */
+/** 画面座標 (sx, sy) を地面 (z=0) 上のワールド座標 [x, y] へ。前提: view.k > 0(k <= 0 は NaN や Infinity になる。ガードはしない)。 */
 export function unproject(view: View, W: number, H: number, sx: number, sy: number): [number, number] {
   void H;
   const cs = Math.cos(view.th);
@@ -25,11 +25,28 @@ export function unproject(view: View, W: number, H: number, sx: number, sy: numb
   return [rx * cs + ry * sn + view.fx, -rx * sn + ry * cs + view.fy];
 }
 
-const KEYS = ['fx', 'fy', 'k', 'th', 'cy'] as const;
+const TAU = Math.PI * 2;
+/** 仕様: 残りがこの値未満なら goal に一致させる(補間の打ち切り)。fx, fy, k, cy は絶対値、th はラジアン。 */
+export const SNAP_EPS = 1e-3;
 
-/** 視点を目標へ 1 歩近づける(モックは毎フレーム rate=0.16)。 */
+/** a から b へ、最短の弧で回る差(-π..π)。 */
+const shortestDelta = (a: number, b: number): number => {
+  const d = (((b - a) % TAU) + TAU + Math.PI) % TAU - Math.PI;
+  return d;
+};
+
+/**
+ * 視点を目標へ 1 歩近づける(モックは毎フレーム rate=0.16)。
+ * th は最短の弧で補間する(2π をまたぐ目標でも遠回りしない)。
+ * 残りが SNAP_EPS 未満になったら goal の値に一致させる。
+ */
 export function stepView(view: View, goal: View, rate = 0.16): View {
   const next = { ...view };
-  for (const key of KEYS) next[key] = view[key] + (goal[key] - view[key]) * rate;
+  for (const key of ['fx', 'fy', 'k', 'cy'] as const) {
+    const d = goal[key] - view[key];
+    next[key] = Math.abs(d) < SNAP_EPS ? goal[key] : view[key] + d * rate;
+  }
+  const dth = shortestDelta(view.th, goal.th);
+  next.th = Math.abs(dth) < SNAP_EPS ? goal.th : view.th + dth * rate;
   return next;
 }
