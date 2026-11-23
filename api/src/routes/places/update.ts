@@ -40,7 +40,8 @@ const patchSchema = z.looseObject({
   floor: z.number().int().min(-5).max(20).nullable().optional(),
   hours: z.array(z.object({ start: dateTime, end: dateTime }))
     .refine(hours => new Set(hours.map(period => period.start)).size === hours.length,
-      '開催時間の開始が重複しています').optional(),
+      '開催時間の開始が重複しています')
+    .refine(hours => hours.every(period => period.end >= period.start), '開催時間の終了は開始以降にしてください').optional(),
 }).refine(value => ['name', 'location', 'description', 'landmarkId', 'floor', 'hours'].some(key => key in value), '更新する項目を入れてください');
 
 export function register(app: Hono<AppEnv>) {

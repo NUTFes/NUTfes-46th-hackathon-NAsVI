@@ -214,3 +214,10 @@ it('読み取り後に別の運営が別の項目を直しても、応答と配�
   const published = JSON.parse(publish.mock.calls[publish.mock.calls.length - 1][1]?.body as string);
   expect(published.payload).toEqual(body);
 });
+
+it('end が start より前の hours は 400(field=hours)とし、変更しない', async () => {
+  await expectProblem(await patch({ hours: [{ start: '2026-11-28T03:00:00.000Z', end: '2026-11-28T01:00:00.000Z' }] }),
+    400, 'invalid_input', 'hours');
+  await expectNoChange();
+  expect((await env.DB.prepare('SELECT start_at AS start, end_at AS end FROM place_hours').all()).results).toEqual(original.hours);
+});
