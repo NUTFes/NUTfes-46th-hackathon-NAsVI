@@ -17,6 +17,7 @@
 | 8 | Toast・MyStampRow | onUndo・onRetract(スタンプの取り消し) | DELETE /stamps/{stampId} | 取り消しを端末だけで行うのか、API で消すのかが決まっていない | 解消: API で消す(D-021)。押したときの応答の `proof` を端末が覚え、取り消すときにヘッダー `X-Stamp-Proof` で渡す(#21) |
 | 9 | BuildingFlag | count(建物ごとの企画数) | places.landmarkId | 端末で places から数えるには、場所が建物を持つ必要がある(※) | 解消: 場所の `landmarkId` で、端末で数えられる(D-017、#21) |
 | 10 | StampMark・MyStampRow | pressedAt・expiresAt | stamps.pressedAt・expiresAt | 期限を過ぎた混雑を、API が返さないのか、端末で隠すのか(OQ-4) | API は期限(`expiresAt`)を過ぎたスタンプを返さず、端末も `expiresAt` を過ぎたら消す(API-38)。MyStampRow には `expiresAt` をそのまま渡す。期限は仮置き(混雑 30 分、感想はその日の閉場まで。D-022)。最終値はチームが決める(OQ-4) |
+| 11 | CheckRow(O1 の「種類を選ぶ」欄。FormField のラベルの下に並べる) | checked・onToggle | places.labelIds・PUT /places/{placeId}/labels/{labelId}(assignLabel)・DELETE /places/{placeId}/labels/{labelId}(unassignLabel。API-41) | 運営が場所に種類を付ける・外す操作が、画面と部品に無かった | 解消(利用者の判断): O1 を分けず、登録・更新の入力欄の中に「種類を選ぶ」欄を足す。部品は CheckRow を再利用する(種類ごとに 1 行で、複数を選べる)。`checked` は種類の id が場所の `labelIds` に含まれるか、`onToggle` は付ける(PUT)・外す(DELETE)。どちらも付いていても付いていなくても成功になる(何度送っても同じ。API)。場所の保存と種類の付け外しは別の API 呼び出しになる(画面の側でまとめて呼ぶ)。種類の一覧は `GET /labels`(行 5 と同じ) |
 
 ## 照合して問題なかったもの
 
