@@ -18,6 +18,8 @@ interface StampRow {
 export function register(app: Hono<AppEnv>) {
   app.get('/stamps', rateLimit({ key: 'read', limit: 60, windowSec: 60 }), async c => {
     try {
+      // Stamp times are stored as UTC ISO strings with milliseconds ("....000Z"),
+      // so the string comparison on expires_at is chronological.
       // Read both queries in one transaction so the cursor describes this list.
       const [stamps, cursor] = await c.env.DB.batch<StampRow | { cursor: string }>([
         prepare(c.env.DB, `SELECT id, kind, lat, lng, pressed_at, expires_at

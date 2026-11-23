@@ -102,10 +102,20 @@ it('取り消し済みの id は 404 で、出来事を重ねて記録しない'
   expect(publish).toHaveBeenCalledTimes(1);
 });
 
-it('期限切れでも保存されているスタンプは証が一致すれば取り消せる', async () => {
+it('期限切れのスタンプは証が一致すれば行を消して 204 を返すが、stampRetracted は流さない', async () => {
   await seedStamp('stamp', proofHash, now);
   expect((await retract()).status).toBe(204);
   expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM stamps').first('n')).toBe(0);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM changes').first('n')).toBe(0);
+  expect(publish).not.toHaveBeenCalled();
+});
+
+it('同じ id への並行 DELETE でも stampRetracted は 1 回だけ記録される', async () => {
+  await seedStamp();
+  const statuses = (await Promise.all([retract(), retract(), retract()])).map(r => r.status).sort();
+  expect(statuses).toEqual([204, 404, 404]);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM changes').first('n')).toBe(1);
+  expect(publish).toHaveBeenCalledTimes(1);
 });
 
 it('履歴の保存が失敗したら削除もロールバックし、500 を返す', async () => {
