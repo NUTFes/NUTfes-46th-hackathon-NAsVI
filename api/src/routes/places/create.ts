@@ -41,6 +41,10 @@ export function register(app: Hono<AppEnv>) {
     }
 
     const input = parsed.data;
+    const starts = (input.hours ?? []).flatMap(period => [period.start, String(Date.parse(period.start))]);
+    if (new Set(starts).size !== starts.length) {
+      return problem(c, 400, 'invalid_input', 'hours の開始時刻が重複しています', 'hours');
+    }
     try {
       if (input.landmarkId != null) {
         const landmark = await c.env.DB.prepare('SELECT id FROM landmarks WHERE id = ?')

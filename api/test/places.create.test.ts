@@ -123,6 +123,17 @@ it.each([
   expect(await response.json()).toMatchObject(text);
 });
 
+it.each([
+  ['同じ文字列', '2026-11-28T11:00:00+09:00', '2026-11-28T11:00:00+09:00'],
+  ['同じ瞬間の別表記', '2026-11-28T11:00:00+09:00', '2026-11-28T02:00:00.000Z'],
+])('hours の開始時刻が重複(%s)すると 400 invalid_input(field=hours)で何も保存しない', async (_name, a, b) => {
+  const end = '2026-11-29T00:00:00Z';
+  const response = await create({ ...input, hours: [{ start: a, end }, { start: b, end }] });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ code: 'invalid_input', field: 'hours' });
+  await expectNoWrites();
+});
+
 it('同じ名前で登録でき、毎回別の ID を返す', async () => {
   const first = await create(input);
   const second = await create(input);
