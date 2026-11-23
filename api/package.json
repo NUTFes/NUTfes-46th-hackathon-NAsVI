@@ -1,0 +1,23 @@
+{
+  "name": "api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "migrate": "wrangler d1 migrations apply DB --local",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "generate:types": "openapi-typescript ../concept-design/api/openapi.yaml -o src/schema.d.ts"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "4.124.0",
+    "@cloudflare/workers-types": "latest",
+    "@cloudflare/vitest-pool-workers": "0.23.0",
+    "vitest": "~4.1.0",
+    "typescript": "~5.9.3",
+    "openapi-typescript": "^7.0.0"
+  }
+}

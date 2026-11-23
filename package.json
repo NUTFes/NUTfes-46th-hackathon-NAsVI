@@ -1,0 +1,11 @@
+{
+  "name": "nasvi",
+  "private": true,
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter api test",
+    "build": "pnpm --filter web build",
+    "generate:types": "pnpm --filter api generate:types"
+  }
+}
