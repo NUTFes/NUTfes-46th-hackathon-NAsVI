@@ -1,34 +1,93 @@
+<!-- 地図の上に重ねる帯。地図・router への結線は別タスクのため、ここでは配置を変更しない。 -->
 <script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { usePosition } from '../services/position';
 
-const { allow, status } = usePosition();
+const { allow, refuse, status } = usePosition();
+
+const headings = {
+  idle: '現在地の利用を選べます',
+  asking: '位置情報の許可を確認しています',
+  granted: '',
+  denied: '現在地の利用が許可されていません',
+  unavailable: '現在地を取得できません',
+  timeout: '現在地の取得に時間がかかっています',
+} as const;
+const failed = computed(() => ['denied', 'unavailable', 'timeout'].includes(status.value));
+
+function requestPosition() {
+  // 一時エラー後もサービスの監視は続く。明示的な再試行では監視を解放して取り直す。
+  if (status.value === 'timeout' || status.value === 'unavailable') refuse();
+  allow();
+}
+
+// design-system/tokens.json の color.{dark,light}。
+// 値は design-system/claude-design/tokens.css の解決済み値。
+const colors = {
+  '--noloc-border': { dark: '#f87171', light: '#dc2626' }, // color.{dark,light}.danger
+  '--noloc-background': { dark: '#2d1520', light: '#fef2f2' }, // color.{dark,light}.danger-bg
+  '--noloc-text': { dark: '#fecaca', light: '#b91c1c' }, // color.{dark,light}.danger-text
+  '--noloc-heading': { dark: '#f4f0ff', light: '#1e0b3a' }, // color.{dark,light}.text-primary
+  '--noloc-action': { dark: '#a78bfa', light: '#6d28d9' }, // color.{dark,light}.action-primary
+  '--noloc-on-action': { dark: '#1e0b3a', light: '#ffffff' }, // color.{dark,light}.action-on-primary
+  '--noloc-pressed': { dark: '#ffffff1f', light: '#1e0b3a14' }, // color.{dark,light}.state-pressed
+} as const;
+const root = ref<HTMLElement | null>(null);
+const theme = ref<'dark' | 'light'>('dark');
+const colorStyle = computed(() => Object.fromEntries(
+  Object.entries(colors).map(([name, values]) => [name, values[theme.value]]),
+));
+let themeObserver: MutationObserver | undefined;
+onMounted(() => {
+  const resolveColors = () => {
+    theme.value = root.value?.closest('[data-theme]')?.getAttribute('data-theme') === 'light'
+      ? 'light' : 'dark';
+  };
+  resolveColors();
+  themeObserver = new MutationObserver(resolveColors);
+  // 最寄りテーマの変更・追加・削除を追う。コンテンツの更新は監視しない。
+  for (let element = root.value; element; element = element.parentElement) {
+    themeObserver.observe(element, { attributes: true, attributeFilter: ['data-theme'] });
+  }
+});
+onUnmounted(() => themeObserver?.disconnect());
 </script>
 
 <template>
-  <main class="no-location">
-    <section v-if="status !== 'granted'" class="no-location__banner" role="alert">
-      <span class="no-location__icon" aria-hidden="true">!</span>
-      <div class="no-location__content">
-        <h1>現在地が使えません</h1>
-        <p>行き先への方角と距離、スタンプは使えません。</p>
-        <p>検索・一覧・場所の情報は、このまま使えます。</p>
-        <!-- 「地図で指定する」は wireframe.md の OQ-2 が未決のため実装しない。 -->
-        <button type="button" @click="allow">位置の利用を許可</button>
-      </div>
-    </section>
+  <main ref="root" class="no-location" :style="colorStyle">
+    <!-- 領域を常駐させ、asking → denied 等でも変更後の内容を通知する。 -->
+    <div role="status" aria-live="polite" aria-atomic="true">
+      <section v-if="status !== 'granted'" class="no-location__banner">
+        <span class="no-location__icon" aria-hidden="true">{{ failed ? '!' : 'i' }}</span>
+        <div class="no-location__content">
+          <h1>{{ headings[status] }}</h1>
+          <p v-if="status === 'idle'">位置を利用すると、行き先への方角と距離、スタンプを使えます。</p>
+          <p v-else-if="status === 'asking'">端末やブラウザの許可画面を確認してください。現在地の取得を待っています。</p>
+          <template v-else>
+            <p>行き先への方角と距離、スタンプは使えません。</p>
+            <template v-if="status === 'denied'">
+              <p>再依頼ボタンを押しても、許可画面が再表示されず反応がない場合があります。その場合は端末やブラウザの設定で許可を変更してください。</p>
+              <p>iOS（Safari）:「設定」→「プライバシーとセキュリティ」→「位置情報サービス」をオンにし、「SafariのWebサイト」で使用中の位置情報を許可してください。</p>
+              <p>Android（Chrome）:「設定」→「位置情報」→「アプリの権限」→「Chrome」で位置情報を許可してください。Chrome のこのサイトのアドレスバー左側→「権限」でも位置情報を許可してください。</p>
+              <p>設定の項目名は端末やバージョンによって異なります。変更後、このページに戻って再依頼してください。</p>
+            </template>
+            <p v-else-if="status === 'unavailable'">端末の位置情報がオンか確認し、電波の届きやすい場所で試してください。</p>
+            <p v-else-if="status === 'timeout'">電波の届きやすい場所で、もう一度試してください。</p>
+          </template>
+          <p>検索・一覧・場所の情報は、このまま使えます。</p>
+          <!-- 「地図で指定する」は wireframe.md の OQ-2 が未決のため実装しない。 -->
+          <button type="button" :disabled="status === 'asking'" @click="requestPosition">
+            {{ status === 'asking' ? '確認中…' : status === 'timeout' || status === 'unavailable' ? 'もう一度試す' : '位置の利用を許可' }}
+          </button>
+        </div>
+      </section>
+    </div>
   </main>
 </template>
 
 <style scoped>
 .no-location {
-  /* design-system/tokens.json。共通テーマ変数が未設定でもダークの値で表示する。 */
-  --noloc-border: var(--danger, #f87171); /* color.dark.danger */
-  --noloc-background: var(--danger-bg, #2d1520); /* color.dark.danger-bg */
-  --noloc-text: var(--danger-text, #fecaca); /* color.dark.danger-text */
-  --noloc-heading: var(--text-primary, #f4f0ff); /* color.dark.text-primary */
-  --noloc-action: var(--action-primary, #a78bfa); /* color.dark.action-primary */
-  --noloc-on-action: var(--action-on-primary, #1e0b3a); /* color.dark.action-on-primary */
-  --noloc-pressed: var(--state-pressed, rgb(255 255 255 / 12%)); /* color.dark.state-pressed */
+  /* design-system/tokens.json */
   --noloc-space-small: 4px; /* space.1 */
   --noloc-space-medium: 8px; /* space.2 */
   --noloc-space-large: 16px; /* space.4 */
