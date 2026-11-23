@@ -960,6 +960,7 @@ tasks:
   - web/src/router/journeys.test.ts
   - web/src/App.vue
   - web/src/app/**
+  - web/src/views/PlaceCard.test.ts
   reads:
   - doc/impl/contracts.md
   - concept-design/screens.yaml
