@@ -1,6 +1,9 @@
 import { env } from 'cloudflare:test';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
+import { object, resolveRef } from '../../tools/contract/openapi';
+import { validateSchema } from '../../tools/contract/schema';
 import type { components } from '../src/schema';
+import { spec } from './contract/spec';
 import { migrateTestDb, requestAsOperator, requestWithEnv } from './helpers';
 
 type Place = components['schemas']['Place'];
@@ -137,7 +140,7 @@ it('存在チェック後に付けられた種類も、条件つき DELETE に�
   expect(await changes()).toEqual([]);
 });
 
-it('付与と全項目の placeUpdated を 1 batch で保存し、同じ payload を配信する', async () => {
+it('付与と OpenAPI Place の全項目・配列順序を満たす placeUpdated を 1 batch で保存し、配信する', async () => {
   await attachDirect('place-1', 'label-z');
   await attachDirect('place-1', 'label-a');
   const batch = vi.spyOn(env.DB, 'batch');
@@ -150,6 +153,11 @@ it('付与と全項目の placeUpdated を 1 batch で保存し、同じ payload
     id: expect.any(Number), type: 'placeUpdated',
     payload: { ...indoor, labelIds: ['label-a', 'label-m', 'label-z'] }, created_at: expect.any(String),
   });
+  const placeSchema = object(resolveRef(spec, { $ref: '#/components/schemas/Place' }), 'Place');
+  const keys = Object.keys(history[0].payload).sort();
+  expect(keys).toEqual(Object.keys(object(placeSchema.properties, 'Place.properties')).sort());
+  expect(keys).toEqual([...(placeSchema.required as string[])].sort());
+  expect(validateSchema(spec, placeSchema, history[0].payload)).toEqual([]);
   expect(publish).toHaveBeenCalledTimes(1);
   expect(publish.mock.calls[0][0]).toBe('http://hub/publish');
   expect(publish.mock.calls[0][1]?.method).toBe('POST');
@@ -180,6 +188,7 @@ it('屋外の場所の空の hours・null・最後の種類の解除をそのま
     id: 'place-2', name: '駐車場', kind: 'parking', location: { lat: 37.4253, lng: 138.7789 },
     description: '', landmarkId: null, floor: null, hours: [], labelIds: [],
   });
+  expect(validateSchema(spec, { $ref: '#/components/schemas/Place' }, (await changes())[0].payload)).toEqual([]);
 });
 
 it('付け直し・付いていない解除は 204 で changes と配信を追加しない', async () => {
@@ -197,6 +206,18 @@ it('付け直し・付いていない解除は 204 で changes と配信を追�
   await expectNoContent(await requestAsOperator(path, { method: 'DELETE' }));
   expect(await changes()).toEqual(detached);
   expect(publish).toHaveBeenCalledTimes(2);
+});
+
+it.each(['PUT', 'DELETE'])('%s: no-op の NULL payload は batch をロールバックし、204 を返す', async method => {
+  if (method === 'PUT') await attachDirect();
+  const batch = vi.spyOn(env.DB, 'batch');
+  await expectNoContent(await requestAsOperator(path, { method }));
+  expect(batch).toHaveBeenCalledTimes(1);
+  await expect(batch.mock.results[0].value).rejects.toThrow('NOT NULL constraint failed: changes.payload');
+  expect(await labelIds()).toEqual(method === 'PUT' ? ['label-m'] : []);
+  expect(await updatedAt()).toBe('2026-11-24T00:00:00.000Z');
+  expect(await changes()).toEqual([]);
+  expect(publish).not.toHaveBeenCalled();
 });
 
 it('事前の存在チェック後に更新された名前・時間・別の labelIds も payload に反映する', async () => {
@@ -217,12 +238,13 @@ it('事前の存在チェック後に更新された名前・時間・別の lab
 it.each(['PUT', 'DELETE'])('%s の直前に同じ操作が完了していた場合も、履歴と配信を作らない', async method => {
   if (method === 'DELETE') await attachDirect();
   const batch = env.DB.batch.bind(env.DB);
-  vi.spyOn(env.DB, 'batch').mockImplementationOnce(statements => batch([
-    env.DB.prepare(method === 'PUT'
+  vi.spyOn(env.DB, 'batch').mockImplementationOnce(async statements => {
+    // A concurrent request commits independently and survives a no-op rollback.
+    await env.DB.prepare(method === 'PUT'
       ? "INSERT INTO place_labels (place_id, label_id) VALUES ('place-1', 'label-m')"
-      : "DELETE FROM place_labels WHERE place_id = 'place-1' AND label_id = 'label-m'"),
-    ...statements,
-  ]));
+      : "DELETE FROM place_labels WHERE place_id = 'place-1' AND label_id = 'label-m'").run();
+    return batch(statements);
+  });
   await expectNoContent(await requestAsOperator(path, { method }));
   expect(await labelIds()).toEqual(method === 'PUT' ? ['label-m'] : []);
   expect(await changes()).toEqual([]);
@@ -256,8 +278,29 @@ it.each(['PUT', 'DELETE'])('%s: changes の書き込み失敗は付け外しも�
   ]));
   await expectProblem(await requestAsOperator(path, { method }), 500, 'internal_error');
   expect(await labelIds()).toEqual(method === 'DELETE' ? ['label-m'] : []);
+  expect(await updatedAt()).toBe('2026-11-24T00:00:00.000Z');
   expect(await changes()).toEqual([]);
   expect(publish).not.toHaveBeenCalled();
+});
+
+it.each(['PUT', 'DELETE'].flatMap(method => [
+  { column: 'labels.title', sql: "INSERT INTO labels (id, title) VALUES ('invalid-label', NULL)" },
+  { column: 'changes.created_at', sql: "INSERT INTO changes (type, payload, created_at) VALUES ('placeUpdated', '{}', NULL)" },
+].map(invalid => ({ method, ...invalid }))))('$method: $column の NOT NULL 制約違反を no-op とせず、500 でロールバックする', async ({ method, sql }) => {
+  if (method === 'DELETE') await attachDirect();
+  await env.DB.prepare(`CREATE TRIGGER attach_test_reject_change BEFORE INSERT ON changes BEGIN
+    ${sql};
+  END`).run();
+  try {
+    const body = await expectProblem(await requestAsOperator(path, { method }), 500, 'internal_error');
+    expect(body.message).toBe('場所の種類を変更できませんでした');
+    expect(await labelIds()).toEqual(method === 'DELETE' ? ['label-m'] : []);
+    expect(await updatedAt()).toBe('2026-11-24T00:00:00.000Z');
+    expect(await changes()).toEqual([]);
+    expect(publish).not.toHaveBeenCalled();
+  } finally {
+    await env.DB.prepare('DROP TRIGGER attach_test_reject_change').run();
+  }
 });
 
 it.each([
