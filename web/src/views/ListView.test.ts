@@ -65,11 +65,55 @@ async function render() {
 
 // S-01: 一覧の表示、状態、絞り込み・部品 props、通信なしをコンポーネントから検証する。
 describe('一覧', () => {
+  it('現在地なしでは日本語の名前順、現在地ありでは未丸めの距離順・同距離なら名前順にする', async () => {
+    const items = [
+      place('far', 'あの企画', { location: fromXY(0, 200) }),
+      place('near-b', 'うの企画', { location: fromXY(0, 100.1) }),
+      place('near-a', 'いの企画', { location: fromXY(0, 100.1) }),
+      place('closer', 'えの企画', { location: fromXY(0, 100) }),
+    ];
+    usePlacesStore(pinia).setAll(items);
+    const wrapper = await render();
+    const ids = () => wrapper.findAllComponents(PlaceRow).map(row => row.props('placeId'));
+    expect(ids()).toEqual(['far', 'near-a', 'near-b', 'closer']);
+    position.setManually(ORIGIN.lat, ORIGIN.lng, 8);
+    await flushPromises();
+    expect(ids()).toEqual(['closer', 'near-a', 'near-b', 'far']);
+    // 表示はすべて 100 m でも、内部では丸める前の距離で比べる。
+    expect(wrapper.findAll('.place-row__distance').slice(0, 3).map(row => row.text())).toEqual(['100 m', '100 m', '100 m']);
+    expect(usePlacesStore(pinia).items.map(item => item.id)).toEqual(items.map(item => item.id));
+    position.refuse();
+    await flushPromises();
+    expect(ids()).toEqual(['far', 'near-a', 'near-b', 'closer']);
+  });
+
+  it('距離を計算できない場合も名前順で比較する', async () => {
+    usePlacesStore(pinia).setAll([
+      place('b', 'いの企画', { location: { lat: NaN, lng: NaN } }),
+      place('a', 'あの企画'),
+    ]);
+    position.setManually(ORIGIN.lat, ORIGIN.lng, 8);
+    const wrapper = await render();
+    expect(wrapper.findAllComponents(PlaceRow).map(row => row.props('placeId'))).toEqual(['a', 'b']);
+    expect(wrapper.get('[data-place-id="b"]').find('.place-row__distance').exists()).toBe(false);
+  });
+
+  it.each([
+    ['前ＡＢＣ後', 'abc'], ['前abc後', 'ＡＢＣ'],
+    ['前ｶﾞﾗｽ後', 'ガラス'], ['前ガラス後', 'ｶﾞﾗｽ'],
+  ])('URL の検索語と名前を NFKC・小文字化して一覧を絞る: %s / %s', async (name, query) => {
+    usePlacesStore(pinia).setAll([place('match', name), place('other', '別の企画')]);
+    await router.replace({ query: { q: query } });
+    const wrapper = await render();
+    expect(wrapper.findAllComponents(PlaceRow).map(row => row.props('placeId'))).toEqual(['match']);
+    expect(wrapper.get('mark').text()).toBe(name.slice(1, -1));
+  });
+
   it('名前・種類・建物・階・件数を表示用 props に変換し、位置がある場合だけ直線距離を渡す', async () => {
     const wrapper = await render();
     expect(wrapper.get('h1').text()).toBe('一覧');
     expect(wrapper.get('.place-view__count').text()).toBe('4 件');
-    const row = wrapper.findAllComponents(PlaceRow)[0];
+    const row = wrapper.getComponent('[data-place-id="cards"]');
     expect(row.props()).toMatchObject({
       placeId: 'cards', name: 'カード体験会', kindLabel: '体験', building: '図書館棟', floor: '2階',
       distanceM: undefined, tags: { wantToGo: false, favorite: false },
@@ -95,7 +139,7 @@ describe('一覧', () => {
     expect(wrapper.text()).toContain('更新した企画');
     expect(wrapper.text()).not.toContain('カード屋台');
     expect(wrapper.get('.place-view__count').text()).toBe('3 件');
-    const row = wrapper.findAllComponents(PlaceRow)[0];
+    const row = wrapper.getComponent('[data-place-id="cards"]');
     expect(row.props()).toMatchObject({ kindLabel: '企画', building: '建物情報なし', floor: '0階' });
   });
 

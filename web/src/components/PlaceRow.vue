@@ -51,21 +51,28 @@ const openLabel = computed(() => [
   distance.value !== undefined ? `${distance.value} メートル` : undefined,
 ].filter(Boolean).join('、'));
 
-// 文字列として分割する。検索語や名前を HTML として解釈しない。
+// NFKC・小文字化後の一致範囲を元の書記素に戻す。縮約(ｶﾞ)・展開(㍿、İ)でも
+// 文字の重複・欠落や結合文字の分断を防ぎ、検索語や名前を HTML として解釈しない。
 const nameParts = computed(() => {
-  const word = props.highlight?.trim().toLowerCase();
+  const word = props.highlight?.trim().normalize('NFKC').toLowerCase();
   if (!word) return [{ text: props.name, match: false }];
-  const name = props.name.toLowerCase();
-  const parts: { text: string; match: boolean }[] = [];
-  let start = 0;
+  const name = props.name.normalize('NFKC').toLowerCase();
+  const matches: { start: number; end: number }[] = [];
   let index = name.indexOf(word);
   while (index !== -1) {
-    if (index > start) parts.push({ text: props.name.slice(start, index), match: false });
-    parts.push({ text: props.name.slice(index, index + word.length), match: true });
-    start = index + word.length;
-    index = name.indexOf(word, start);
+    matches.push({ start: index, end: index + word.length });
+    index = name.indexOf(word, index + word.length);
   }
-  if (start < props.name.length) parts.push({ text: props.name.slice(start), match: false });
+  const parts: { text: string; match: boolean }[] = [];
+  let offset = 0;
+  for (const { segment } of new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(props.name)) {
+    const end = offset + segment.normalize('NFKC').toLowerCase().length;
+    const match = matches.some(range => range.start < end && range.end > offset);
+    const previous = parts[parts.length - 1];
+    if (previous && previous.match === match) previous.text += segment;
+    else parts.push({ text: segment, match });
+    offset = end;
+  }
   return parts;
 });
 </script>

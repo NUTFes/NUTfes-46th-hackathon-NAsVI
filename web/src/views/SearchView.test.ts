@@ -67,12 +67,12 @@ describe('検索結果', () => {
     expect(wrapper.get('input').element.value).toBe('カード');
     expect(wrapper.get('.place-view__count').text()).toBe('『カード』の検索結果・3 件');
     const rows = wrapper.findAllComponents(PlaceRow);
-    expect(rows.map(row => row.props('placeId'))).toEqual(['cards', 'food', 'parking']);
-    expect(rows[0].props()).toMatchObject({
+    expect(rows.map(row => row.props('placeId'))).toEqual(['food', 'cards', 'parking']);
+    expect(rows[1].props()).toMatchObject({
       placeId: 'cards', name: 'カード体験会', kindLabel: '体験', building: '図書館棟', floor: '2階',
       highlight: 'カード', distanceM: undefined, tags: undefined,
     });
-    expect(rows[1].props()).toMatchObject({ building: '屋外', floor: undefined });
+    expect(rows[0].props()).toMatchObject({ building: '屋外', floor: undefined });
     expect(wrapper.findAll('mark').map(mark => mark.text())).toEqual(['カード', 'カード', 'カード']);
     expect(wrapper.find('.place-row__tag').exists()).toBe(false);
   });

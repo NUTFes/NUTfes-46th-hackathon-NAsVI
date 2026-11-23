@@ -84,12 +84,13 @@ const activeLabels = computed(() => [
   ...filter.value.tagIds.map(id => tags.value.find(tag => tag.id === id)?.title ?? '削除されたタグ'),
 ]);
 const word = computed(() => keyword.value.trim());
+const normalizedWord = computed(() => word.value.normalize('NFKC').toLowerCase());
 const results = computed(() => {
   if (!ready.value) return [];
   // 設備は検索に出さない(D-027)。一覧では既存の applyFilter の規則を使う。
   const candidates = props.searchMode || word.value
     ? places.items.filter(place => (place.kind === 'event' || place.kind === 'parking')
-      && place.name.toLowerCase().includes(word.value.toLowerCase()))
+      && place.name.normalize('NFKC').toLowerCase().includes(normalizedWord.value))
     : places.items;
   if (props.searchMode && !word.value) return [];
   return applyFilter(candidates, filter.value, tagLinks.value);
@@ -110,7 +111,14 @@ const rows = computed(() => results.value.map(place => ({
     wantToGo: tagLinks.value.some(link => link.placeId === place.id && link.tagId === 'want-to-go'),
     favorite: tagLinks.value.some(link => link.placeId === place.id && link.tagId === 'favorite'),
   },
-})));
+})).sort((a, b) => {
+  // 現在地があるときは未丸めの距離順。同距離・距離なしは日本語の名前順。
+  if (Number.isFinite(a.distanceM) && Number.isFinite(b.distanceM)) {
+    const difference = a.distanceM! - b.distanceM!;
+    if (difference) return difference;
+  }
+  return a.place.name.localeCompare(b.place.name, 'ja');
+}));
 const emptyTitle = computed(() => word.value
   ? `『${word.value}』に一致する企画・場所はありません`
   : props.searchMode ? '企画・場所の名前を入力してください'

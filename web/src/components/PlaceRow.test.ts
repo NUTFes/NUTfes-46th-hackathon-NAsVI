@@ -62,6 +62,25 @@ describe('PlaceRow（デザインシステムの props）', () => {
     expect(tags).toEqual({ wantToGo: true, favorite: false });
   });
 
+  it.each([
+    ['前ＡＢＣ後', 'abc', ['ＡＢＣ']],
+    ['前abc後', 'ＡＢＣ', ['abc']],
+    ['前ｶﾞﾗｽ後', 'ガラス', ['ｶﾞﾗｽ']],
+    ['前ガラス後', 'ｶﾞﾗｽ', ['ガラス']],
+    ['ｶﾞの後のＡＢＣ', 'abc', ['ＡＢＣ']],
+    ['前㍿後', '株式会社', ['㍿']],
+    ['ﬃの後のABC', 'abc', ['ABC']],
+    ['前ﬃ後', 'f', ['ﬃ']],
+    ['İの後のABC', 'abc', ['ABC']],
+    ['前カ\u3099後', 'ガ', ['カ\u3099']],
+    ['👩‍💻前ＡＢＣ後', 'abc', ['ＡＢＣ']],
+    ['前ΟΣ後', 'ος', ['ΟΣ']],
+  ])('正規化後の一致を元の文字範囲で強調する: %s / %s', (name, highlight, marks) => {
+    const wrapper = mount(PlaceRow, { props: { placeId: 'p', name, highlight, onOpen: vi.fn() } });
+    expect(wrapper.findAll('mark').map(mark => mark.text())).toEqual(marks);
+    expect(wrapper.get('.place-row__name').text()).toBe(name);
+  });
+
   it('デザインシステムの行き先・読み込み中の props に対応する', async () => {
     const onOpen = vi.fn();
     const onToggleTag = vi.fn();
