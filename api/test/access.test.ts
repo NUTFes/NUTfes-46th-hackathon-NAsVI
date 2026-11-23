@@ -1,10 +1,9 @@
 import { env } from 'cloudflare:test';
 import { Hono } from 'hono';
-import { exportJWK, generateKeyPair, SignJWT, type JSONWebKeySet, type JWTPayload } from 'jose';
+import { base64url, exportJWK, generateKeyPair, SignJWT, type JSONWebKeySet, type JWTPayload } from 'jose';
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import type { AppEnv, Env } from '../src/env';
 import { requireOperator, resetAccessJwksCache } from '../src/middleware/access';
-import { requestWithEnv } from './helpers';
 
 const domain = 'example.cloudflareaccess.test';
 const issuer = `https://${domain}`;
@@ -16,7 +15,7 @@ let keys: Awaited<ReturnType<typeof generateKeyPair>>;
 let otherKeys: Awaited<ReturnType<typeof generateKeyPair>>;
 let jwks: JSONWebKeySet;
 
-// Expose actor only on a local test app; real routes are exercised through helpers too.
+// Verify against a minimal local app so tests do not depend on real route implementations.
 const actorApp = new Hono<AppEnv>();
 actorApp.get('/', requireOperator, c => c.json(c.get('actor')));
 
@@ -70,15 +69,6 @@ it('正しい JWT を検証して payload.email を actor に設定する', asyn
   expect(globalThis.fetch).toHaveBeenCalledWith(certsUrl, expect.objectContaining({ method: 'GET', redirect: 'manual' }));
 });
 
-it('実際の運営 API は正しい JWT で認証を通過し、無い場合は 401 を返す', async () => {
-  const response = await requestWithEnv('/api/labels', {
-    method: 'POST', headers: { 'Cf-Access-Jwt-Assertion': await sign() },
-  }, bindings());
-  expect(response.status).toBe(501);
-  expect(await response.json()).toEqual({ code: 'internal_error', message: 'POST /labels は未実装です' });
-  await expectUnauthorized(await requestWithEnv('/api/labels', { method: 'POST' }, bindings()));
-});
-
 it.each([
   ['期限切れ', () => ({ exp: Math.floor(Date.now() / 1000) - 60 })],
   ['期限が現在時刻', () => ({ exp: Math.floor(Date.now() / 1000) })],
@@ -104,6 +94,28 @@ it('JWKS に無い kid は 401', async () => {
   await expectUnauthorized(await actorRequest(await sign({}, keys.privateKey, 'unknown-key')));
 });
 
+it('alg=none の偽装 JWT は 401', async () => {
+  const enc = (v: object) => base64url.encode(JSON.stringify(v));
+  const token = `${enc({ alg: 'none', kid })}.${enc({ email, iss: issuer, aud: [audience], exp: Math.floor(Date.now() / 1000) + 3600 })}.`;
+  await expectUnauthorized(await actorRequest(token));
+});
+
+it('公開鍵を HMAC 鍵に見立てた HS256 の JWT は 401', async () => {
+  const secret = new TextEncoder().encode(JSON.stringify(jwks.keys[0]));
+  const token = await new SignJWT({ email, iss: issuer, aud: [audience], exp: Math.floor(Date.now() / 1000) + 3600 })
+    .setProtectedHeader({ alg: 'HS256', kid }).sign(secret);
+  await expectUnauthorized(await actorRequest(token));
+});
+
+it('RS256 以外(RS384)で署名した JWT は 401', async () => {
+  const rs384 = await generateKeyPair('RS384');
+  const rsJwks = { keys: [{ ...await exportJWK(rs384.publicKey), alg: 'RS384', use: 'sig', kid }] };
+  vi.mocked(globalThis.fetch).mockImplementation(async () => Response.json(rsJwks));
+  const token = await new SignJWT({ email, iss: issuer, aud: [audience], exp: Math.floor(Date.now() / 1000) + 3600 })
+    .setProtectedHeader({ alg: 'RS384', kid }).sign(rs384.privateKey);
+  await expectUnauthorized(await actorRequest(token));
+});
+
 it.each([undefined, '', 'not-a-jwt', 'a.b.c'])('ヘッダー %s は 401', async token => {
   await expectUnauthorized(await actorRequest(token));
   expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -123,8 +135,6 @@ it('ACCESS_BYPASS=true だけが設定・JWT の検証を迂回する', async ()
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ email: 'operator@example.com' });
   }
-  const response = await requestWithEnv('/api/labels', { method: 'POST' }, bindings({ ACCESS_BYPASS: 'true' }));
-  expect(response.status).toBe(501);
   expect(globalThis.fetch).not.toHaveBeenCalled();
 });
 

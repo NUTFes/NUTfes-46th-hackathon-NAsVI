@@ -33,6 +33,7 @@ export const requireOperator = createMiddleware<AppEnv>(async (c, next) => {
     const { payload } = await jwtVerify(token, jwks, {
       issuer: `https://${domain}`,
       audience,
+      algorithms: ['RS256'],
       requiredClaims: ['exp', 'email'],
     });
     if (typeof payload.email !== 'string' || payload.email.trim().length === 0) {
