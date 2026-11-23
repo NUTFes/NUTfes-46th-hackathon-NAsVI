@@ -34,8 +34,13 @@ let session: {
 } | null = null;
 let tracking: {
   target: Window;
+  document: Document;
+  orientation?: ScreenOrientation;
   event: 'deviceorientation' | 'deviceorientationabsolute';
   listener: EventListener;
+  screenListener: EventListener;
+  visibilityListener: EventListener;
+  active: boolean;
   timer?: ReturnType<typeof setTimeout>;
 } | null = null;
 let generation = 0;
@@ -48,7 +53,25 @@ function normalize(degrees: number) {
 }
 
 function updateHeading() {
-  heading.value = smoothed === null ? null : normalize(smoothed + offset.value);
+  const target = tracking?.target;
+  const angle = target?.screen?.orientation?.angle;
+  const legacyAngle = (target as (Window & { orientation?: number }) | undefined)?.orientation;
+  const screenAngle = typeof angle === 'number' && Number.isFinite(angle) ? angle
+    : typeof legacyAngle === 'number' && Number.isFinite(legacyAngle) ? legacyAngle : 0;
+  heading.value = smoothed === null ? null : normalize(smoothed + screenAngle + offset.value);
+}
+
+function pauseTracking(current: NonNullable<typeof tracking>) {
+  clearTimeout(current.timer);
+  current.timer = undefined;
+  if (current.active) {
+    current.active = false;
+    current.target.removeEventListener(current.event, current.listener);
+    current.orientation?.removeEventListener('change', current.screenListener);
+  }
+  samples = [];
+  smoothed = null;
+  heading.value = null;
 }
 
 function stopTracking() {
@@ -57,8 +80,8 @@ function stopTracking() {
   const previous = tracking;
   tracking = null;
   if (previous) {
-    clearTimeout(previous.timer);
-    previous.target.removeEventListener(previous.event, previous.listener);
+    pauseTracking(previous);
+    previous.document.removeEventListener('visibilitychange', previous.visibilityListener);
   }
   samples = [];
   smoothed = null;
@@ -69,9 +92,20 @@ function startTracking(target: Window, ios: boolean, token: number) {
   if (generation !== token) return;
   const current: NonNullable<typeof tracking> = {
     target,
+    document: target.document,
+    orientation: target.screen?.orientation,
     event: ios ? 'deviceorientation' : 'deviceorientationabsolute',
-    listener: (event) => {
+    active: false,
+    screenListener: () => {
+      if (tracking === current && current.active) updateHeading();
+    },
+    visibilityListener: () => {
       if (tracking !== current) return;
+      if (current.document.visibilityState === 'hidden') pauseTracking(current);
+      else resumeTracking();
+    },
+    listener: (event) => {
+      if (tracking !== current || !current.active) return;
       const reading = event as CompassEvent;
       const compass = reading.webkitCompassHeading;
       const value = typeof compass === 'number' && Number.isFinite(compass)
@@ -94,17 +128,30 @@ function startTracking(target: Window, ios: boolean, token: number) {
   function armTimeout() {
     clearTimeout(current.timer);
     current.timer = setTimeout(() => {
-      if (tracking !== current) return;
+      if (tracking !== current || !current.active) return;
       samples = [];
       smoothed = null;
       heading.value = null;
       status.value = 'timeout';
     }, TIMEOUT_MS);
   }
+  function resumeTracking() {
+    if (current.active || current.document.visibilityState === 'hidden') return;
+    try {
+      current.active = true;
+      status.value = 'asking';
+      target.addEventListener(current.event, current.listener);
+      current.orientation?.addEventListener('change', current.screenListener);
+      armTimeout();
+    } catch {
+      stopTracking();
+      status.value = 'unavailable';
+    }
+  }
   tracking = current;
   try {
-    target.addEventListener(current.event, current.listener);
-    armTimeout();
+    current.document.addEventListener('visibilitychange', current.visibilityListener);
+    resumeTracking();
   } catch {
     stopTracking();
     status.value = 'unavailable';

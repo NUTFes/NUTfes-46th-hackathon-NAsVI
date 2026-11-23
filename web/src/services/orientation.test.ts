@@ -41,9 +41,33 @@ function ios(permission: () => Promise<'granted' | 'denied'> = async () => 'gran
   return { requestPermission, constructor };
 }
 
+function setVisibility(state: DocumentVisibilityState) {
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue(state);
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
+function trackListeners(target: EventTarget) {
+  const listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
+  const add = target.addEventListener.bind(target);
+  const remove = target.removeEventListener.bind(target);
+  vi.spyOn(target, 'addEventListener').mockImplementation((type, listener, options) => {
+    if (listener) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type)!.add(listener);
+    }
+    add(type, listener, options);
+  });
+  vi.spyOn(target, 'removeEventListener').mockImplementation((type, listener, options) => {
+    if (listener) listeners.get(type)?.delete(listener);
+    remove(type, listener, options);
+  });
+  return (type: string) => listeners.get(type)?.size ?? 0;
+}
+
 const scopes: EffectScope[] = [];
 const disposers: (() => void)[] = [];
 let storage: ReturnType<typeof memoryStorage>;
+let screenOrientation: EventTarget & { angle: number };
 let consoleSpies: ReturnType<typeof vi.spyOn>[];
 const fetchMock = vi.fn(() => { throw new Error('Unexpected fetch'); });
 const beacon = vi.fn(() => { throw new Error('Unexpected beacon'); });
@@ -60,6 +84,10 @@ beforeEach(() => {
   storage = memoryStorage();
   vi.mocked(getStorage).mockReset();
   vi.stubGlobal('DeviceOrientationEvent', class {});
+  screenOrientation = Object.assign(new EventTarget(), { angle: 0 });
+  vi.stubGlobal('screen', { orientation: screenOrientation });
+  vi.stubGlobal('orientation', 0);
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
   vi.stubGlobal('fetch', fetchMock.mockClear());
   vi.stubGlobal('XMLHttpRequest', xhr.mockClear());
   vi.stubGlobal('navigator', { sendBeacon: beacon.mockClear() });
@@ -144,6 +172,50 @@ describe('useOrientation', () => {
       expect(service.report()).toBeCloseTo(expected);
     },
   );
+
+  describe.each(['Android', 'iOS'])('%s の画面角度補正', (platform) => {
+    function sensorHeading(degrees: number) {
+      if (platform === 'iOS') emit('deviceorientation', { webkitCompassHeading: degrees });
+      else androidHeading(degrees);
+    }
+
+    it.each([0, 90, 180, 270])('screen.orientation.angle=%s を方位と保存補正に足す', async (angle) => {
+      if (platform === 'iOS') ios();
+      screenOrientation.angle = angle;
+      vi.stubGlobal('orientation', 180);
+      const service = createOrientation();
+      await service.ready;
+      await service.setOffset(15);
+      await service.allow();
+      sensorHeading(350);
+      expect(service.report()).toBeCloseTo((5 + angle) % 360);
+    });
+
+    it.each([0, 90, 180, 270, -90])('Screen Orientation API がなければ window.orientation=%s を使う', async (angle) => {
+      if (platform === 'iOS') ios();
+      vi.stubGlobal('screen', {});
+      vi.stubGlobal('orientation', angle);
+      const service = createOrientation();
+      await service.allow();
+      sensorHeading(20);
+      expect(service.report()).toBeCloseTo((380 + angle) % 360);
+    });
+
+    it('change で新たなセンサー値を待たず、平滑化した方位に画面角度を反映する', async () => {
+      if (platform === 'iOS') ios();
+      const service = createOrientation();
+      await service.allow();
+      sensorHeading(10);
+      sensorHeading(30);
+      for (const angle of [90, 180, 270, 0]) {
+        screenOrientation.angle = angle;
+        screenOrientation.dispatchEvent(new Event('change'));
+        expect(service.report()).toBeCloseTo((20 + angle) % 360);
+      }
+      sensorHeading(20);
+      expect(service.report()).toBeCloseTo(20);
+    });
+  });
 
   it('iOS の webkitCompassHeading がないイベントや非数を無視する', async () => {
     ios();
@@ -266,6 +338,10 @@ describe('useOrientation', () => {
   it('複数コンポーネントで Ref と1つのリスナーを共有し、最後の dispose で解除する', async () => {
     const add = vi.spyOn(window, 'addEventListener');
     const remove = vi.spyOn(window, 'removeEventListener');
+    const screenAdd = vi.spyOn(screenOrientation, 'addEventListener');
+    const screenRemove = vi.spyOn(screenOrientation, 'removeEventListener');
+    const visibilityAdd = vi.spyOn(document, 'addEventListener');
+    const visibilityRemove = vi.spyOn(document, 'removeEventListener');
     const first = createOrientation();
     const second = createOrientation();
     await Promise.all([first.allow(), second.allow(), second.allow()]);
@@ -275,18 +351,126 @@ describe('useOrientation', () => {
     expect(third.status).toBe(first.status);
     expect(third.offset).toBe(first.offset);
     expect(add).toHaveBeenCalledTimes(1);
+    expect(screenAdd).toHaveBeenCalledExactlyOnceWith('change', expect.any(Function));
+    expect(visibilityAdd).toHaveBeenCalledExactlyOnceWith('visibilitychange', expect.any(Function));
     androidHeading(60);
     scopes[0].stop();
     first.dispose();
     second.dispose();
     scopes[1].stop();
     expect(remove).not.toHaveBeenCalled();
+    expect(screenRemove).not.toHaveBeenCalled();
+    expect(visibilityRemove).not.toHaveBeenCalled();
     expect(third.report()).toBeCloseTo(60);
     scopes[2].stop();
     expect(remove).toHaveBeenCalledExactlyOnceWith(...add.mock.calls[0]);
+    expect(screenRemove).toHaveBeenCalledExactlyOnceWith(...screenAdd.mock.calls[0]);
+    expect(visibilityRemove).toHaveBeenCalledExactlyOnceWith(...visibilityAdd.mock.calls[0]);
     expect(third.status.value).toBe('idle');
     expect(third.report()).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['Android', 'iOS'])('%s は非表示中の購読とタイマーを止め、表示時に1つだけ再開する', async (platform) => {
+    const requestPermission = platform === 'iOS' ? ios().requestPermission : null;
+    const event = platform === 'iOS' ? 'deviceorientation' : 'deviceorientationabsolute';
+    const sensorListeners = trackListeners(window);
+    const screenListeners = trackListeners(screenOrientation);
+    const visibilityListeners = trackListeners(document);
+    const first = createOrientation();
+    const second = createOrientation();
+    await Promise.all([first.allow(), second.allow()]);
+    emit(event, { alpha: 300, webkitCompassHeading: 60 });
+    expect(first.report()).toBeCloseTo(60);
+
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      vi.advanceTimersByTime(14_000);
+      setVisibility('hidden');
+      setVisibility('hidden');
+      expect(sensorListeners(event)).toBe(0);
+      expect(screenListeners('change')).toBe(0);
+      expect(visibilityListeners('visibilitychange')).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+      emit(event, { alpha: 180, webkitCompassHeading: 180 });
+      screenOrientation.angle = 90;
+      screenOrientation.dispatchEvent(new Event('change'));
+      vi.advanceTimersByTime(30_000);
+      expect(first.status.value).toBe('granted');
+      expect(first.report()).toBeNull();
+      await second.allow();
+      expect(sensorListeners(event)).toBe(0);
+
+      setVisibility('visible');
+      setVisibility('visible');
+      expect(sensorListeners(event)).toBe(1);
+      expect(screenListeners('change')).toBe(1);
+      expect(visibilityListeners('visibilitychange')).toBe(1);
+      expect(vi.getTimerCount()).toBe(1);
+      vi.advanceTimersByTime(14_999);
+      expect(first.status.value).toBe('asking');
+      emit(event, { alpha: 240, webkitCompassHeading: 120 });
+      expect(first.report()).toBeCloseTo(210);
+      expect(first.status.value).toBe('granted');
+    }
+    if (requestPermission) expect(requestPermission).toHaveBeenCalledTimes(1);
+    first.dispose();
+    expect(sensorListeners(event)).toBe(1);
+    expect(screenListeners('change')).toBe(1);
+    second.dispose();
+    expect(sensorListeners(event)).toBe(0);
+    expect(screenListeners('change')).toBe(0);
+    expect(visibilityListeners('visibilitychange')).toBe(0);
+    setVisibility('hidden');
+    setVisibility('visible');
+    expect(sensorListeners(event)).toBe(0);
+    expect(screenListeners('change')).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['dispose', 'refuse'])('非表示中の %s で復帰監視も解除し、表示に戻っても再開しない', async (stop) => {
+    const sensorListeners = trackListeners(window);
+    const screenListeners = trackListeners(screenOrientation);
+    const visibilityListeners = trackListeners(document);
+    const service = createOrientation();
+    await service.allow();
+    androidHeading(50);
+    setVisibility('hidden');
+    if (stop === 'dispose') service.dispose();
+    else service.refuse();
+    expect(visibilityListeners('visibilitychange')).toBe(0);
+    setVisibility('visible');
+    screenOrientation.dispatchEvent(new Event('change'));
+    androidHeading(100);
+    vi.advanceTimersByTime(30_000);
+    expect(sensorListeners('deviceorientationabsolute')).toBe(0);
+    expect(screenListeners('change')).toBe(0);
+    expect(service.status.value).toBe(stop === 'dispose' ? 'idle' : 'denied');
+    expect(service.report()).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([false, true])('非表示中に許可されても、表示に戻るまで購読やタイマーを開始しない (iOS=%s)', async (isIOS) => {
+    const answer = deferred<'granted' | 'denied'>();
+    if (isIOS) ios(() => answer.promise);
+    const add = vi.spyOn(window, 'addEventListener');
+    const screenAdd = vi.spyOn(screenOrientation, 'addEventListener');
+    const service = createOrientation();
+    if (!isIOS) setVisibility('hidden');
+    const permission = service.allow();
+    if (isIOS) {
+      setVisibility('hidden');
+      answer.resolve('granted');
+    }
+    await permission;
+    vi.advanceTimersByTime(30_000);
+    expect(add).not.toHaveBeenCalled();
+    expect(screenAdd).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(service.status.value).toBe('asking');
+    setVisibility('visible');
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(screenAdd).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(1);
   });
 
   it('同じ scope の複数呼び出しも一度ずつ解放し、scope 外も dispose できる', async () => {
