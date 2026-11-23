@@ -223,7 +223,55 @@ describe('場所のカード', () => {
     expect(wrapper.get('.hours').text()).toBe('2026/11/28 23:00〜2026/11/29 01:00');
   });
 
+  it.each(['UTC', 'America/New_York'])('端末の TZ が %s でも開催時間は日本時間で表示する', async timezone => {
+    const previousTZ = process.env.TZ;
+    try {
+      process.env.TZ = timezone;
+      // Vitest のワーカー内で TZ の変更が Intl に反映されない環境でも、
+      // 既定タイムゾーンに依存しないことをフォーマッターの引数で確認する。
+      const DateTimeFormat = Intl.DateTimeFormat;
+      const format = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (locales, options) {
+        return new DateTimeFormat(locales, { timeZone: timezone, ...options });
+      });
+      usePlacesStore().upsert({
+        ...place,
+        hours: [{ start: '2026-11-28T14:00:00Z', end: '2026-11-28T16:00:00Z' }],
+      });
+      const { wrapper } = await openCard();
+
+      expect(wrapper.get('.hours').text()).toBe('2026/11/28 23:00〜2026/11/29 01:00');
+      expect(format).toHaveBeenCalledWith('ja-JP', expect.objectContaining({
+        timeZone: 'Asia/Tokyo', year: 'numeric', month: 'numeric', day: 'numeric',
+      }));
+      expect(format).toHaveBeenCalledWith('ja-JP', expect.objectContaining({
+        timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+      }));
+    } finally {
+      if (previousTZ === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTZ;
+    }
+  });
+
+  it('一覧が0件なら未取得として表示し、削除文言や有効な操作を出さない', async () => {
+    usePlacesStore().setAll([]);
+    const { wrapper } = await openCard();
+
+    expect(wrapper.get('[role="status"]').text()).toBe('読み込み中…');
+    expect(wrapper.text()).not.toContain('この場所は見られなくなりました');
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.find('.go').exists()).toBe(false);
+    expect(wrapper.find('[aria-pressed]').exists()).toBe(false);
+    expect(wrapper.find('button:not(:disabled)').exists()).toBe(false);
+
+    usePlacesStore().setAll([place]);
+    await flushPromises();
+    expect(wrapper.get('h1').text()).toBe(place.name);
+    expect(wrapper.find('[role="status"]').exists()).toBe(false);
+    expect(wrapper.get('.go').attributes('disabled')).toBeUndefined();
+  });
+
   it('表示中に場所が削除されたら説明を出し、行き先・タグ操作を外す', async () => {
+    usePlacesStore().upsert({ ...place, id: 'pl_02' });
     const { wrapper } = await openCard();
     usePlacesStore().remove(place.id);
     await flushPromises();
@@ -233,10 +281,79 @@ describe('場所のカード', () => {
     expect(await storage.destination.get()).toBeNull();
   });
 
-  it('不明な場所IDにも削除時と同じ説明と閉じる操作を出す', async () => {
+  it('一覧が1件以上あり不明な場所IDなら削除時と同じ説明と閉じる操作を出す', async () => {
     const { wrapper, router } = await openCard('missing');
     expect(wrapper.get('[role="alert"]').text()).toBe('この場所は見られなくなりました');
     await wrapper.get('button').trigger('click');
+    await flushPromises();
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('map'));
+  });
+
+  it('モーダルとして初期フォーカスを見出しに置き、Tab / Shift+Tab がカード内で循環する', async () => {
+    const { wrapper } = await openCard();
+    const card = wrapper.get('[role="dialog"]');
+    const buttons = card.findAll('button:not(:disabled)');
+    expect(card.attributes('aria-modal')).toBe('true');
+    expect(card.attributes('aria-labelledby')).toBe(wrapper.get('h1').attributes('id'));
+    expect(document.activeElement).toBe(wrapper.get('h1').element);
+
+    for (const button of [...buttons, buttons[0]]) {
+      const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      document.activeElement!.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(button.element);
+    }
+    for (const button of [...buttons].reverse()) {
+      const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+      document.activeElement!.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(button.element);
+    }
+
+    (wrapper.get('h1').element as HTMLElement).focus();
+    await wrapper.get('h1').trigger('keydown', { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(buttons[buttons.length - 1].element);
+  });
+
+  it('タグ読み込み中は無効なボタンをTab移動で飛ばす', async () => {
+    let resolveLinks!: (links: repositories.TagLink[]) => void;
+    vi.spyOn(storage.tagLinks, 'list').mockReturnValueOnce(new Promise(resolve => { resolveLinks = resolve; }));
+    const { wrapper } = await openCard();
+    expect(wrapper.findAll('[aria-pressed]:disabled')).toHaveLength(repositories.BUILTIN_TAGS.length);
+
+    const addTag = wrapper.findAll('button').find(button => button.text() === '＋ タグ')!;
+    await wrapper.get('h1').trigger('keydown', { key: 'Tab' });
+    expect(document.activeElement).toBe(addTag.element);
+    await addTag.trigger('keydown', { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(wrapper.get('.close').element);
+
+    resolveLinks([]);
+    await flushPromises();
+  });
+
+  it('削除表示ではTab / Shift+Tab ともに閉じるボタンに留まる', async () => {
+    const { wrapper } = await openCard('missing');
+    for (const shiftKey of [false, true]) {
+      await wrapper.get('h1').trigger('keydown', { key: 'Tab', shiftKey });
+      expect(document.activeElement).toBe(wrapper.get('.close').element);
+      await wrapper.get('.close').trigger('keydown', { key: 'Tab', shiftKey });
+      expect(document.activeElement).toBe(wrapper.get('.close').element);
+    }
+  });
+
+  it('未取得で有効なボタンが無い場合もTab / Shift+Tab は見出しに留まる', async () => {
+    usePlacesStore().setAll([]);
+    const { wrapper } = await openCard();
+    for (const shiftKey of [false, true]) {
+      await wrapper.get('h1').trigger('keydown', { key: 'Tab', shiftKey });
+      expect(document.activeElement).toBe(wrapper.get('h1').element);
+    }
+  });
+
+  it.each(['通常', '未取得', '削除'])('%s の表示でもEscで地図へ戻る', async state => {
+    if (state === '未取得') usePlacesStore().setAll([]);
+    const { wrapper, router } = await openCard(state === '削除' ? 'missing' : place.id);
+    await wrapper.get('h1').trigger('keydown', { key: 'Escape' });
     await flushPromises();
     await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('map'));
   });

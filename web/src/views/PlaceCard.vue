@@ -61,6 +61,9 @@ const landmarks = useLandmarksStore();
 const { position } = usePosition(); // 許可要求・取得開始はしない。共有済みの端末内の位置だけ読む。
 const placeId = computed(() => typeof route.params.id === 'string' ? route.params.id : '');
 const place = computed(() => places.items.find(item => item.id === placeId.value));
+// 暫定: W-05 / W-03 / W-09 のストアが読み込み完了の印を用意するまでは、
+// 空の一覧を未取得として扱う。読み込み中・取得失敗を削除と誤認しない。
+const loading = computed(() => places.items.length === 0);
 // API-36 / D-030: 設備を企画として扱わず、表示上の kind を facility にまとめる。
 const kind = computed(() => place.value?.kind === 'event' || place.value?.kind === 'parking'
   ? place.value.kind : 'facility');
@@ -152,12 +155,22 @@ async function go() {
 function close() {
   void router.push({ name: 'map' });
 }
+function trapFocus(event: KeyboardEvent) {
+  const card = event.currentTarget as HTMLElement;
+  // カード内の操作要素はすべてボタン。保存中などの無効なものは飛ばす。
+  const buttons = Array.from(card.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+  const index = buttons.findIndex(button => button === card.ownerDocument.activeElement);
+  const next = index < 0 ? (event.shiftKey ? buttons.length - 1 : 0)
+    : (index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length;
+  (buttons[next] ?? heading.value)?.focus();
+}
 </script>
 
 <template>
   <main
     class="place-card" :style="CARD_TOKENS" :data-kind="kind"
-    role="dialog" aria-labelledby="place-card-title" @keydown.esc="close"
+    role="dialog" aria-modal="true" aria-labelledby="place-card-title"
+    @keydown.esc="close" @keydown.tab.prevent="trapFocus"
   >
     <template v-if="place">
       <header class="card-top">
@@ -193,8 +206,9 @@ function close() {
     </template>
     <template v-else>
       <h1 id="place-card-title" ref="heading" tabindex="-1">場所のカード</h1>
-      <p class="error" role="alert">この場所は見られなくなりました</p>
-      <button type="button" class="close" @click="close">閉じる</button>
+      <p v-if="loading" role="status">読み込み中…</p>
+      <p v-else class="error" role="alert">この場所は見られなくなりました</p>
+      <button type="button" class="close" :disabled="loading" @click="close">閉じる</button>
     </template>
   </main>
 </template>
