@@ -1,12 +1,12 @@
 # 実装サイクル(PR・レビュー・merge)
 
-役割は 2 つ。**実装: 安斎(Claude が Opus で Codex に指示)/ レビュー: forezo さん**(GitHub アカウント名は未確認。`REVIEWER` を埋める)。
+役割は 2 つ。**実装: 安斎(Claude が Opus で Codex に指示)/ レビュー: forezo さん(GitHub: `fore0111`)**。
 
 ## 流れ
 1. 実装: タスク 1 つ = worktree 1 つ = ブランチ `feat/<id 小文字>` = PR 1 本。PR は **`impl/main`** に向ける(`main` には入れない)。
 2. 自動確認: CI(型検査・テスト・担当外ファイルの編集チェック)。
 3. 一次レビュー: Claude が受け入れ条件と契約を照合し、PR にコメントする。
-4. レビュー: forezo さんが見て、問題なければ **squash merge** する。
+4. レビュー: `fore0111` さんが見て、問題なければ **squash merge** する。
 5. 次へ: merge を確認してから、依存するタスクと次の組を出す。
 
 ## 組(バッチ)
