@@ -14,13 +14,19 @@ async function changeLabel(c: Context<AppEnv>, attach: boolean): Promise<Respons
   const labelId = c.req.param('labelId');
   const { DB } = c.env;
 
-  try {
+  const findMissing = async (): Promise<Response | null> => {
     if (!await DB.prepare('SELECT id FROM places WHERE id = ?').bind(placeId).first()) {
       return problem(c, 404, 'not_found', `場所 ${placeId} は登録されていません`);
     }
     if (!await DB.prepare('SELECT id FROM labels WHERE id = ?').bind(labelId).first()) {
       return problem(c, 404, 'label_not_found', `種類 ${labelId} は登録されていません`);
     }
+    return null;
+  };
+
+  try {
+    const missing = await findMissing();
+    if (missing) return missing;
 
     const mutation = DB.prepare(attach
       ? 'INSERT INTO place_labels (place_id, label_id) VALUES (?, ?) ON CONFLICT (place_id, label_id) DO NOTHING'
@@ -63,10 +69,17 @@ async function changeLabel(c: Context<AppEnv>, attach: boolean): Promise<Respons
         return results as D1Result<T>[];
       },
     };
-    await commitWithChange({ ...c.env, DB: changeDb, NOW: createdAt }, [mutation], change);
+    // Only when the mutation changed a row (changes() > 0, same condition as the change event).
+    const touch = DB.prepare('UPDATE places SET updated_at = ? WHERE id = ? AND changes() > 0').bind(createdAt, placeId);
+    await commitWithChange({ ...c.env, DB: changeDb, NOW: createdAt }, [mutation, touch], change);
     return c.body(null, 204);
   } catch (error) {
     if (error instanceof UnchangedLabel) return c.body(null, 204);
+    // The place or label may have been deleted after the existence check (foreign key violation).
+    try {
+      const missing = await findMissing();
+      if (missing) return missing;
+    } catch { /* fall through to 500 */ }
     return problem(c, 500, 'internal_error', '場所の種類を変更できませんでした');
   }
 }

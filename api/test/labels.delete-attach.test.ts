@@ -271,3 +271,50 @@ it.each([
   expect(await changes()).toEqual([]);
   expect(publish).not.toHaveBeenCalled();
 });
+
+async function updatedAt(id = 'place-1') {
+  return (await env.DB.prepare('SELECT updated_at FROM places WHERE id = ?').bind(id).first<{ updated_at: string }>())!.updated_at;
+}
+
+it('実際に変わったときだけ places.updated_at を更新する', async () => {
+  const initial = '2026-11-24T00:00:00.000Z';
+  const now = '2026-11-24T05:00:00.000Z';
+  const at = (method: string) => requestWithEnv(path, { method }, { ...(env as never as typeof env), ACCESS_BYPASS: 'true', NOW: now });
+  await expectNoContent(await at('DELETE'));
+  expect(await updatedAt()).toBe(initial);
+  await expectNoContent(await at('PUT'));
+  expect(await updatedAt()).toBe(now);
+  await env.DB.prepare('UPDATE places SET updated_at = ?').bind(initial).run();
+  await expectNoContent(await at('PUT'));
+  expect(await updatedAt()).toBe(initial);
+  await expectNoContent(await at('DELETE'));
+  expect(await updatedAt()).toBe(now);
+  expect(await updatedAt('place-2')).toBe(initial);
+});
+
+for (const method of ['PUT', 'DELETE']) {
+  it(`${method}: 存在確認のあとに種類が消えたら外部キー違反ではなく 404 label_not_found`, async () => {
+    const batch = env.DB.batch.bind(env.DB);
+    // Commit the deletion first, so it survives the failed batch's rollback.
+    vi.spyOn(env.DB, 'batch').mockImplementationOnce(async statements => {
+      await env.DB.prepare("DELETE FROM labels WHERE id = 'label-m'").run();
+      return batch(statements);
+    });
+    const response = await requestAsOperator(path, { method });
+    if (method === 'PUT') await expectProblem(response, 404, 'label_not_found');
+    else await expectNoContent(response);
+    expect(await changes()).toEqual([]);
+  });
+
+  it(`${method}: 存在確認のあとに場所が消えたら 404 not_found`, async () => {
+    const batch = env.DB.batch.bind(env.DB);
+    // Commit the deletion first, so it survives the failed batch's rollback.
+    vi.spyOn(env.DB, 'batch').mockImplementationOnce(async statements => {
+      await env.DB.prepare("DELETE FROM places WHERE id = 'place-1'").run();
+      return batch(statements);
+    });
+    const response = await requestAsOperator(path, { method });
+    if (method === 'PUT') await expectProblem(response, 404, 'not_found');
+    else await expectNoContent(response);
+  });
+}
