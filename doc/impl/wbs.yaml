@@ -1,0 +1,1193 @@
+tasks:
+- id: F-2
+  title: API の基盤(骨組み・共通関数・操作ごとの空のファイル)
+  wave: 0
+  kind: codex
+  depends: []
+  owns:
+  - api/src/**
+  - api/test/helpers.ts
+  - api/wrangler.jsonc
+  - api/package.json
+  - pnpm-lock.yaml
+  reads:
+  - doc/impl/architecture.md
+  - doc/impl/contracts.md
+  - concept-design/api/openapi.yaml
+  - doc/d1-schema.md
+  goal: 並列の実装が衝突しない API の骨組みを作る。雛形の `api/src/index.ts`(Hub と /dev/emit を含む 1 ファイル)を、architecture.md の構成に分ける。
+  scope:
+  - '`api/src/` を architecture.md の構成に分割する(app.ts、env.ts、config.ts、lib/*、middleware/*、hub/Hub.ts、osm/index.ts)。Hub の動作は変えず、既存のテスト 5 件を通す'
+  - 'contracts.md の共通関数を実装する: errors(problem+json)、ids、time、db、normalize、changes(`commitWithChange`)、Hub への publish'
+  - wbs.yaml の A-* の `owns` に書かれた操作ごとのファイルを、すべて作る。中身は 501 を返す空の実装(`register(app)` を export)。各ディレクトリの index.ts がそれらを読み込み、app.ts が全部を載せる
+  - '`requireOperator`(ACCESS_BYPASS=true なら通す、それ以外は 401)と `rateLimit`(何もしない)の空の実装を置く'
+  - テストの共通部品 `api/test/helpers.ts`(マイグレーションを当てた環境、リクエストの送り方、運営の認証の迂回)
+  - 依存パッケージを、全タスクが必要とする分(zod、@hono/zod-validator など)すべて先に入れ、pnpm-lock.yaml を確定する。`@cloudflare/vitest-pool-workers` を、改名後の `@cloudflare/vitest-plugin` に移行する
+  acceptance:
+  - '`corepack pnpm -r typecheck` と `corepack pnpm --filter api test` が通る'
+  - 雛形の Hub の 5 テストが、分割後も通る
+  - wbs.yaml の A-*・H-* の担当ファイルが、すべて存在する(501 の空の実装)
+  - 新しいタスクが app.ts・package.json・pnpm-lock.yaml・マイグレーションを編集せずに済む
+  notes: このタスクだけが、共有ファイルの作成を許される。
+- id: F-3
+  title: フロントの基盤(骨組み・型・ルーター・層の空のファイル)
+  wave: 0
+  kind: codex
+  depends: []
+  owns:
+  - web/src/**
+  - web/package.json
+  - web/vite.config.ts
+  - pnpm-lock.yaml
+  reads:
+  - doc/impl/architecture.md
+  - doc/impl/contracts.md
+  - concept-design/api/openapi.yaml
+  - concept-design/screens.yaml
+  - doc/device-side-processing.md
+  goal: 並列の実装が衝突しない Web の骨組みを作る。
+  scope:
+  - architecture.md のディレクトリ構成を作る(api/、storage/、sync/、stores/、domain/、services/、map/、ar/、views/、admin/、components/)
+  - ルーターに、screens.yaml の全画面と運営の画面の経路を登録する。各 View は「未実装」と出すだけの空のコンポーネント(担当タスクがそのファイルだけを置き換える)
+  - 共有の型 `web/src/types.ts`(生成した型から Place・Stamp・Landmark・Label などを再 export)
+  - '`web/src/map/layers/types.ts`(Layer のインターフェース)と `layers/index.ts`(各層の空の実装を読み込む)、`web/src/map/core/types.ts`(View と project の型)'
+  - '`web/src/domain/geo.ts` に toXY・fromXY・ORIGIN だけを実装する(PR #4 の値。contracts.md)'
+  - 依存パッケージを先に入れる(pinia、vue-router、idb、fake-indexeddb、vitest、@vue/test-utils、happy-dom など)。`pnpm gen`(openapi から型を生成)のスクリプトを作る
+  acceptance:
+  - '`corepack pnpm -r typecheck` と `corepack pnpm --filter web build` が通る'
+  - '`corepack pnpm --filter web test` が(空でも)実行できる'
+  - すべての経路に空の View があり、開くと「未実装」と出る
+  - 新しいタスクが router・package.json・pnpm-lock.yaml を編集せずに済む
+  notes: このタスクだけが、共有ファイルの作成を許される。
+- id: A-01
+  title: 'API: GET /places'
+  wave: 1
+  kind: codex
+  depends: &id001
+  - F-2
+  owns:
+  - api/src/routes/places/list.ts
+  - api/test/places.list.test.ts
+  reads:
+  - doc/d1-schema.md
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  goal: 場所の一覧を返す。
+  scope:
+  - places・place_hours・place_labels を結合して Place の形にする(landmarkId・floor・hours・labelIds)
+  - 一覧と同じ時点の cursor(changes の最大 id)を文字列で返す
+  - 0 件でも 200
+  acceptance:
+  - 応答が openapi の PlaceList に一致する
+  - cursor が changes の最大 id と一致する
+  - 'テスト: 0 件・複数件・hours が複数・種類が複数'
+  notes: ''
+- id: A-02
+  title: 'API: POST /places'
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/routes/places/create.ts
+  - api/test/places.create.test.ts
+  reads:
+  - doc/d1-schema.md
+  - concept-design/api/review-ledger.yaml
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  goal: 場所を登録する(運営のみ)。
+  scope:
+  - PlaceInput の検証(name 1〜50、floor は landmarkId が null のとき null、存在しない landmarkId は 400。field を返す)
+  - ID は UUID v4、`search_text` は normalize で作る、hours を place_hours に保存
+  - 本体の更新と changes(placeAdded)を `commitWithChange` で 1 回の batch にする。運営の認可は requireOperator
+  acceptance:
+  - 201 と Place を返し、changes に placeAdded が 1 行増え、Hub に publish される
+  - 不正な入力は 400 invalid_input(field つき)
+  - 運営でない呼び出しは 401
+  - 'テスト: 正常・各検証エラー・認可'
+  notes: ''
+- id: A-03
+  title: 'API: PATCH・DELETE /places/{placeId}'
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/routes/places/update.ts
+  - api/src/routes/places/delete.ts
+  - api/test/places.update.test.ts
+  - api/test/places.delete.test.ts
+  reads:
+  - doc/d1-schema.md
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  goal: 場所を更新・削除する(運営のみ)。
+  scope:
+  - PlacePatch(kind は変更不可で 400。hours は置き換え。search_text を作り直す)
+  - 削除で place_hours・place_labels が消える(外部キー)
+  - 'changes: placeUpdated・placeRemoved。存在しない id は 404'
+  acceptance:
+  - openapi の応答コードと形に一致する
+  - 変更と changes が 1 回の batch
+  - 'テスト: 部分更新・kind 変更の拒否・削除の連動・404'
+  notes: ''
+- id: A-04
+  title: 'API: GET /places/search'
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/routes/places/search.ts
+  - api/test/places.search.test.ts
+  reads:
+  - doc/d1-schema.md
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  goal: 名前の一部で場所を検索する。
+  scope:
+  - 検索語を normalize(NFKC + 小文字)して `search_text` に `LIKE '%…%'` で比べる(`%`・`_` はエスケープ)
+  - openapi の検索のパラメータと応答に従う(上限を含む)
+  acceptance:
+  - 全角・半角と英字の大小を吸収する
+  - '`%`・`_` を含む検索語でも意図どおり'
+  - 'テスト: 全角/半角、大小、特殊文字、0 件'
+  notes: ''
+- id: A-05
+  title: 'API: GET・POST /labels'
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/routes/labels/list.ts
+  - api/src/routes/labels/create.ts
+  - api/test/labels.list-create.test.ts
+  reads:
+  - doc/d1-schema.md
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  goal: 運営の種類(Label)の一覧と作成。
+  scope:
+  - 一覧(Label の id と title)
+  - '作成: title は 1〜20 文字、重複は openapi の応答コード、運営のみ'
+  acceptance:
+  - openapi に一致する
+  - 'テスト: 一覧・作成・重複・認可'
+  notes: ''
+- id: A-06
+  title: 'API: DELETE /labels・場所への種類の付け外し'
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/routes/labels/delete.ts
+  - api/src/routes/labels/attach.ts
+  - api/test/labels.delete-attach.test.ts
+  reads:
+  - doc/d1-schema.md
+  - concept-design/api/review-ledger.yaml
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  goal: 種類の削除と、場所への付け外し。
+  scope:
+  - 'DELETE /labels/{id}: どの場所にも付いていなければ削除、付いていれば 409(API-10)'
+  - 'PUT・DELETE /places/{placeId}/labels/{labelId}: 付け外し。changes: placeUpdated'
+  acceptance:
+  - openapi に一致する
+  - 付いている種類は消せない
+  - 'テスト: 削除・409・付与・解除・存在しない id'
+  notes: ''
+- id: A-07
+  title: 'API: POST /stamps'
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/routes/stamps/press.ts
+  - api/test/stamps.press.test.ts
+  reads:
+  - doc/d1-schema.md
+  - concept-design/api/review-ledger.yaml
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  goal: スタンプを押す(来場者。認証なし)。
+  scope:
+  - kind の検証、`at` が会場の範囲外なら 400 out_of_venue(config の VENUE_BOUNDS)
+  - 'expiresAt: 混雑は押した時刻 + CONGESTION_TTL_MIN、感想は当日の閉場(config)'
+  - 取り消しの証 `proof`(ランダムな 32 バイト、base64url)を作り、SHA-256 のハッシュだけ保存。応答の PressedStamp にだけ proof を入れる
+  - changes(stampPressed。proof は含めない)と Hub への publish。`rateLimit` を適用する。押した人・通信元・地点をログに出さない(API-19)
+  acceptance:
+  - 201 と PressedStamp(proof つき)を返す
+  - D1 に proof そのものが無い(ハッシュのみ)
+  - 範囲外は 400
+  - 'テスト: 正常・範囲外・期限・proof の形・changes に proof が無い'
+  notes: ''
+- id: A-08
+  title: 'API: GET /stamps・DELETE /stamps/{stampId}'
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/routes/stamps/list.ts
+  - api/src/routes/stamps/retract.ts
+  - api/test/stamps.list.test.ts
+  - api/test/stamps.retract.test.ts
+  reads:
+  - doc/d1-schema.md
+  - concept-design/api/review-ledger.yaml
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  goal: スタンプの一覧と取り消し。
+  scope:
+  - 'GET: 有効なもの(expires_at > now)だけ。cursor つき。proof は返さない'
+  - 'DELETE: `X-Stamp-Proof` をハッシュして照合(定数時間の比較)。一致で削除し changes: stampRetracted。不一致・不在は openapi の応答コード'
+  acceptance:
+  - openapi に一致する
+  - 期限切れは返さない
+  - 'テスト: 一覧・取り消し成功・証の不一致・存在しない id'
+  notes: ''
+- id: A-09
+  title: 'API: 建物の CRUD'
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/routes/landmarks/crud.ts
+  - api/test/landmarks.crud.test.ts
+  reads:
+  - doc/d1-schema.md
+  - concept-design/api/review-ledger.yaml
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  goal: 建物の一覧・登録・更新・削除。
+  scope:
+  - 'GET /landmarks: footprint(JSON を配列に戻す)と floors を含める'
+  - 'POST: name・location。輪郭は `fetchFootprint`(osm/index.ts)を呼ぶ。取れなくても登録は通し footprint は null(API-37)'
+  - 'PATCH・DELETE: 場所が付いている建物の削除は 409 landmark_in_use(件数をメッセージに入れる)。見取り図は一緒に消える'
+  acceptance:
+  - openapi に一致する
+  - 輪郭が取れなくても登録できる
+  - 'テスト: 登録・更新・削除・409・輪郭なし(fetchFootprint はモック)'
+  notes: ''
+- id: A-10
+  title: 'API: OSM の輪郭の取得と取り直し'
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/osm/overpass.ts
+  - api/src/osm/index.ts
+  - api/src/routes/landmarks/footprint.ts
+  - api/test/osm.test.ts
+  - api/test/landmarks.footprint.test.ts
+  reads:
+  - doc/d1-schema.md
+  - concept-design/api/review-ledger.yaml
+  - doc/tech-stack.md
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  goal: OpenStreetMap から建物の輪郭を取り、保存する(T12)。
+  scope:
+  - '`fetchFootprint(location)`: Overpass の API を fetch で呼び、location を含む建物の輪郭(頂点の配列)を返す。タイムアウト、User-Agent、結果なしは null'
+  - 'POST /landmarks/{id}/footprint: 取り直し。取れなければ輪郭を変えず 502 footprint_unavailable'
+  - どの OSM の API を使うかを決め、README に書く(利用規約と負荷に配慮する)
+  acceptance:
+  - テストでは実際の通信をしない(fetch をモック。固定の応答の fixture を置く)
+  - 取れないときの 502
+  - 輪郭の頂点が 3 点以上
+  notes: 実際の Overpass への通信は、このタスクでは行わない。
+- id: A-11
+  title: 'API: 見取り図と建物ごとの場所'
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/routes/landmarks/floors.ts
+  - api/src/routes/landmarks/places.ts
+  - api/test/landmarks.floors.test.ts
+  reads:
+  - doc/d1-schema.md
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  goal: 階ごとの見取り図の登録・削除と、建物に付いた場所の一覧。
+  scope:
+  - PUT・DELETE /landmarks/{id}/floors/{floor}/plan(plan と bounds)
+  - 'GET /landmarks/{id}/places: landmark と、その建物の場所'
+  acceptance:
+  - openapi に一致する
+  - 'テスト: 登録・上書き・削除・一覧'
+  notes: ''
+- id: A-12
+  title: Cloudflare Access の JWT 検証
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/middleware/access.ts
+  - api/test/access.test.ts
+  reads:
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  - concept-design/api/review-ledger.yaml
+  - doc/tech-stack.md
+  goal: 管理系の認証(T4)。`requireOperator` の本実装。
+  scope:
+  - '`Cf-Access-Jwt-Assertion` の署名検証(JWKS の取得とキャッシュ、iss・aud・exp の確認)'
+  - 検証できたら `c.set('actor', {email})`。できなければ 401 problem+json
+  - '`ACCESS_BYPASS=true` のときだけ検証を迂回する(開発・テスト用)。本番の設定で迂回が有効にならないことを README に書く'
+  acceptance:
+  - 'テスト: 正しい JWT・期限切れ・署名不正・aud 不一致・迂回'
+  - テストは、テスト内で作った鍵ペアと偽の JWKS で行う(外部通信なし)
+  notes: Cloudflare 側の設定(ポリシー、AUD、チームのドメイン)は人が行う(D-03)。値は環境変数で受ける。
+- id: A-13
+  title: 'API: レート制限'
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/middleware/ratelimit.ts
+  - api/test/ratelimit.test.ts
+  reads:
+  - doc/impl/contracts.md
+  - doc/tech-stack.md
+  goal: 荒らし対策(T5)。`rateLimit` の本実装。
+  scope:
+  - 'openapi の非機能(API-18・API-21)の値: 来場者の読み取りは同じ通信元から 1 分に 60 回まで、スタンプを押すのは 1 分に 5 個まで、本文は 1 MB まで(超えたら 413 payload_too_large)'
+  - 通信元は IP のハッシュ(生の IP は保存・ログしない。API-19)。方式は、追加の Cloudflare 部品を使わない最小のもの(isolate 内のメモリで可。ベストエフォートであることを README に書く)
+  - 超えたら 429 too_many_requests と `Retry-After`。`/changes` は対象外
+  acceptance:
+  - 'テスト: 上限内・超過・窓の経過後の回復・本文 1 MB 超'
+  - '`rateLimit({key, limit, windowSec})` のシグネチャを変えない'
+  notes: ''
+- id: H-01
+  title: 'Hub: 順序の保証と遅い接続への対応'
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - api/src/hub/**
+  - api/test/hub.*.test.ts
+  reads:
+  - concept-design/api/openapi.yaml
+  - doc/sse-sizing.md
+  goal: 試作の Hub の未対応点を直す。
+  scope:
+  - 同時の publish でも、id の昇順で送る
+  - 遅い接続(バッファが上限を超えた)は、間引かず切断して、再接続に任せる
+  - resync の判定を openapi の説明どおりにする。README の単純化の記述を直す
+  acceptance:
+  - 既存の 5 テストが通る
+  - 'テスト: 同時 publish の順序、遅い接続の切断、範囲外の since'
+  notes: ''
+- id: H-02
+  title: 負荷試験の拡張
+  wave: 1
+  kind: codex
+  depends: *id001
+  owns:
+  - tools/loadtest/**
+  reads:
+  - doc/sse-sizing.md
+  goal: 同時接続 400〜700 を段階的につなぐ負荷試験を、結果を JSON で出せるようにする。
+  scope:
+  - ramp-up(接続を段階的に増やす)
+  - 受信数・遅延(中央値・p95・最大)・切断数を JSON で出力
+  - README に、ローカルと本番(試験デプロイ後)の実行手順
+  acceptance:
+  - ローカルで 50・200 の再現(雛形の結果と同程度)
+  - 出力の JSON の形が README にある
+  notes: ''
+- id: W-01
+  title: 'Web: API クライアント'
+  wave: 1
+  kind: codex
+  depends: &id002
+  - F-3
+  owns:
+  - web/src/api/**
+  reads:
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  - doc/device-side-processing.md
+  goal: 型つきの API クライアントを作る。
+  scope:
+  - '`pnpm gen` で生成した型を使う `apiGet`・`apiSend`(JSON)'
+  - problem+json を `ApiError`(code、message、field、status)にする
+  - '`VITE_API_BASE` で向け先を変える。X-Stamp-Proof など必要なヘッダを渡せる'
+  acceptance:
+  - 'テスト(fetch をモック): 成功・problem+json のエラー・ネットワークエラー'
+  - 型検査が通る
+  notes: ''
+- id: W-02
+  title: 'Web: 端末内保存(IndexedDB)'
+  wave: 1
+  kind: codex
+  depends: *id002
+  owns:
+  - web/src/storage/**
+  reads:
+  - doc/device-side-processing.md
+  - doc/impl/contracts.md
+  - doc/device-side-processing.md
+  goal: 端末内の保存の層を作る(#17)。
+  scope:
+  - 'DB `nasvi`(v1)のストア: tags、destination、filter、proofs、cache、meta(contracts.md のキー)'
+  - 型つきのリポジトリ関数(自分用タグと付与、行き先、絞り込み、スタンプの proof、メタ)
+  - IndexedDB が使えないとき(プライベートモードなど)はメモリで動く
+  acceptance:
+  - 'テスト(fake-indexeddb): 各リポジトリの保存・読み出し・削除'
+  - メモリへの退避のテスト
+  notes: ''
+- id: W-03
+  title: 'Web: キャッシュと cursor'
+  wave: 1
+  kind: codex
+  depends:
+  - F-3
+  owns:
+  - web/src/sync/cache.ts
+  - web/src/sync/bootstrap.ts
+  - web/src/sync/*.test.ts
+  reads:
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  - doc/device-side-processing.md
+  goal: 一覧のキャッシュと、初回の全件取得を作る。
+  scope:
+  - places・landmarks・labels・stamps の全件取得(`GET`)と、保存
+  - cursor は、places と stamps の小さいほうを使う(openapi の説明)
+  - 保存した状態を読み出す `loadSnapshot` と、保存する `saveSnapshot`
+  acceptance:
+  - 'テスト: 初回、キャッシュ有り、cursor の選び方'
+  notes: ''
+- id: W-04
+  title: 'Web: /changes の接続'
+  wave: 1
+  kind: codex
+  depends: *id002
+  owns:
+  - web/src/sync/changes.ts
+  - web/src/sync/changes.test.ts
+  reads:
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  - doc/device-side-processing.md
+  goal: EventSource のラッパを作る(T7、端末に任せる方針)。
+  scope:
+  - '`connectChanges({since, onEvent, onResync})`'
+  - 画面が裏に回ったら閉じ、戻ったら最後の id でつなぎ直す
+  - 再接続は指数的な待ち + 0〜10 秒の揺らぎ。429 の `Retry-After` に従う
+  - resync を受けたら onResync を呼ぶ(呼び出し側が一覧を取り直し、接続を作り直す)
+  acceptance:
+  - 'テスト(偽の EventSource): 再接続の待ち・揺らぎの範囲・resync・visibility'
+  notes: ''
+- id: W-05
+  title: 'Web: ストア(Pinia)と出来事の適用'
+  wave: 1
+  kind: codex
+  depends: *id002
+  owns:
+  - web/src/stores/**
+  reads:
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  - doc/device-side-processing.md
+  goal: 場所・スタンプ・建物・種類のストアを作る。
+  scope:
+  - places・stamps・landmarks・labels のストア
+  - '`applyChange(event)`: stampPressed・stampRetracted・placeAdded・placeUpdated・placeRemoved・appVersionChanged を、冪等に適用する'
+  - 期限切れのスタンプを除く getter(`isExpired` は domain の関数。無ければ自前で簡易に)
+  acceptance:
+  - 'テスト: 各出来事の適用、同じ出来事を 2 回当てても同じ結果'
+  notes: ''
+- id: W-06
+  title: 'Web: 絞り込みの純関数'
+  wave: 1
+  kind: codex
+  depends: *id002
+  owns:
+  - web/src/domain/filter.ts
+  - web/src/domain/filter.test.ts
+  reads:
+  - concept-design/api/review-ledger.yaml
+  - concept-design/decisions.yaml
+  - doc/impl/contracts.md
+  - doc/device-side-processing.md
+  goal: 絞り込みのロジックを純関数にする(D-012・D-014・D-016)。
+  scope:
+  - '`applyFilter(places, state)`: 運営の種類どうしは OR、自分用のタグは AND。設備(info・wc・rest・trash)は絞り込まない'
+  - '`countByBuilding(places, state)`: 絞り込み後の企画数。設備は数えない'
+  acceptance:
+  - '表形式のテスト: 種類のみ・タグのみ・併用・設備・0 件'
+  notes: ''
+- id: W-07
+  title: 'Web: 距離・方角・見取り図・期限・混雑の純関数'
+  wave: 1
+  kind: codex
+  depends: *id002
+  owns:
+  - web/src/domain/geo.ts
+  - web/src/domain/floorplan.ts
+  - web/src/domain/stamps.ts
+  - web/src/domain/*.test.ts
+  reads:
+  - concept-design/api/review-ledger.yaml
+  - doc/impl/contracts.md
+  - doc/device-side-processing.md
+  goal: 端末で行う計算を純関数にする。
+  scope:
+  - '`distanceM`・`bearingDeg`(直線。D-003)'
+  - '`floorplanXY(point, bounds, viewBox)`(API-30)'
+  - '`isExpired(stamp, now)`(API-38)、`congestionByPlace(stamps, places)`(濃淡 1〜5 の集計)'
+  acceptance:
+  - 'テスト: 既知の 2 点の距離と方角、見取り図の四隅、期限の境界、集計'
+  notes: geo.ts の toXY・fromXY・ORIGIN は F-3 が作る。壊さない。
+- id: W-08
+  title: 'Web: 位置のサービス'
+  wave: 1
+  kind: codex
+  depends: *id002
+  owns:
+  - web/src/services/position.ts
+  - web/src/services/position.test.ts
+  reads:
+  - doc/device-side-processing.md
+  - doc/impl/contracts.md
+  - doc/device-side-processing.md
+  goal: 位置情報の許可と取得を、端末の処理として作る(API-5)。
+  scope:
+  - '`usePosition()`: allow・refuse・report・setManually(OQ-2 は未決のため、手入力は関数だけ用意)'
+  - 取得の頻度は、画面が裏に回ったら下げる
+  - 現在地は端末の外に送らない
+  acceptance:
+  - 'テスト(偽の geolocation): 許可・拒否・精度・頻度の切り替え'
+  notes: ''
+- id: W-09
+  title: 'Web: 同期の取りまとめ'
+  wave: 2
+  kind: codex
+  depends:
+  - W-03
+  - W-04
+  - W-05
+  owns:
+  - web/src/sync/orchestrator.ts
+  - web/src/sync/orchestrator.test.ts
+  reads:
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  - doc/device-side-processing.md
+  goal: キャッシュ・初回取得・/changes・ストアをつなぐ。
+  scope:
+  - '起動: キャッシュがあれば cursor から差分、無ければ全件(W-03)'
+  - 出来事をストアに適用(W-05)、resync で取り直して接続を作り直す(W-04)
+  acceptance:
+  - 'テスト: キャッシュ有り・無し・resync・切断からの復帰'
+  notes: ''
+- id: M-01
+  title: '地図: 投影と視点の核'
+  wave: 1
+  kind: codex
+  depends:
+  - F-3
+  owns:
+  - web/src/map/core/**
+  reads:
+  - doc/impl/contracts.md
+  - doc/tech-stack.md
+  - 'PR #4・#5 の ar-guide/mock/index.html(未 merge。`gh pr diff 4` と `gh pr diff 5` で読む)'
+  goal: モックの投影(斜め見下ろし)と視点の状態を、純関数にする(T9)。
+  scope:
+  - '`project`・`unproject`(TILT、ZS、回転)、視点 {fx, fy, k, th, cy}、目標への補間'
+  - 画面に依存しない TypeScript
+  acceptance:
+  - 'テスト: project と unproject の往復が元に戻る'
+  - モックと同じ数値(TILT=0.52、ZS=0.9)
+  notes: ''
+- id: M-02
+  title: '地図: コンポーネントと操作'
+  wave: 2
+  kind: codex
+  depends:
+  - M-01
+  owns:
+  - web/src/map/MapCanvas.vue
+  - web/src/map/interaction.ts
+  - web/src/map/*.test.ts
+  reads:
+  - doc/impl/contracts.md
+  - doc/tech-stack.md
+  - 'PR #4・#5 の ar-guide/mock/index.html(未 merge。`gh pr diff 4` と `gh pr diff 5` で読む)'
+  goal: canvas のコンポーネントと、パン・ピンチ・回転・コンパスを作る。
+  scope:
+  - リサイズ、dpr、rAF の描画ループ。`layers/index.ts` の層を順に描く
+  - パン、ピンチ、回転(Shift + ドラッグ、右ボタン)、コンパスで北に戻す
+  - 画面が見えないとき描画を止める
+  acceptance:
+  - 'テスト: 操作で視点が変わる'
+  - '`layers/index.ts` を編集しない'
+  notes: ''
+- id: M-03
+  title: '地図: 建物・場所の印・ラベル'
+  wave: 2
+  kind: codex
+  depends:
+  - M-01
+  owns:
+  - web/src/map/layers/buildings.ts
+  - web/src/map/layers/labels.ts
+  - web/src/map/layers/*.test.ts
+  reads:
+  - doc/impl/contracts.md
+  - doc/tech-stack.md
+  - 'PR #4・#5 の ar-guide/mock/index.html(未 merge。`gh pr diff 4` と `gh pr diff 5` で読む)'
+  goal: 建物(押し出し)・場所の印・ラベルの描画と、タップ判定を作る。
+  scope:
+  - 建物の高さは面積から(モックと同じ)、奥行きの順に描く
+  - ラベルの衝突回避、行き先の強調
+  - タップ判定(labelHits)
+  acceptance:
+  - 'テスト: 判定と衝突回避の純関数部分'
+  - '`layers/types.ts` の Layer を満たす'
+  notes: ''
+- id: M-04
+  title: '地図: 現在地・行き先・経路'
+  wave: 2
+  kind: codex
+  depends:
+  - M-01
+  owns:
+  - web/src/map/layers/me.ts
+  - web/src/map/layers/route.ts
+  reads:
+  - doc/impl/contracts.md
+  - doc/tech-stack.md
+  - 'PR #4・#5 の ar-guide/mock/index.html(未 merge。`gh pr diff 4` と `gh pr diff 5` で読む)'
+  goal: 現在地の矢印、行き先のリング、案内の直線(点線アニメ)を描く。
+  scope:
+  - 現在地と向き、精度の円
+  - 行き先のリングと、現在地からの直線(D-003)
+  acceptance:
+  - 'テスト: 描画に渡す座標の計算'
+  - Layer を満たす
+  notes: ''
+- id: M-05
+  title: '地図: スタンプの描画'
+  wave: 2
+  kind: codex
+  depends:
+  - M-01
+  owns:
+  - web/src/map/layers/stamps.ts
+  reads:
+  - doc/impl/contracts.md
+  - doc/tech-stack.md
+  - 'PR #4・#5 の ar-guide/mock/index.html(未 merge。`gh pr diff 4` と `gh pr diff 5` で読む)'
+  goal: スタンプ(混雑の濃淡・感想のマーク・波紋)を描く。
+  scope:
+  - 有効なスタンプだけ。混雑 1〜5 の濃淡、fun・food・good のマーク
+  - 押した直後の波紋
+  acceptance:
+  - 'テスト: 濃淡の段階、期限切れを描かない'
+  - Layer を満たす
+  notes: ''
+- id: M-06
+  title: '地図: 絞り込みのチップと帯'
+  wave: 2
+  kind: codex
+  depends:
+  - W-06
+  owns:
+  - web/src/components/FilterChips.vue
+  - web/src/components/FilterBand.vue
+  - web/src/components/*.test.ts
+  reads:
+  - doc/impl/contracts.md
+  - doc/tech-stack.md
+  - 'PR #4・#5 の ar-guide/mock/index.html(未 merge。`gh pr diff 4` と `gh pr diff 5` で読む)'
+  goal: 絞り込みのチップ(行きたい・お気に入り・運営の種類)と、絞り込み中の帯と件数を作る。
+  scope:
+  - チップの選択と解除(状態は props と emit。W-06 の関数を使う)
+  - 絞り込み中の帯と件数(V1-m)
+  acceptance:
+  - コンポーネントのテスト
+  - アクセシビリティ(aria-pressed)
+  notes: ''
+- id: R-01
+  title: 'AR: 幾何モジュール'
+  wave: 1
+  kind: codex
+  depends:
+  - F-3
+  owns:
+  - web/src/ar/geometry.ts
+  - web/src/ar/geometry.test.ts
+  - web/src/ar/fixtures/**
+  reads:
+  - doc/impl/contracts.md
+  - 'PR #4 の ar-guide/index.html(未 merge。`gh pr diff 4`)'
+  - doc/tech-stack.md
+  goal: 'PR #4 の通常版の計算を、フレームワーク非依存の TypeScript にする(T6、D-018)。'
+  scope:
+  - '`castRay`、可視判定、正面の建物の決定、各企画の方向・距離・「建物の奥か」'
+  - 入力は現在地・向き・建物の輪郭(footprint が null の建物は正面に選ばない)
+  acceptance:
+  - 'テスト: 既知の位置と向きで、正面の建物が決まる(fixtures は小さな固定データ)'
+  - DOM に触れない
+  notes: ''
+- id: R-03
+  title: 'AR: 方位のサービス'
+  wave: 1
+  kind: codex
+  depends:
+  - F-3
+  owns:
+  - web/src/services/orientation.ts
+  - web/src/services/orientation.test.ts
+  reads:
+  - doc/impl/contracts.md
+  - doc/tech-stack.md
+  goal: 方位センサーの許可・平滑化・補正を作る。
+  scope:
+  - iOS の `requestPermission` と、Android のイベントの違いを吸収
+  - 向きの平滑化。利用者の補正(度)を meta に保存(W-02 の API を使う。未実装ならインターフェースだけ)
+  acceptance:
+  - 'テスト(偽のイベント): 平滑化、補正、拒否'
+  notes: W-02 が未 merge のときは、保存を引数で受ける形にして、後でつなぐ。
+- id: R-02
+  title: 'AR: 画面'
+  wave: 2
+  kind: codex
+  depends:
+  - R-01
+  - R-03
+  - W-08
+  owns:
+  - web/src/ar/ArView.vue
+  - web/src/views/CameraView.vue
+  - web/src/ar/*.test.ts
+  reads:
+  - doc/impl/contracts.md
+  - 'PR #4 の ar-guide/index.html'
+  - doc/tech-stack.md
+  goal: カメラの画面を作る(F5)。
+  scope:
+  - video、ラベルは Vue の外(rAF)で直接更新、正面の建物のパネル、案内バー、ミニマップ(円形の canvas)
+  - 画面が見えないとき更新を止める
+  acceptance:
+  - コンポーネントのテスト(モックの位置・向き)
+  - ラベルの更新が Vue のリアクティブを通らない
+  notes: ''
+- id: S-01
+  title: '画面: 検索結果と一覧'
+  wave: 2
+  kind: codex
+  depends:
+  - W-05
+  - W-06
+  - M-06
+  owns:
+  - web/src/views/SearchView.vue
+  - web/src/views/ListView.vue
+  - web/src/components/PlaceRow.vue
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - doc/screen-design/wireframe.md
+  - design-system/
+  goal: 検索結果と一覧の画面を作る。
+  scope:
+  - 検索語、一致した場所(名前・建物・距離)、件数、絞り込み中の帯
+  - '一覧: 場所の名前・種類・建物・距離、行きたい・お気に入りの状態'
+  acceptance:
+  - コンポーネントのテスト
+  - 部品の props はデザインシステムに合わせる
+  notes: ''
+- id: S-02
+  title: '画面: 場所のカード'
+  wave: 2
+  kind: codex
+  depends:
+  - W-05
+  - W-06
+  - W-07
+  owns:
+  - web/src/views/PlaceCard.vue
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - doc/screen-design/wireframe.md
+  - design-system/
+  goal: 場所のカード(下から出る)を作る。
+  scope:
+  - 名前、建物と階、説明と時間、直線距離
+  - 行き先にする・タグを付ける
+  acceptance:
+  - コンポーネントのテスト
+  notes: ''
+- id: S-03
+  title: '画面: 案内中'
+  wave: 2
+  kind: codex
+  depends:
+  - W-05
+  - W-07
+  - W-08
+  owns:
+  - web/src/views/GuideView.vue
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - doc/screen-design/wireframe.md
+  - design-system/
+  goal: 案内中の画面と、着いたときの表示を作る。
+  scope:
+  - 方角と直線距離、更新時刻と精度
+  - 着いたら「着きました」と出て、案内を終える
+  acceptance:
+  - コンポーネントのテスト
+  notes: ''
+- id: S-04
+  title: '画面: スタンプを押す'
+  wave: 2
+  kind: codex
+  depends:
+  - W-02
+  - W-05
+  - W-08
+  owns:
+  - web/src/views/StampView.vue
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - doc/screen-design/wireframe.md
+  - design-system/
+  goal: スタンプを押す画面を作る。
+  scope:
+  - 混雑 1〜5 と感想 3 種類、押す地点と精度
+  - 自分が押したスタンプと、消えるまでの時間。取り消し(proof は端末に保存)
+  acceptance:
+  - コンポーネントのテスト
+  notes: ''
+- id: S-05
+  title: '画面: タグ'
+  wave: 2
+  kind: codex
+  depends:
+  - W-02
+  - W-05
+  owns:
+  - web/src/views/TagsView.vue
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - doc/screen-design/wireframe.md
+  - design-system/
+  goal: 自分用タグを付ける・作る画面を作る。
+  scope:
+  - 最初からある 2 つ(行きたい・お気に入り)と自作
+  - 端末の中に保存することの説明
+  acceptance:
+  - コンポーネントのテスト
+  notes: ''
+- id: S-06
+  title: '画面: 位置が使えない'
+  wave: 2
+  kind: codex
+  depends:
+  - W-08
+  owns:
+  - web/src/views/NoLocationView.vue
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - doc/screen-design/wireframe.md
+  - design-system/
+  goal: 位置が使えないときの画面を作る。
+  scope:
+  - 使えないこと、できなくなること、代わりにできること
+  - 許可の再依頼
+  acceptance:
+  - コンポーネントのテスト
+  notes: ''
+- id: S-07
+  title: '画面: 建物の中の地図'
+  wave: 2
+  kind: codex
+  depends:
+  - W-05
+  - W-07
+  owns:
+  - web/src/views/BuildingView.vue
+  - web/src/components/FloorPlan.vue
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - doc/screen-design/wireframe.md
+  - design-system/
+  goal: 階ごとの見取り図の画面を作る。
+  scope:
+  - 建物の名前、階の切り替え、見取り図(SVG)と企画の位置(W-07 の換算)、階ごとの企画数
+  acceptance:
+  - コンポーネントのテスト
+  notes: ''
+- id: S-08
+  title: '画面: 遷移の結線'
+  wave: 3
+  kind: codex
+  depends:
+  - S-01
+  - S-02
+  - S-03
+  - S-04
+  - S-05
+  - S-06
+  - S-07
+  - M-02
+  owns:
+  - web/src/views/MapView.vue
+  - web/src/router/journeys.test.ts
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - doc/screen-design/wireframe.md
+  - design-system/
+  goal: 画面どうしをつなぎ、ジャーニー F1〜F4・F1-building・F2-noloc をたどれるようにする。
+  scope:
+  - MapView に地図(M-02)とチップ(M-06)と各画面を載せる
+  - screens.yaml のジャーニーごとの遷移のテスト
+  acceptance:
+  - 遷移のテスト
+  - ジャーニーの手順数が screens.yaml の上限(3)以内
+  notes: ''
+- id: O-01
+  title: '運営の画面: 骨格'
+  wave: 2
+  kind: codex
+  depends:
+  - F-3
+  - W-01
+  owns:
+  - web/src/admin/**
+  - web/src/views/admin/AdminLayout.vue
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - concept-design/api/openapi.yaml
+  goal: 運営の画面の枠と、管理系 API の呼び出しを作る。
+  scope:
+  - レイアウトと、管理系の経路(`/admin/*`)
+  - 管理系のクライアント(cookie つき)、401 のときの案内
+  - エラー(problem+json)の表示
+  acceptance:
+  - コンポーネントのテスト
+  notes: ''
+- id: O-02
+  title: '運営の画面: 場所'
+  wave: 3
+  kind: codex
+  depends:
+  - O-01
+  - A-01
+  - A-02
+  - A-03
+  owns:
+  - web/src/views/admin/PlacesAdmin.vue
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - concept-design/api/openapi.yaml
+  goal: 場所の登録・管理(op_places)。
+  scope:
+  - 表・入力欄・更新・削除(削除の前に、連動して起きることを確認で見せる)
+  acceptance:
+  - コンポーネントのテスト
+  notes: ''
+- id: O-03
+  title: '運営の画面: 種類'
+  wave: 3
+  kind: codex
+  depends:
+  - O-01
+  - A-05
+  - A-06
+  owns:
+  - web/src/views/admin/LabelsAdmin.vue
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - concept-design/api/openapi.yaml
+  goal: 運営の種類の定義と付け外し。
+  scope:
+  - 種類の作成・削除(付いていれば 409 の案内)、場所への付け外し
+  acceptance:
+  - コンポーネントのテスト
+  notes: ''
+- id: O-04
+  title: '運営の画面: 建物'
+  wave: 3
+  kind: codex
+  depends:
+  - O-01
+  - A-09
+  - A-10
+  owns:
+  - web/src/views/admin/LandmarksAdmin.vue
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - concept-design/api/openapi.yaml
+  goal: 建物の登録・管理と、輪郭の読み込み直し(op_landmarks)。
+  scope:
+  - 建物の一覧と輪郭の有無、登録・更新・削除
+  - 輪郭は確かめるだけ(描かない・直さない)。読み込み直し
+  acceptance:
+  - コンポーネントのテスト
+  notes: ''
+- id: O-05
+  title: '運営の画面: 見取り図'
+  wave: 3
+  kind: codex
+  depends:
+  - O-01
+  - A-11
+  owns:
+  - web/src/views/admin/FloorPlansAdmin.vue
+  reads:
+  - doc/impl/contracts.md
+  - concept-design/screens.yaml
+  - concept-design/api/openapi.yaml
+  goal: 階ごとの見取り図の登録。
+  scope:
+  - SVG の viewBox・path の d・bounds の入力と、プレビュー
+  acceptance:
+  - コンポーネントのテスト
+  notes: ''
+- id: D-01
+  title: デプロイの設定(コードと手順だけ)
+  wave: 1
+  kind: codex
+  depends:
+  - F-2
+  owns:
+  - api/wrangler.jsonc
+  - doc/deploy.md
+  - .github/workflows/**
+  reads:
+  - doc/tech-stack.md
+  goal: 本番とプレビューの設定と手順を、デプロイせずに用意する(T2)。
+  scope:
+  - wrangler.jsonc に環境(production・preview)を定義(ID はプレースホルダ)
+  - マイグレーション適用のスクリプトと手順
+  - '`doc/deploy.md`: 人が行う手順(アカウント、D1 の作成、Pages、Access)をチェックリストで書く'
+  acceptance:
+  - '`wrangler deploy --dry-run` 相当が通る(認証なしで実行できる範囲)'
+  - 実在の ID・トークンを書かない
+  notes: F-2 が wrangler.jsonc を作った後で行う。デプロイは行わない。
+- id: D-02
+  title: GitHub 連携(Cloudflare)
+  wave: 3
+  kind: 人
+  depends:
+  - D-01
+  owns: []
+  reads:
+  - doc/tech-stack.md
+  - doc/deploy.md
+  goal: '`main` への push で本番、PR ごとにプレビュー URL が出るようにする。人が Cloudflare で行う。'
+  scope:
+  - Cloudflare のプロジェクトを GitHub につなぐ
+  - 環境変数・秘密を設定する(リポジトリに入れない)
+  acceptance:
+  - PR にプレビュー URL が付く
+  notes: ''
+- id: D-03
+  title: Cloudflare Access の設定
+  wave: 3
+  kind: 人
+  depends:
+  - A-12
+  - D-01
+  owns: []
+  reads:
+  - doc/tech-stack.md
+  - doc/deploy.md
+  goal: '`/admin/*` と `/api/admin/*` を Access で守る。人が Cloudflare で行う。'
+  scope:
+  - Access のアプリケーションとポリシーを作る(実行委員のメール)
+  - AUD とチームのドメインを、API の環境変数に設定
+  acceptance:
+  - 実行委員だけが管理系に入れる
+  notes: ''
+- id: V-01
+  title: 実機での確認 AR(E1〜E3)
+  wave: 3
+  kind: 人
+  depends:
+  - R-02
+  owns: []
+  reads:
+  - doc/tech-stack.md
+  - doc/deploy.md
+  goal: iOS Safari と Android Chrome で、許可・起動時間・方位の誤差を測る。端末を持つ人が行う。
+  scope:
+  - E1 カメラ・位置・方位の許可
+  - E2 起動時間(各 3 回)
+  - E3 方位の誤差
+  acceptance:
+  - doc/tech-stack.md の記録表が埋まる
+  notes: ''
+- id: V-02
+  title: 実機での確認 地図・輪郭(E4・E5)
+  wave: 3
+  kind: 人
+  depends:
+  - S-08
+  owns: []
+  reads:
+  - doc/tech-stack.md
+  - doc/deploy.md
+  goal: OSM の輪郭のずれと、立体マップの性能を測る。端末を持つ人が行う。
+  scope:
+  - E4 主な約 10 棟の輪郭のずれ
+  - E5 古い端末と新しい端末での性能
+  acceptance:
+  - 記録表が埋まる
+  notes: ''
+- id: V-03
+  title: 本番での負荷試験(Hub)
+  wave: 3
+  kind: 人
+  depends:
+  - H-02
+  - D-01
+  owns: []
+  reads:
+  - doc/tech-stack.md
+  - doc/deploy.md
+  goal: Cloudflare に置いた Hub で、同時接続 400〜700 を数分つなぎ、T10 を確定する。人が行う。
+  scope:
+  - 試験デプロイ(アカウントの操作)
+  - tools/loadtest で測る(接続数の上限、CPU、D1 の応答)
+  - 結果を doc/tech-stack.md の T7・T10 に反映
+  acceptance:
+  - 数値が記録され、T10 が確定する
+  notes: ''
+- id: F-4
+  title: 契約テスト(openapi と応答の一致)
+  wave: 1
+  kind: codex
+  depends:
+  - F-2
+  owns:
+  - api/test/contract/**
+  - tools/contract/**
+  reads:
+  - concept-design/api/openapi.yaml
+  - doc/impl/contracts.md
+  goal: 実装の応答が `openapi.yaml` に一致するかを機械で確かめる道具を作る。
+  scope:
+  - 応答を openapi のスキーマで検証する関数(テストから呼べる)
+  - 全操作のうち、実装済みのものを一覧で検査するテスト(未実装の 501 は「未実装」として数える)
+  acceptance:
+  - 'テスト: 一致する応答・一致しない応答の検出'
+  - 未実装の件数が出力される
+  notes: ''
