@@ -126,7 +126,7 @@ decisions:
     adopted: 効かせる
     reason: 利用者(admin)の決定(2026-11-21)。PR #16 の要確認 4 への回答。concepts.yaml では、同期 search-places に「絞り込みも検索結果に効かせる(D-012)」として反映済み(D-017 の(5))。
     status: resolved
-    derived_from: PR #16(looky-looky)の要確認 4
+    derived_from: 'PR #16(looky-looky)の要確認 4'
 
   - id: D-013
     problem: 場所のカードを開いたあと、行き先を決める手順
@@ -134,9 +134,9 @@ decisions:
       - カードを開いたら、そのまま行き先になる
       - カードを開き、「ここへ向かう」で行き先にする(ワンクッション)
     adopted: 「ここへ向かう」で行き先にする
-    reason: 利用者の決定(2026-11-21)。Google マップのような手順。PR #16 の要確認 5。経路は直線のまま(D-003 を維持。地図の作り方は後で再検討)。
+    reason: '利用者の決定(2026-11-21)。Google マップのような手順。PR #16 の要確認 5。経路は直線のまま(D-003 を維持。地図の作り方は後で再検討)。'
     status: resolved
-    derived_from: PR #16 の要確認 5・6
+    derived_from: 'PR #16 の要確認 5・6'
 
   - id: D-014
     problem: 来場者の自分用タグ(Labeling)の初期値と、保存先
@@ -150,20 +150,20 @@ decisions:
       端末のデータが消えるとタグも消える(同期なし)。Labeling.owner を残すか外すかは、チームが決める。
       D-007 の「Labeling に含める」は維持。名前のルール・上限数は OQ-13。
     status: resolved
-    derived_from: PR #16 の要確認 7(お気に入り)と利用者の回答
+    derived_from: 'PR #16 の要確認 7(お気に入り)と利用者の回答'
 
   - id: D-011
     problem: 事前条件が無いアクションに「なし」と書くか
     options:
       - 書く(lint.py の規則。書き忘れと区別する)
-      - 書かない(演繹文書の書式に欄が無い。doc/concept-design.md の 7 章 #9)
+      - '書かない(演繹文書の書式に欄が無い。doc/concept-design.md の 7 章 #9)'
     adopted: concepts.yaml では「なし」と書く。doc/concept-design.md では書かない
     reason: lint.py が空の requires を ERROR とするため、YAML は規則に合わせた。食い違いは、チームで揃え方を決める。
     status: open
     derived_from: 食い違いの報告
 
   - id: D-015
-    problem: 概念を、どう画面にまとめるか(画面設計のステップ 3、issue #6)
+    problem: '概念を、どう画面にまとめるか(画面設計のステップ 3、issue #6)'
     options:
       - 案 1 {Search, Labeling} | {Position, Destination, Stamp} | {Landmark}(点数 8、画面 3)
       - 案 2 {Search} | {Labeling} | {Position, Destination, Stamp} | {Landmark}(点数 7、画面 4)
@@ -175,6 +175,23 @@ decisions:
       案 2 は、絞り込みを検索結果にも効かせる(D-012)ので、Search と Labeling を分けると、絞り込みの状態が見えない画面ができるため捨てた。
     status: open
     derived_from: concept-design/groups.yaml、concept-design/screens.yaml、doc/screen-design/screen-selection.md
+
+  - id: D-016
+    problem: 複数の絞り込み(運営の種類と自分用のタグ)を同時に選んだとき、どう組み合わせるか
+    options:
+      - すべて OR(どれかが付いている。いまの同期 show-places の where)
+      - 運営の種類どうしは OR、自分用のタグ(行きたい場所・お気に入り・自作)は AND で効かせる
+      - お気に入りだけ AND、ほかは OR
+      - すべて AND
+    adopted: 運営の種類どうしは OR、自分用のタグは AND で効かせる
+    reason: >-
+      利用者の決定(2026-11-22。API 設計のゲート 1、台帳 API-9)。例: 飲食+展示+お気に入り → (飲食か展示)で、かつお気に入りの場所。
+      「どの種類か」(運営)と「自分にとってどうか」(自分用)は軸が違うので、軸ごとに組み合わせ方を分ける。自作タグも同じ規則で説明できる。
+      お気に入りだけ AND にする案は、自作タグの扱いの説明が分かれるので捨てた。すべて AND にする案は、運営の種類を複数選ぶと結果がほぼ空になるので捨てた。
+      concepts.yaml の同期 show-places の where には反映済み(D-017 の(5)。運営の種類どうし OR、自分用タグ AND)。
+      絞り込みは端末で行う(台帳 API-8)ので、API の仕様には影響しない。
+    status: resolved
+    derived_from: concept-design/api/review-ledger.yaml の API-8・API-9
 
   - id: D-017
     problem: API 設計(PR #21)とデザインシステム(PR #23)が一致して前提にしていて、concepts.yaml だけが違った 7 項目を、どうするか
@@ -357,7 +374,7 @@ decisions:
       地図は表現で概念にしない(D-004)ことにも合う。
       残る点: 見取り図の登録・削除の操作(API の PUT・DELETE /landmarks/{landmarkId}/floors/{floor}/plan)は、概念の要求に対応しない。
       openapi_check の WARN(x-request が無い)は、API 側が「概念の要求ではない」と説明に書けば足りる。
-      建物を削除したときに見取り図も消すかは、概念の規則ではなく、API 側の実装と台帳の扱い(未決)に残る。
+      建物を削除したときに見取り図も消すかは、概念の規則ではなく、API 側の実装と台帳の扱いに残る。API 側で、一緒に消すと決めた(2026-11-23、台帳 API-29)。
       前提(崩れたら見直す条件): 見取り図に独自の規則(例: 階ごとの混雑)を足す予定が出たとき。
     status: resolved
     derived_from: OQ-14、API-29・30、D-004
