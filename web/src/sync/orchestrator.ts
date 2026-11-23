@@ -4,7 +4,7 @@ import { getStorage, type CacheEntry as StoredCacheEntry, type StorageRepositori
 import {
   useChangesStore, useLabelsStore, useLandmarksStore, usePlacesStore, useStampsStore,
 } from '../stores';
-import { bootstrap, loadCachedOrFetch } from './bootstrap';
+import { bootstrap, loadCachedOrFetch, retryBootstrap } from './bootstrap';
 import {
   createSnapshotWriter, pickCursor, setCacheStore,
   type CacheEntry, type CacheKey, type CacheStore, type Snapshot,
@@ -81,6 +81,7 @@ export function createSyncOrchestrator(options: OrchestratorOptions = {}) {
   };
   const now = options.now ?? Date.now;
   const visibility = options.changes?.document ?? globalThis.document;
+  const network = globalThis.window;
   const state = shallowReactive({
     mode: null as SyncStorage['mode'] | null,
     writeNotPersisted: false,
@@ -155,6 +156,11 @@ export function createSyncOrchestrator(options: OrchestratorOptions = {}) {
     // SSE の中断・再接続と cursor の保持は W-04 が担当する。
   }
 
+  function onOnline() {
+    if (stopped || state.syncing || state.failedKeys.length === 0) return;
+    void refresh([...state.failedKeys]);
+  }
+
   function connect() {
     if (stopped || !snapshot || snapshot.cursor === null) return;
     const currentGeneration = ++generation;
@@ -212,6 +218,8 @@ export function createSyncOrchestrator(options: OrchestratorOptions = {}) {
     snapshot = structuredClone(current);
     stores.replace(current);
     state.failedKeys = [...failedKeys];
+    state.error = failedKeys.length > 0
+      ? new Error(`Failed to fetch lists: ${failedKeys.join(', ')}`) : null;
     write = createSnapshotWriter({ now });
     if (reconnect) connect();
     if (!failedKeys.includes('places')) await enqueue(() => reconcilePlaces(current));
@@ -231,6 +239,7 @@ export function createSyncOrchestrator(options: OrchestratorOptions = {}) {
         if (mode === 'indexeddb') state.writeNotPersisted = false;
       }), storage.onWriteNotPersisted(() => { state.writeNotPersisted = true; }));
       visibility?.addEventListener('visibilitychange', onVisibilityChange);
+      network?.addEventListener('online', onOnline);
       setCacheStore(storageCacheStore(storage));
       void enqueue(pruneProofs);
       const cached = await deps.loadCachedOrFetch({ now });
@@ -256,6 +265,10 @@ export function createSyncOrchestrator(options: OrchestratorOptions = {}) {
   }
 
   function resync(): Promise<void> {
+    return refresh();
+  }
+
+  function refresh(failedKeys?: CacheKey[]): Promise<void> {
     if (stopped) return Promise.resolve();
     if (!snapshot) return start();
     if (refreshPromise) return refreshPromise;
@@ -263,11 +276,12 @@ export function createSyncOrchestrator(options: OrchestratorOptions = {}) {
     disconnect();
     write = undefined;
     state.syncing = true;
-    state.error = null;
+    if (state.failedKeys.length === 0) state.error = null;
     refreshPromise = (async () => {
       try {
         await pending;
-        const updated = await deps.bootstrap({ now });
+        const updated = await (failedKeys
+          ? retryBootstrap(failedKeys, { now }) : deps.bootstrap({ now }));
         if (!stopped) await replace(updated.snapshot, updated.failedKeys, epoch,
           !updated.failedKeys.some(key => key === 'places' || key === 'stamps'));
       } catch (error) {
@@ -286,6 +300,7 @@ export function createSyncOrchestrator(options: OrchestratorOptions = {}) {
     disconnect();
     clearTimeout(expiryTimer);
     visibility?.removeEventListener('visibilitychange', onVisibilityChange);
+    network?.removeEventListener('online', onOnline);
     subscriptions.splice(0).forEach(unsubscribe => unsubscribe());
     state.syncing = false;
     // 保存先はアプリ共有なので close しない。

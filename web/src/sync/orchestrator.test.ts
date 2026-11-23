@@ -79,6 +79,7 @@ function responseFor(url: RequestInfo | URL, snapshot = fresh) {
 const fetchMock = vi.fn<typeof fetch>();
 let storage: StorageRepositories;
 let visibility: FakeDocument;
+let network: EventTarget;
 let apps: ReturnType<typeof createSyncOrchestrator>[];
 
 function app(options: OrchestratorOptions = {}) {
@@ -107,11 +108,13 @@ beforeEach(async () => {
   setCacheStore();
   apps = [];
   visibility = new FakeDocument();
+  network = new EventTarget();
   FakeEventSource.instances = [];
   fetchMock.mockReset().mockImplementation(async url => responseFor(url));
   vi.stubGlobal('fetch', fetchMock);
   vi.stubGlobal('EventSource', FakeEventSource);
   vi.stubGlobal('document', visibility);
+  vi.stubGlobal('window', network);
   vi.stubEnv('VITE_API_BASE', '');
 });
 
@@ -260,6 +263,155 @@ describe('保存層・初回取得・ストアの結線', () => {
   });
 });
 
+describe('online での取得再試行とエラー状態', () => {
+  it.each([false, true])('全件失敗後は online で再試行し、成功時にエラーを解除する（キャッシュ: %s）', async hasCache => {
+    if (hasCache) await seed();
+    fetchMock.mockRejectedValue(new TypeError('offline'));
+    const instance = app();
+    await instance.start();
+    expect(instance.state.failedKeys).toEqual(cacheKeys);
+    expect(instance.state.error).toBeInstanceOf(Error);
+    expect(instance.state.error).toHaveProperty('message', expect.stringContaining('places, stamps, landmarks, labels'));
+    expect(instance.state.syncing).toBe(false);
+    expect(usePlacesStore().items).toEqual(hasCache ? cached.places : []);
+    if (!hasCache) expect(FakeEventSource.instances).toHaveLength(0);
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    vi.useRealTimers();
+
+    fetchMock.mockClear().mockImplementation(async url => responseFor(url));
+    network.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => {
+      expect(instance.state.failedKeys).toEqual([]);
+      expect(instance.state.syncing).toBe(false);
+    });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(cacheKeys.map(key => `/api/${key}`));
+    expect(usePlacesStore().items).toEqual(fresh.places);
+    expect(useStampsStore().items).toEqual(fresh.stamps);
+    expect(latest().url).toBe('/api/changes?since=9');
+    expect(instance.state.error).toBeNull();
+    fetchMock.mockClear();
+    network.dispatchEvent(new Event('online'));
+    await instance.flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('一部失敗は失敗キーだけを再試行し、連続 online をまとめ、残った失敗とエラーを保持する', async () => {
+    fetchMock.mockImplementation(async url => {
+      if (url === '/api/places' || url === '/api/labels') throw new TypeError('offline');
+      return responseFor(url);
+    });
+    const instance = app();
+    await instance.start();
+    expect(instance.state.failedKeys).toEqual(['places', 'labels']);
+    expect(instance.state.error).toBeInstanceOf(Error);
+    expect(FakeEventSource.instances).toHaveLength(0);
+    expect(useStampsStore().items).toEqual(fresh.stamps);
+    expect(useLandmarksStore().items).toEqual(fresh.landmarks);
+
+    const gate = deferred<void>();
+    fetchMock.mockClear().mockImplementation(async url => {
+      await gate.promise;
+      if (url === '/api/labels') throw new TypeError('still offline');
+      return responseFor(url);
+    });
+    network.dispatchEvent(new Event('online'));
+    network.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(instance.state.syncing).toBe(true);
+    expect(instance.state.error).toBeInstanceOf(Error);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/places', '/api/labels']);
+    gate.resolve();
+    await vi.waitFor(() => expect(instance.state.syncing).toBe(false));
+    expect(instance.state.failedKeys).toEqual(['labels']);
+    expect(instance.state.error).toBeInstanceOf(Error);
+    expect(instance.state.error).toHaveProperty('message', 'Failed to fetch lists: labels');
+    expect(usePlacesStore().items).toEqual(fresh.places);
+    expect(useStampsStore().items).toEqual(fresh.stamps);
+    expect(useLandmarksStore().items).toEqual(fresh.landmarks);
+    expect(latest().url).toBe('/api/changes?since=9');
+
+    fetchMock.mockClear().mockImplementation(async url => responseFor(url));
+    network.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(instance.state.syncing).toBe(false));
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/labels']);
+    expect(instance.state.failedKeys).toEqual([]);
+    expect(instance.state.error).toBeNull();
+    expect(useLabelsStore().items).toEqual(fresh.labels);
+    expect(await loadSnapshot({ now: () => NOW })).toEqual(fresh);
+  });
+
+  it('resync の取得失敗も online で失敗分だけ再試行し、接続とエラー状態を復旧する', async () => {
+    const instance = app();
+    await instance.start();
+    const count = FakeEventSource.instances.length;
+    fetchMock.mockImplementation(async url => {
+      if (url === '/api/stamps') throw new TypeError('offline');
+      return responseFor(url);
+    });
+    await instance.resync();
+    expect(instance.state.failedKeys).toEqual(['stamps']);
+    expect(instance.state.error).toBeInstanceOf(Error);
+    expect(FakeEventSource.instances).toHaveLength(count);
+
+    fetchMock.mockClear().mockImplementation(async url => responseFor(url));
+    network.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(instance.state.syncing).toBe(false));
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/stamps']);
+    expect(instance.state.failedKeys).toEqual([]);
+    expect(instance.state.error).toBeNull();
+    expect(FakeEventSource.instances).toHaveLength(count + 1);
+    expect(latest().url).toBe('/api/changes?since=9');
+  });
+
+  it('再試行が全て成功しても cursor が揃わなければ接続しない', async () => {
+    fetchMock.mockRejectedValue(new TypeError('offline'));
+    const instance = app();
+    await instance.start();
+    fetchMock.mockImplementation(async url => responseFor(url, {
+      ...fresh, cursor: null, cursors: { ...fresh.cursors, stamps: null },
+    }));
+    network.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(instance.state.syncing).toBe(false));
+    expect(instance.state.failedKeys).toEqual([]);
+    expect(instance.state.error).toBeNull();
+    expect(FakeEventSource.instances).toHaveLength(0);
+  });
+
+  it('close は online リスナーを解除し、進行中の再試行結果を公開しない', async () => {
+    const remove = vi.spyOn(network, 'removeEventListener');
+    fetchMock.mockRejectedValue(new TypeError('offline'));
+    const instance = app();
+    await instance.start();
+    const error = instance.state.error;
+    const gate = deferred<void>();
+    fetchMock.mockClear().mockImplementation(async url => {
+      await gate.promise;
+      return responseFor(url);
+    });
+    network.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    const retrying = instance.resync();
+    instance.close();
+    expect(remove).toHaveBeenCalledWith('online', expect.any(Function));
+    gate.resolve();
+    await retrying;
+    expect(await loadSnapshot({ now: () => NOW })).toEqual(fresh);
+    await instance.flush();
+    expect(instance.state.failedKeys).toEqual(cacheKeys);
+    expect(instance.state.error).toBe(error);
+    expect(instance.state.syncing).toBe(false);
+    expect(usePlacesStore().items).toEqual([]);
+    expect(FakeEventSource.instances).toHaveLength(0);
+    fetchMock.mockClear();
+    network.dispatchEvent(new Event('online'));
+    await instance.flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('resync と再接続', () => {
   it('(3) onResync で全件を取り直し、適用済みIDをリセットして新 cursor で接続する', async () => {
     const instance = app();
@@ -315,10 +467,17 @@ describe('resync と再接続', () => {
     await instance.resync();
     expect(FakeEventSource.instances).toHaveLength(count);
     expect(instance.state.failedKeys).toEqual(cacheKeys);
-    fetchMock.mockImplementation(async url => responseFor(url));
-    await instance.resync();
+    expect(instance.state.error).toBeInstanceOf(Error);
+    const error = instance.state.error;
+    const gate = deferred<void>();
+    fetchMock.mockImplementation(async url => { await gate.promise; return responseFor(url); });
+    const refreshing = instance.resync();
+    expect(instance.state.error).toBe(error);
+    gate.resolve();
+    await refreshing;
     expect(FakeEventSource.instances).toHaveLength(count + 1);
     expect(instance.state.failedKeys).toEqual([]);
+    expect(instance.state.error).toBeNull();
   });
 
   it('切断後は W-04 の待ち時間で最後の出来事から復帰し、全件取得は増やさない', async () => {
