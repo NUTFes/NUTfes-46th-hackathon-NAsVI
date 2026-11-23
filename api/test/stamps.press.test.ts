@@ -333,3 +333,27 @@ it('正常・入力エラー・DBエラーでも押した人・通信元・地�
   }
   for (const spy of spies) expect(spy).not.toHaveBeenCalled();
 });
+
+it('閉場後の感想は expiresAt が pressedAt より前になり、即期限切れのまま保存する', async () => {
+  config.configureConfig({ CLOSING_TIME: '16:00' });
+  const stamp = await pressed({ kind: 'good', at }, { NOW: '2026-11-28T08:00:00.000Z' });
+  expect(stamp.pressedAt).toBe('2026-11-28T08:00:00.000Z');
+  expect(stamp.expiresAt).toBe('2026-11-28T07:00:00.000Z');
+  expect(Date.parse(stamp.expiresAt)).toBeLessThan(Date.parse(stamp.pressedAt));
+});
+
+it('実行コンテキストがあれば Hub への publish は waitUntil に回し、応答を待たせない', async () => {
+  let release!: () => void;
+  publish.mockImplementation(() => new Promise<Response>(resolve => { release = () => resolve(new Response(null, { status: 204 })); }));
+  const waited: Promise<unknown>[] = [];
+  const ctx = { waitUntil: (p: Promise<unknown>) => { waited.push(p); }, passThroughOnException: () => {} } as unknown as ExecutionContext;
+  const { default: app } = await import('../src/app');
+  const response = await app.fetch(new Request('http://local/api/stamps', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  }), bindings, ctx);
+  expect(response.status).toBe(201);
+  expect(waited).toHaveLength(1);
+  expect(publish).toHaveBeenCalledTimes(1);
+  release();
+  await Promise.all(waited);
+});

@@ -20,6 +20,7 @@ function expiresAt(kind: components['schemas']['StampKind'], pressedAt: string):
   if (kind.startsWith('congestion-')) {
     return new Date(Date.parse(pressedAt) + CONGESTION_TTL_MIN * 60_000).toISOString();
   }
+  // 閉場後に押した感想は expiresAt が pressedAt より前になり、即期限切れになる(仕様どおり。テストで固定)。
   const venueDate = new Date(Date.parse(pressedAt) + 9 * 60 * 60_000).toISOString().slice(0, 10);
   return new Date(`${venueDate}T${CLOSING_TIME}:00+09:00`).toISOString();
 }
@@ -67,16 +68,23 @@ export function register(app: Hono<AppEnv>) {
       if (!stored) throw new Error('Stamp change was not stored');
       const stamp = JSON.parse(stored.payload) as components['schemas']['Stamp'];
       const change: ChangeEvent = { id: stored.id, type: 'stampPressed', payload: stamp, createdAt: stored.created_at };
-      try {
-        const response = await getHub(c.env).fetch('http://hub/publish', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(change),
-        });
-        await response.body?.cancel();
-      } catch {
-        // D1 is authoritative; reconnecting clients can replay this change.
-      }
+      const publishing = (async () => {
+        try {
+          const response = await getHub(c.env).fetch('http://hub/publish', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(change),
+          });
+          await response.body?.cancel();
+        } catch {
+          // D1 is authoritative; reconnecting clients can replay this change.
+        }
+      })();
+      // Do not delay the response on the Hub; fall back to awaiting when no execution context exists.
+      let ctx: { waitUntil(p: Promise<unknown>): void } | undefined;
+      try { ctx = c.executionCtx; } catch { ctx = undefined; }
+      if (ctx) ctx.waitUntil(publishing);
+      else await publishing;
       const pressed: components['schemas']['PressedStamp'] = { ...stamp, proof };
       return c.json(pressed, 201);
     } catch {
