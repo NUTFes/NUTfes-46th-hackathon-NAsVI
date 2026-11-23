@@ -1,0 +1,252 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
+import { createMemoryHistory, createRouter } from 'vue-router';
+import App from '../App.vue';
+import { routes } from '../router';
+import * as geo from '../domain/geo';
+import { usePosition } from '../services/position';
+import { useLandmarksStore, usePlacesStore } from '../stores';
+import * as repositories from '../storage';
+import type { StorageRepositories } from '../storage';
+import type { Landmark, Place } from '../types';
+
+enableAutoUnmount(afterEach);
+
+const place: Place = {
+  id: 'pl_01', name: 'お化け屋敷', kind: 'event',
+  location: { lat: 37.4262, lng: 138.7788 },
+  landmarkId: 'lm_01', floor: 2, description: '整理券が必要です。',
+  hours: [
+    { start: '2026-11-28T01:00:00Z', end: '2026-11-28T07:00:00Z' },
+    { start: '2026-11-29T01:00:00Z', end: '2026-11-29T07:00:00Z' },
+  ],
+  labelIds: [],
+};
+const landmark: Landmark = {
+  id: 'lm_01', name: '総合研究棟', location: place.location, footprint: null, floors: [],
+};
+let pinia: ReturnType<typeof createPinia>;
+let storage: StorageRepositories;
+let position: ReturnType<typeof usePosition>;
+
+beforeEach(async () => {
+  vi.stubGlobal('fetch', vi.fn(() => { throw new Error('外部通信は禁止'); }));
+  pinia = createPinia();
+  setActivePinia(pinia);
+  usePlacesStore().setAll([place]);
+  useLandmarksStore().setAll([landmark]);
+  storage = await repositories.createStorage({ memory: true });
+  vi.spyOn(repositories, 'getStorage').mockResolvedValue(storage);
+  position = usePosition();
+  position.setManually(37.4252, 138.7788, 8);
+});
+
+afterEach(async () => {
+  expect(fetch).not.toHaveBeenCalled();
+  position.dispose();
+  await storage.close();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+async function openCard(id = place.id) {
+  const router = createRouter({ history: createMemoryHistory(), routes });
+  await router.push({ name: 'card', params: { id } });
+  await router.isReady();
+  const wrapper = mount(App, { attachTo: document.body, global: { plugins: [pinia, router] } });
+  await flushPromises();
+  return { wrapper, router };
+}
+
+describe('場所のカード', () => {
+  it('名前・建物と階・種別・説明・複数の開催時間・直線距離を表示する', async () => {
+    const calculate = vi.spyOn(geo, 'distanceM');
+    const { wrapper } = await openCard();
+
+    expect(wrapper.get('h1').text()).toBe('お化け屋敷');
+    expect(wrapper.get('.eyebrow').text()).toBe('総合研究棟・2階・企画');
+    expect(wrapper.get('.description').text()).toBe('整理券が必要です。');
+    expect(wrapper.get('.hours').text()).toBe('2026/11/28 10:00〜16:00\n2026/11/29 10:00〜16:00');
+    expect(wrapper.get('.distance strong').text()).toBe('111 m');
+    expect(wrapper.get('.distance').text()).toContain('直線');
+    expect(calculate).toHaveBeenCalledWith(position.position.value, place.location);
+    expect(wrapper.text()).not.toContain('37.4252');
+    expect(document.activeElement).toBe(wrapper.get('h1').element);
+  });
+
+  it('開くだけでは既存の行き先・タグを変更しない(D-013)', async () => {
+    await storage.destination.save({ placeId: 'another-place' });
+    const saveDestination = vi.spyOn(storage.destination, 'save');
+    const clearDestination = vi.spyOn(storage.destination, 'clear');
+    const saveTag = vi.spyOn(storage.tagLinks, 'save');
+    const deleteTag = vi.spyOn(storage.tagLinks, 'delete');
+
+    const { router } = await openCard();
+
+    expect(router.currentRoute.value.name).toBe('card');
+    expect(await storage.destination.get()).toEqual({ placeId: 'another-place' });
+    expect(saveDestination).not.toHaveBeenCalled();
+    expect(clearDestination).not.toHaveBeenCalled();
+    expect(saveTag).not.toHaveBeenCalled();
+    expect(deleteTag).not.toHaveBeenCalled();
+  });
+
+  it('「ここへ向かう」で場所IDだけを端末に保存して案内へ進む', async () => {
+    const save = vi.spyOn(storage.destination, 'save');
+    const { wrapper, router } = await openCard();
+    await wrapper.get('.go').trigger('click');
+    await flushPromises();
+
+    expect(save).toHaveBeenCalledExactlyOnceWith({ placeId: place.id });
+    expect(await storage.destination.get()).toEqual({ placeId: place.id });
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('guide'));
+  });
+
+  it('行き先の保存に失敗したらカード上で伝え、再試行できる', async () => {
+    vi.spyOn(storage.destination, 'save').mockRejectedValueOnce(new Error('保存失敗'));
+    const { wrapper, router } = await openCard();
+    await wrapper.get('.go').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('行き先を保存できませんでした');
+    expect(router.currentRoute.value.name).toBe('card');
+    expect(await storage.destination.get()).toBeNull();
+    expect(wrapper.get('.go').attributes('disabled')).toBeUndefined();
+    await wrapper.get('.go').trigger('click');
+    await flushPromises();
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('guide'));
+  });
+
+  it.each(repositories.BUILTIN_TAGS)('$title を付け外しし、状態とチェックを更新する', async tag => {
+    const { wrapper } = await openCard();
+    const button = wrapper.findAll('button').find(item => item.text() === tag.title)!;
+    expect(button.attributes('aria-pressed')).toBe('false');
+
+    await button.trigger('click');
+    await flushPromises();
+    expect(await storage.tagLinks.list(place.id)).toEqual([{ placeId: place.id, tagId: tag.id }]);
+    expect(button.attributes('aria-pressed')).toBe('true');
+    expect(button.text()).toContain('✓');
+
+    await button.trigger('click');
+    await flushPromises();
+    expect(await storage.tagLinks.list(place.id)).toEqual([]);
+    expect(button.attributes('aria-pressed')).toBe('false');
+    expect(button.text()).not.toContain('✓');
+    expect(await storage.destination.get()).toBeNull();
+  });
+
+  it('保存済みのタグ状態を読み、別の場所には引き継がない', async () => {
+    const tag = repositories.BUILTIN_TAGS[0];
+    await storage.tagLinks.save({ placeId: place.id, tagId: tag.id });
+    usePlacesStore().upsert({ ...place, id: 'pl_02', name: '別の企画' });
+    const { wrapper, router } = await openCard();
+    expect(wrapper.get('[aria-pressed="true"]').text()).toContain(tag.title);
+
+    await router.push({ name: 'card', params: { id: 'pl_02' } });
+    await flushPromises();
+    expect(wrapper.get('h1').text()).toBe('別の企画');
+    expect(wrapper.find('[aria-pressed="true"]').exists()).toBe(false);
+    expect(await storage.tagLinks.list(place.id)).toEqual([{ placeId: place.id, tagId: tag.id }]);
+  });
+
+  it('タグ保存の失敗を表示し、付いたことにしない', async () => {
+    vi.spyOn(storage.tagLinks, 'save').mockRejectedValueOnce(new Error('保存失敗'));
+    const { wrapper } = await openCard();
+    const button = wrapper.get('[aria-pressed="false"]');
+    await button.trigger('click');
+    await flushPromises();
+
+    expect(button.attributes('aria-pressed')).toBe('false');
+    expect(button.attributes('disabled')).toBeUndefined();
+    expect(wrapper.get('[role="alert"]').text()).toContain('タグを変更できませんでした');
+    expect(await storage.tagLinks.list(place.id)).toEqual([]);
+  });
+
+  it('「＋ タグ」でその場所のタグ画面を開く', async () => {
+    const { wrapper, router } = await openCard();
+    const button = wrapper.findAll('button').find(item => item.text() === '＋ タグ')!;
+    await button.trigger('click');
+    await flushPromises();
+
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('tags'));
+    expect(router.currentRoute.value.params.id).toBe(place.id);
+    expect(await storage.tagLinks.list(place.id)).toEqual([]);
+    expect(await storage.destination.get()).toBeNull();
+  });
+
+  it('現在地が無ければ距離を推測せず、行き先にはできる', async () => {
+    position.refuse();
+    const calculate = vi.spyOn(geo, 'distanceM');
+    const { wrapper, router } = await openCard();
+    expect(wrapper.get('.distance').text()).toContain('直線距離を表示できません');
+    expect(wrapper.find('.distance strong').exists()).toBe(false);
+    expect(calculate).not.toHaveBeenCalled();
+
+    await wrapper.get('.go').trigger('click');
+    await flushPromises();
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('guide'));
+  });
+
+  it('端末内の現在地の更新で直線距離も更新される', async () => {
+    const { wrapper } = await openCard();
+    position.setManually(place.location.lat, place.location.lng, 8);
+    await flushPromises();
+    expect(wrapper.get('.distance strong').text()).toBe('0 m');
+  });
+
+  it.each(['info', 'wc', 'rest', 'trash'] as const)('設備 %s を facility として表示する(D-030)', async kind => {
+    usePlacesStore().upsert({ ...place, kind, hours: [], description: '' });
+    const { wrapper } = await openCard();
+    expect(wrapper.get('.place-card').attributes('data-kind')).toBe('facility');
+    expect(wrapper.get('.eyebrow').text()).toBe('総合研究棟・2階・設備');
+    expect(wrapper.find('.hours').exists()).toBe(false);
+    expect(wrapper.find('.description').exists()).toBe(false);
+  });
+
+  it('建物・階・時間のない屋外駐車場も表示する', async () => {
+    usePlacesStore().upsert({ ...place, kind: 'parking', landmarkId: null, floor: null, hours: [] });
+    const { wrapper } = await openCard();
+    expect(wrapper.get('.place-card').attributes('data-kind')).toBe('parking');
+    expect(wrapper.get('.eyebrow').text()).toBe('駐車場');
+    expect(wrapper.find('.hours').exists()).toBe(false);
+  });
+
+  it('地下階と日をまたぐ開催時間を省略せずに表示する', async () => {
+    usePlacesStore().upsert({
+      ...place, floor: -1,
+      hours: [{ start: '2026-11-28T14:00:00Z', end: '2026-11-28T16:00:00Z' }],
+    });
+    const { wrapper } = await openCard();
+    expect(wrapper.get('.eyebrow').text()).toContain('地下1階');
+    expect(wrapper.get('.hours').text()).toBe('2026/11/28 23:00〜2026/11/29 01:00');
+  });
+
+  it('表示中に場所が削除されたら説明を出し、行き先・タグ操作を外す', async () => {
+    const { wrapper } = await openCard();
+    usePlacesStore().remove(place.id);
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toBe('この場所は見られなくなりました');
+    expect(wrapper.find('.go').exists()).toBe(false);
+    expect(wrapper.find('[aria-pressed]').exists()).toBe(false);
+    expect(await storage.destination.get()).toBeNull();
+  });
+
+  it('不明な場所IDにも削除時と同じ説明と閉じる操作を出す', async () => {
+    const { wrapper, router } = await openCard('missing');
+    expect(wrapper.get('[role="alert"]').text()).toBe('この場所は見られなくなりました');
+    await wrapper.get('button').trigger('click');
+    await flushPromises();
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('map'));
+  });
+
+  it('閉じると地図へ戻り、行き先は変更しない', async () => {
+    await storage.destination.save({ placeId: 'another-place' });
+    const { wrapper, router } = await openCard();
+    await wrapper.get('.close').trigger('click');
+    await flushPromises();
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('map'));
+    expect(await storage.destination.get()).toEqual({ placeId: 'another-place' });
+  });
+});
