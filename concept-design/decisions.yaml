@@ -282,7 +282,7 @@ decisions:
       デザインシステム(BuildingShapePreview の「形なし」)に合わせる。concepts.yaml の Landmark.footprint を lone にし、
       register-landmark は輪郭が取れなくても登録でき、recognize-building・show-building-events は輪郭を持つ建物だけを対象にする。
       残る問題は OQ-17(輪郭の無い建物を、運営にどう知らせるか。カメラの正面に出ない建物を許してよいか)。
-      注意: 元になった API 設計の API-37(footprint は null)は、チームの合意待ちの仮置き。合意が変われば、この決定も見直す。
+      注意: 元になった API 設計の API-37(footprint は null)は、台帳で確定した。合意が変われば、この決定も見直す。
     status: resolved
     derived_from: API-37、design-system/components/BuildingShapePreview
 
@@ -298,7 +298,7 @@ decisions:
       Place に building が入った(D-017)ので、距離の範囲を決める必要が無くなる。概念の同期 show-building-events・show-no-events の
       where を、距離から Place.building の一致に直した。doc/concept-design.md の同期は、すでにこの形だった。OQ-10 のうち near は閉じ、
       「迷っている」の判定だけが残る。屋外の企画(building なし)は、建物の企画には出ない。
-      注意: 元になった API 設計の API-23(landmarkId で返す)は、チームの合意待ちの仮置き。合意が変われば、この決定も見直す。
+      注意: 元になった API 設計の API-23(landmarkId で返す)は、台帳で確定した。合意が変われば、この決定も見直す。
     status: resolved
     derived_from: API-23、OQ-10、D-017
 
@@ -380,3 +380,31 @@ decisions:
     status: resolved
     derived_from: OQ-14、API-29・30、D-004
 
+
+  - id: D-030
+    problem: 設備(案内所・トイレ・休憩所・ゴミ箱)を、建物の企画の一覧(show-building-events)に含めるか
+    options:
+      - 含める(建物にある場所は全部出す)
+      - 含めない(設備は地図の「表示する印」でだけ使う)
+    adopted: 含めない
+    reason: >-
+      利用者の決定(2026-11-23)。D-027 で、設備は検索に出さず、地図の「表示する印」(V1-h)でだけ使うと決めた。
+      建物の企画の一覧は「その建物で何をやっているか」を知るためのもので、トイレやゴミ箱が並ぶと目的から外れる。
+      show-building-events・show-no-events の where に「Place.kind of p が設備でない」を足した。設備だけが登録された建物は、
+      「企画が無い」扱いになる(意図どおり)。API 側は、API 設計の担当が、この確認を待って書く。
+    status: resolved
+    derived_from: D-027、D-024、API-23
+
+  - id: D-031
+    problem: Place.update で、種別(kind)を変えられるか
+    options:
+      - 変えられる(概念のまま)
+      - 変えられない(API に合わせる。変えるときは削除して登録し直す)
+    adopted: 変えられない(API 設計に合わせる)
+    reason: >-
+      利用者の決定(2026-11-23)。API 設計の担当が、PATCH から kind を外した(台帳 API-28)。概念が kind を変えられる形のままだと、
+      実装者が「概念では変えられるのに API では変えられない」と迷う。Place.update は kind を受け取らず、kind を除く属性を更新する。
+      登録時の取り違えは、運営が削除して登録し直す。場所の id は再利用しないので、スタンプなどが付いた場所では手間が増える。
+      前提(崩れたら見直す条件): 登録後に種別を直したい要望が多いとき。
+    status: resolved
+    derived_from: API-28、D-027

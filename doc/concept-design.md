@@ -72,7 +72,7 @@ state
  hours: Place -> set Period       // 開催時間。Period = {開始: Time, 終了: Time}。複数の時間帯を持てる
 actions
  register (name: String, kind: Kind, at: Point, text: String, b: Building?, floor: Number?, hours: Period*): Place
- update (p: Place, name: String, kind: Kind, at: Point, text: String, b: Building?, floor: Number?, hours: Period*)
+ update (p: Place, name: String, at: Point, text: String, b: Building?, floor: Number?, hours: Period*)
    requires p in places
  remove (p: Place)
    requires p in places
@@ -284,9 +284,9 @@ where who may manage places                        // 【未決】OQ-1、OQ-5
 then p = Place.register (name, kind, at, text, b, floor, hours)
 
 sync update-place
-when Web.request (updatePlace, who, p, name, kind, at, text, b, floor, hours)
+when Web.request (updatePlace, who, p, name, at, text, b, floor, hours)
 where who may manage places
-then Place.update (p, name, kind, at, text, b, floor, hours)
+then Place.update (p, name, at, text, b, floor, hours)
 
 sync remove-place
 when Web.request (removePlace, who, p)
@@ -307,7 +307,7 @@ where Place.kind of p is not a facility            // 案内所・トイレ・�
 then Search.index (p, name)
 
 sync reindex-on-update
-when Place.update (p, name, kind, at, text, b, floor, hours)
+when Place.update (p, name, at, text, b, floor, hours)
 where Place.kind of p is not a facility            // D-027
 then Search.index (p, name)
 
@@ -516,13 +516,13 @@ then Web.respond (l, with Landmark.name, Landmark.location)
 sync show-building-events
 when Web.request (showBuildingEvents, l)         // l は、端末が正面の建物として決めたもの(recognize-building。現在地と向きは送らない。D-018)
 where l in Landmark.landmarks
-      p in Place.places with Place.building of p is l
+      p in Place.places with Place.building of p is l and Place.kind of p is not a facility   // 設備は建物の企画に含めない(D-030)
 then Web.respond (l, the places p, with Place.name, Place.location)
 
 sync show-no-events
 when Web.request (showBuildingEvents, l)
 where l in Landmark.landmarks
-      no p in Place.places with Place.building of p is l
+      no p in Place.places with Place.building of p is l and Place.kind of p is not a facility   // D-030
 then Web.respond (l, no events)                       // 「この建物には企画がない」を見せる
 ```
 
