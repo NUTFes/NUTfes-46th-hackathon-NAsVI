@@ -7,6 +7,9 @@ import { usePosition } from '../services/position';
 import { useLandmarksStore, usePlacesStore } from '../stores';
 import { BUILTIN_TAGS, getStorage, type TagLink } from '../storage';
 import type { Place } from '../types';
+import Button from '../components/ui/Button.vue';
+import Icon from '../components/ui/Icon.vue';
+import IconButton from '../components/ui/IconButton.vue';
 
 type TokenColor = { hex: string; alpha?: number };
 function cssColor(value: string | TokenColor): string {
@@ -26,7 +29,7 @@ function dimension(value: { value: number; unit: string }): string {
 // PlaceCard / Button / Chip / Sheet / IconButton.md の意味トークンを共有する。
 const colorNames = [
   'bg-surface', 'text-primary', 'text-secondary', 'border-subtle',
-  'action-primary', 'action-on-primary', 'destination', 'destination-on',
+  'action-primary', 'action-on-primary', 'action-selected-bg', 'destination', 'destination-on',
   'destination-border', 'event', 'parking', 'facility', 'danger-text', 'state-pressed',
 ] as const;
 const CARD_TOKENS = {
@@ -43,6 +46,7 @@ const CARD_TOKENS = {
   '--pc-caption': dimension(tokens.font.size.xs.$value), // font.size.xs
   '--pc-body': dimension(tokens.font.size.sm.$value), // font.size.sm
   '--pc-title': dimension(tokens.font.size['2xl'].$value), // font.size.2xl
+  '--pc-distance': dimension(tokens.font.size['4xl'].$value), // font.size.4xl
   '--pc-weight': tokens.font.weight.regular.$value, // font.weight.regular
   '--pc-bold': tokens.font.weight.bold.$value, // font.weight.bold
   '--pc-heavy': tokens.font.weight['extra-bold'].$value, // font.weight.extra-bold
@@ -53,6 +57,8 @@ const CARD_TOKENS = {
     cssColor(tokens.shadow.sheet.$value.color),
   ].join(' '),
 };
+
+const TAG_ICONS: Record<string, 'bookmark' | 'star'> = { 'want-to-go': 'bookmark', favorite: 'star' };
 
 const route = useRoute();
 const router = useRouter();
@@ -180,10 +186,10 @@ function trapFocus(event: KeyboardEvent) {
         </div>
         <div class="distance" aria-live="polite">
           <template v-if="distance !== null">
-            <strong>{{ distance }} m</strong>
-            <span>直線</span>
+            <strong><span class="num">{{ distance }}</span><span class="unit">m</span></strong>
+            <span class="note">直線</span>
           </template>
-          <span v-else>現在地が未取得のため<br>直線距離を表示できません</span>
+          <span v-else class="note">現在地が未取得のため<br>直線距離を表示できません</span>
         </div>
       </header>
       <p v-if="place.description" class="description">{{ place.description }}</p>
@@ -194,21 +200,23 @@ function trapFocus(event: KeyboardEvent) {
           :aria-pressed="hasTag(tag.id)" :disabled="!tagsReady || pendingTag !== null"
           @click="toggleTag(tag.id)"
         >
-          <span v-if="hasTag(tag.id)" aria-hidden="true">✓</span>{{ tag.title }}
+          <Icon :name="TAG_ICONS[tag.id] ?? 'tag'" :size="16" :filled="hasTag(tag.id)" />{{ tag.title }}
         </button>
-        <button type="button" class="tag" @click="router.push({ name: 'tags', params: { id: placeId } })">＋ タグ</button>
+        <button type="button" class="tag" @click="router.push({ name: 'tags', params: { id: placeId } })">
+          <Icon name="plus" :size="16" /><span class="sr-only">＋ </span>タグ
+        </button>
       </div>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <div class="actions">
-        <button type="button" class="go" :disabled="choosing" @click="go">ここへ向かう</button>
-        <button type="button" class="close" aria-label="閉じる" @click="close">閉じる</button>
+        <Button class="go" label="ここへ向かう" variant="destination" icon="navigation" icon-filled size="lg" :disabled="choosing" @press="go" />
+        <IconButton class="close" icon="close" label="閉じる" @press="close" />
       </div>
     </template>
     <template v-else>
       <h1 id="place-card-title" ref="heading" tabindex="-1">場所のカード</h1>
       <p v-if="loading" role="status">読み込み中…</p>
       <p v-else class="error" role="alert">この場所は見られなくなりました</p>
-      <button type="button" class="close" :disabled="loading" @click="close">閉じる</button>
+      <Button class="close" label="閉じる" variant="secondary" :disabled="loading" @press="close" />
     </template>
   </main>
 </template>
@@ -229,11 +237,9 @@ function trapFocus(event: KeyboardEvent) {
   --pc-facility: var(--pc-dark-facility);
   --pc-danger: var(--pc-dark-danger-text);
   --pc-pressed: var(--pc-dark-state-pressed);
-  position: fixed;
-  inset-inline: var(--pc-padding);
-  bottom: max(var(--pc-padding), env(safe-area-inset-bottom));
-  max-height: calc(100dvh - var(--pc-padding) - var(--pc-padding));
-  overflow-y: auto;
+  --pc-selected: var(--pc-dark-action-selected-bg);
+  /* 位置・重なりは呼び出し側(visitor-overlay)に任せる。カードは中身だけ。 */
+  margin: var(--pc-padding);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -264,6 +270,7 @@ function trapFocus(event: KeyboardEvent) {
   --pc-facility: var(--pc-light-facility);
   --pc-danger: var(--pc-light-danger-text);
   --pc-pressed: var(--pc-light-state-pressed);
+  --pc-selected: var(--pc-light-action-selected-bg);
 }
 .card-top, .tags, .actions { display: flex; gap: var(--pc-gap); }
 .card-top { align-items: flex-start; }
@@ -275,25 +282,23 @@ h1 { font-size: var(--pc-title); font-weight: var(--pc-heavy); }
 [data-kind='facility'] .eyebrow { color: var(--pc-facility); }
 .description, .hours { color: var(--pc-secondary); white-space: pre-line; }
 .distance { text-align: end; color: var(--pc-secondary); font-size: var(--pc-caption); }
-.distance strong, .distance span { display: block; }
-.distance strong { color: var(--pc-text); font-size: var(--pc-title); font-weight: var(--pc-heavy); }
+.distance strong { display: block; color: var(--pc-text); font-size: var(--pc-distance); font-weight: var(--pc-bold); line-height: 1.1; }
+.distance .unit { margin-inline-start: 2px; font-size: var(--pc-body); }
+.distance .note { display: block; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .tags { flex-wrap: wrap; }
-button {
-  min-height: var(--pc-touch);
-  padding: var(--pc-gap-small) var(--pc-section-gap);
-  border: thin solid var(--pc-border);
-  border-radius: var(--pc-control-radius);
-  background: var(--pc-surface);
-  color: var(--pc-text);
-  font: inherit;
-  font-weight: var(--pc-bold);
-  cursor: pointer;
+.tag {
+  display: inline-flex; align-items: center; gap: var(--pc-gap-small);
+  min-height: var(--pc-touch); padding: var(--pc-gap-small) var(--pc-section-gap);
+  border: thin solid var(--pc-border); border-radius: var(--pc-control-radius);
+  background: var(--pc-surface); color: var(--pc-secondary);
+  font: inherit; font-weight: var(--pc-bold); cursor: pointer;
 }
-.tag { display: inline-flex; align-items: center; gap: var(--pc-gap-small); color: var(--pc-secondary); }
-.tag[aria-pressed='true'] { background: var(--pc-action); border-color: var(--pc-action); color: var(--pc-on-action); }
-.go { flex: 1; background: var(--pc-destination); color: var(--pc-on-destination); border-color: var(--pc-destination-border); }
-button:active:not(:disabled) { background-image: linear-gradient(var(--pc-pressed), var(--pc-pressed)); }
-button:focus-visible { outline: solid var(--pc-action); }
-button:disabled { opacity: var(--pc-disabled); cursor: default; }
+.tag[aria-pressed='true'] { background: var(--pc-selected); border-color: var(--pc-action); color: var(--pc-text); }
+.tag[aria-pressed='true'] svg { color: var(--pc-action); }
+.tag:active:not(:disabled) { background-image: linear-gradient(var(--pc-pressed), var(--pc-pressed)); }
+.tag:focus-visible { outline: solid var(--pc-action); }
+.tag:disabled { opacity: var(--pc-disabled); cursor: default; }
+.go { flex: 1; }
 .error { color: var(--pc-danger); }
 </style>
