@@ -98,4 +98,18 @@ describe('PlaceRow（デザインシステムの props）', () => {
     expect(onOpen).not.toHaveBeenCalled();
     expect(onToggleTag).not.toHaveBeenCalled();
   });
+
+  it('種別は Badge、タグはアイコンで出し、行き先は行の全高の線で示す(M5-M8)', () => {
+    const wrapper = mount(PlaceRow, { props: {
+      placeId: 'p', name: '企画', kindLabel: '体験', isDestination: true,
+      tags: { wantToGo: true, favorite: false }, onOpen: vi.fn(), onToggleTag: vi.fn(),
+    } });
+    expect(wrapper.get('.nv-badge').text()).toBe('体験');
+    expect(wrapper.find('[aria-label="行き先"]').exists()).toBe(true);
+    const [bookmark, star] = wrapper.findAll('.place-row__tag svg');
+    expect(bookmark.attributes('data-icon')).toBe('bookmark');
+    expect(bookmark.attributes('data-filled')).toBe('true');
+    expect(star.attributes('data-icon')).toBe('star');
+    expect(star.attributes('data-filled')).toBeUndefined();
+  });
 });

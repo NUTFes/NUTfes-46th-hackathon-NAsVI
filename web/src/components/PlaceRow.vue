@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import '../../../design-system/claude-design/tokens.css';
+import Badge from './ui/Badge.vue';
+import Icon from './ui/Icon.vue';
 
 type Tags = { wantToGo: boolean; favorite: boolean };
 const props = defineProps<{
@@ -93,7 +95,7 @@ const nameParts = computed(() => {
           <template v-for="(part, index) in nameParts" :key="index"><mark v-if="part.match">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template>
         </span>
         <span v-if="kindLabel || building || floor" class="place-row__meta">
-          <span v-if="kindLabel" class="place-row__kind">{{ kindLabel }}</span>
+          <Badge v-if="kindLabel" class="place-row__kind" :label="kindLabel" />
           <span v-if="building">{{ building }}</span>
           <span v-if="floor">{{ floor }}</span>
         </span>
@@ -111,10 +113,7 @@ const nameParts = computed(() => {
         :disabled="loading || !onToggleTag"
         @click.stop="onToggleTag?.(tag, !tags[tag])"
       >
-        <svg viewBox="0 0 24 24" :fill="tags[tag] ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path v-if="tag === 'wantToGo'" d="M6 3h12v18l-6-4-6 4z" />
-          <path v-else d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z" />
-        </svg>
+        <Icon :name="tag === 'wantToGo' ? 'bookmark' : 'star'" :size="22" :filled="tags[tag]" />
       </button>
     </div>
   </div>
@@ -169,12 +168,7 @@ const nameParts = computed(() => {
   line-height: var(--row-caption-line);
   overflow-wrap: anywhere;
 }
-.place-row__kind {
-  padding-inline: calc(var(--row-gap) / 2);
-  border: 1px solid var(--row-border);
-  border-radius: var(--row-radius);
-}
-.place-row__distance { flex: none; color: var(--row-muted); font-size: var(--row-caption-size); }
+.place-row__distance { flex: none; color: var(--row-muted); font-size: var(--row-caption-size); font-weight: 700; }
 .place-row__tags { display: flex; flex: none; }
 .place-row__tag {
   display: grid;
@@ -186,18 +180,15 @@ const nameParts = computed(() => {
   border-radius: var(--row-radius);
   background: transparent;
 }
-.place-row__tag svg { width: calc(var(--row-unit) + var(--row-gap)); height: calc(var(--row-unit) + var(--row-gap)); }
-.place-row__tag[aria-pressed='true'] { color: var(--row-action); background: var(--row-selected); }
+.place-row__tag[aria-pressed='true'] { color: var(--row-action); }
 .place-row button:active { background: var(--row-pressed); }
 .place-row button:focus-visible { outline: 2px solid var(--row-action); outline-offset: -2px; }
 .place-row button:disabled { cursor: default; }
 .place-row__destination {
   position: absolute;
+  inset-block: 0;
   inset-inline-start: 0;
-  width: calc(var(--row-gap) / 2);
-  height: var(--row-unit);
-  box-sizing: border-box;
-  border: 1px solid var(--row-destination-border);
+  width: 4px;
   background: var(--row-destination);
 }
 .place-row__skeleton { display: block; height: var(--row-unit); width: 75%; border-radius: var(--row-radius); background: var(--row-skeleton); }
