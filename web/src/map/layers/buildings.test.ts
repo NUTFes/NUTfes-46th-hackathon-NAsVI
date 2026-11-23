@@ -56,6 +56,7 @@ describe('mapColors / resolveColors', () => {
     expect(Object.keys(mapColors).sort()).toEqual([
       'destination', 'destination-border', 'destination-on', 'event', 'event-on',
       'parking', 'parking-on', 'facility', 'facility-on', 'map-ring', 'bg-surface', 'border-subtle',
+      'text-primary', 'text-disabled',
     ].sort());
     const tokens = JSON.parse(tokenSource);
     // Vitest は CSS import を空にするため、出典のファイルを直接読む。
@@ -254,15 +255,16 @@ describe('buildings Layer', () => {
     buildings.draw(ctx, view, data, 0);
     const [wx, wy] = toXY(event.location.lat, event.location.lng);
     const [x, y] = project(view, 400, 600, wx, wy);
-    expect(ctx.ellipse).toHaveBeenCalledExactlyOnceWith(x, y, 8, 8 * TILT, 0, 0, Math.PI * 2);
+    // EventMark: k=2 は拡大扱いで 20 px(r=10)。画面に平行。押下領域は 44 px 角。
+    expect(ctx.ellipse).toHaveBeenCalledExactlyOnceWith(x, y, 10, 10, 0, 0, Math.PI * 2);
     expect(fills).toEqual([mapColors.event.dark]);
     expect(strokes).toEqual([mapColors['map-ring'].dark]);
     expect(ctx.closePath).not.toHaveBeenCalled();
     expect(buildings.hitTest!(x, y)).toEqual({ kind: 'building', id: 'a' });
-    expect(buildings.hitTest!(x + 8, y)).toEqual({ kind: 'building', id: 'a' });
-    expect(buildings.hitTest!(x + 8.1, y)).toBeNull();
-    expect(buildings.hitTest!(x, y + 7.9 * TILT)).toEqual({ kind: 'building', id: 'a' });
-    expect(buildings.hitTest!(x, y + 8.1 * TILT)).toBeNull();
+    expect(buildings.hitTest!(x + 22, y + 22)).toEqual({ kind: 'building', id: 'a' });
+    expect(buildings.hitTest!(x + 22.1, y)).toBeNull();
+    expect(buildings.hitTest!(x, y - 22)).toEqual({ kind: 'building', id: 'a' });
+    expect(buildings.hitTest!(x, y + 22.1)).toBeNull();
     expect(buildings.hitTest!(200, 300)).toBeNull();
     buildings.draw(ctx, view, { ...data, filter: { labelIds: ['hidden'], tagIds: [] } }, 1);
     expect(buildings.hitTest!(x, y)).toBeNull();
@@ -284,7 +286,7 @@ describe('buildings Layer', () => {
     });
     buildings.draw(ctx, view, data, 0);
     expect(fills).toEqual([mapColors.destination.dark, mapColors.destination.dark]);
-    expect(strokes).toEqual(Array(2).fill(mapColors['destination-border'].dark));
+    expect(strokes).toEqual(Array(2).fill(mapColors['map-ring'].dark));
     expect(buildings.hitTest!(320, 300)).toEqual({ kind: 'building', id: 'a' });
   });
 

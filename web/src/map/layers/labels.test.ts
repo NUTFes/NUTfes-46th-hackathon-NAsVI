@@ -40,6 +40,7 @@ function canvas(dpr = 1) {
     getTransform: () => ({ a: dpr, b: 0 }),
     save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(),
     moveTo: vi.fn(), lineTo: vi.fn(), ellipse: vi.fn(), roundRect: vi.fn(), rect: vi.fn(),
+    translate: vi.fn(), scale: vi.fn(),
     fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn(),
     measureText: vi.fn((text: string) => ({ width: text.length * 10 })),
   } as unknown as CanvasRenderingContext2D;
@@ -149,12 +150,14 @@ describe('labels Layer', () => {
   it('roundRect がなくても rect の path で同じ吹き出し・タップ範囲を使う', () => {
     const ctx = canvas();
     Object.defineProperty(ctx, 'roundRect', { value: undefined });
-    expect(() => labels.draw(ctx, view, state({ places: [place('企画')] }), 0)).not.toThrow();
-    expect(ctx.rect).toHaveBeenCalledExactlyOnceWith(183, 264, 34, 22);
-    expect(ctx.fillText).toHaveBeenCalledWith('企画', 200, 275.5);
-    expect(labels.hitTest!(200, 275)).toEqual({ kind: 'place', id: '企画' });
-    // 44px に広げず、既存の labelHits の矩形を保つ。
-    expect(labels.hitTest!(200, 263.9)).toBeNull();
+    expect(() => labels.draw(ctx, view, state({
+      places: [place('企画')], destination: { placeId: '企画' },
+    }), 0)).not.toThrow();
+    expect(ctx.rect).toHaveBeenCalledExactlyOnceWith(180, 252, 40, 26);
+    expect(ctx.fillText).toHaveBeenCalledWith('企画', 200, 265.5);
+    expect(labels.hitTest!(200, 265)).toEqual({ kind: 'place', id: '企画' });
+    // 行き先の吹き出しは 44px に広げず、描いた矩形のまま。
+    expect(labels.hitTest!(200, 251.9)).toBeNull();
   });
 
   it('measureText が NaN のラベルを飛ばし、他のラベルは描画・選択できる', () => {
@@ -162,39 +165,47 @@ describe('labels Layer', () => {
     vi.mocked(ctx.measureText).mockImplementation((text) => ({
       width: text === 'bad' ? NaN : 40,
     }) as TextMetrics);
-    expect(() => labels.draw(ctx, view, state({ places: [
-      place('bad'), place('valid', { location: fromXY(60, 0) }),
+    const hgt = buildingHeight(landmark().footprint!.map((p) => toXY(p.lat, p.lng)));
+    const [rx, ry] = project(view, 400, 600, 0, 0, hgt);
+    expect(() => labels.draw(ctx, view, state({ landmarks: [landmark()], places: [
+      place('bad'), place('valid', { landmarkId: 'a', location: fromXY(60, 0) }),
     ], destination: { placeId: 'bad' } }), 0)).not.toThrow();
+    // 'bad' の吹き出しは省かれ、建物の企画数の丸薬(roundRect 1 回)だけが残る。
     expect(ctx.roundRect).toHaveBeenCalledTimes(1);
-    expect(ctx.fillText).toHaveBeenCalledExactlyOnceWith('valid', expect.closeTo(320, 8), 275.5);
-    expect(labels.hitTest!(200, 265)).toBeNull();
-    expect(labels.hitTest!(320, 275)).toEqual({ kind: 'place', id: 'valid' });
+    expect(ctx.fillText).toHaveBeenCalledExactlyOnceWith('1', expect.any(Number), expect.any(Number));
+    expect(labels.hitTest!(200, 200)).toBeNull();
+    expect(labels.hitTest!(rx, ry)).toEqual({ kind: 'place', id: 'valid' });
     expect(ctx.save).toHaveBeenCalledTimes(1);
     expect(ctx.restore).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['dark', 'light'] as const)('テーマ %s の企画・駐車場・設備と行き先に対応する色・文字色・縁を使う', (theme) => {
+  it.each(['dark', 'light'] as const)('テーマ %s の企画・駐車場・設備と行き先に対応する色を使う', (theme) => {
     for (const kind of ['event', 'parking', 'info', 'wc', 'rest', 'trash'] as const) {
       for (const isDestination of [false, true]) {
         const ctx = canvas();
         ctx.canvas.closest = vi.fn().mockReturnValue({ getAttribute: () => theme });
-        const fills: { color: unknown; alpha: number }[] = [];
+        const fills: unknown[] = [];
         const strokes: unknown[] = [];
         const texts: unknown[] = [];
-        vi.mocked(ctx.fill).mockImplementation(() => { fills.push({ color: ctx.fillStyle, alpha: ctx.globalAlpha }); });
+        vi.mocked(ctx.fill).mockImplementation(() => { fills.push(ctx.fillStyle); });
         vi.mocked(ctx.stroke).mockImplementation(() => { strokes.push(ctx.strokeStyle); });
         vi.mocked(ctx.fillText).mockImplementation(() => { texts.push(ctx.fillStyle); });
         labels.draw(ctx, view, state({ places: [place('p', { kind })],
           destination: isDestination ? { placeId: 'p' } : null }), 0);
-        const token = isDestination ? 'destination' : kind === 'event' ? 'event' : kind === 'parking' ? 'parking' : 'facility';
-        expect(fills).toEqual([
-          { color: mapColors[token][theme], alpha: isDestination ? 0.3 : 0.18 },
-          { color: mapColors[token][theme], alpha: 1 },
-          { color: mapColors[token][theme], alpha: isDestination ? 1 : 0.94 },
-        ]);
-        expect(texts).toEqual([mapColors[`${token}-on`][theme]]);
-        const border = mapColors[isDestination ? 'destination-border' : 'map-ring'][theme];
-        expect(strokes).toEqual(isDestination ? [border, mapColors.destination[theme], border, border] : [border, border, border]);
+        if (isDestination) {
+          // 行き先の丸は route 層が描く。labels は名前の吹き出しだけ(destination 色、文字は destination-on)。
+          expect(fills).toEqual([mapColors.destination[theme]]);
+          expect(texts).toEqual([mapColors['destination-on'][theme]]);
+          const border = mapColors['destination-border'][theme];
+          expect(strokes).toEqual([mapColors.destination[theme], border, border]);
+          continue;
+        }
+        const token = kind === 'event' ? 'event' : kind === 'parking' ? 'parking' : 'facility';
+        expect(fills).toEqual([mapColors[token][theme]]);
+        expect(strokes).toContain(mapColors['map-ring'][theme]);
+        // 駐車場は P(parking-on)、企画は拡大時の名前(text-primary)、設備は文字なし。
+        expect(texts).toEqual(kind === 'parking' ? [mapColors['parking-on'][theme]]
+          : kind === 'event' ? [mapColors['text-primary'][theme]] : []);
       }
     }
   });
@@ -245,21 +256,21 @@ describe('labels Layer', () => {
     const ctx = canvas();
     expect(() => labels.draw(ctx, view, state(), 0)).not.toThrow();
     expect(() => labels.draw(ctx, view, state({ places: [place('企画')] }), 0)).not.toThrow();
-    expect(ctx.ellipse).toHaveBeenCalledTimes(2);
+    expect(ctx.ellipse).toHaveBeenCalledExactlyOnceWith(200, 300, 10, 10, 0, 0, Math.PI * 2);
     expect(ctx.measureText).toHaveBeenCalledWith('企画');
-    expect(ctx.roundRect).toHaveBeenCalledWith(183, 264, 34, 22, 6);
-    expect(ctx.fillText).toHaveBeenCalledWith('企画', 200, 275.5);
+    expect(ctx.fillText).toHaveBeenCalledWith('企画', 200, 323.5);
   });
 
   it.each([1, 2, 3])('DPR=%s でもラベルと円のタップは CSS ピクセル', (dpr) => {
     const ctx = canvas(dpr);
     labels.draw(ctx, view, state({ places: [place('企画')] }), 0);
-    expect(labels.hitTest!(200, 275)).toEqual({ kind: 'place', id: '企画' });
+    // 押下領域は印の中心から 44 CSS px 角(±22)。
     expect(labels.hitTest!(200, 300)).toEqual({ kind: 'place', id: '企画' });
-    expect(labels.hitTest!(222, 300)).toBeNull();
-    expect(labels.hitTest!(221.9, 300)).toEqual({ kind: 'place', id: '企画' });
-    expect(labels.hitTest!(200, 300 + 21.9 * TILT)).toEqual({ kind: 'place', id: '企画' });
-    expect(labels.hitTest!(200, 300 + 22.1 * TILT)).toBeNull();
+    expect(labels.hitTest!(222, 322)).toEqual({ kind: 'place', id: '企画' });
+    expect(labels.hitTest!(222.1, 300)).toBeNull();
+    expect(labels.hitTest!(200, 322.1)).toBeNull();
+    expect(labels.hitTest!(178, 278)).toEqual({ kind: 'place', id: '企画' });
+    expect(labels.hitTest!(200, 277.9)).toBeNull();
   });
 
   it('ラベルを屋外の円より優先し、建物は返さない', () => {
@@ -281,16 +292,14 @@ describe('labels Layer', () => {
     const ctx = canvas();
     const data = state({ places: [place('outdoor', { labelIds: ['food'] })] });
     labels.draw(ctx, view, data, 0);
-    expect(labels.hitTest!(200, 275)).not.toBeNull();
     expect(labels.hitTest!(200, 300)).not.toBeNull();
     labels.draw(ctx, view, { ...data, filter: { labelIds: ['other'], tagIds: [] } }, 1);
-    expect(labels.hitTest!(200, 275)).toBeNull();
     expect(labels.hitTest!(200, 300)).toBeNull();
     labels.draw(ctx, view, data, 2);
     labels.draw(ctx, { ...view, fx: 1000 }, data, 3);
     expect(labels.hitTest!(200, 300)).toBeNull();
     labels.draw(ctx, view, state(), 4);
-    expect(labels.hitTest!(200, 275)).toBeNull();
+    expect(labels.hitTest!(200, 300)).toBeNull();
   });
 
   it.each(['info', 'wc', 'rest', 'trash'] as const)('%s は建物所属でも絞り込み後に地面の印を残す', (kind) => {
@@ -299,7 +308,7 @@ describe('labels Layer', () => {
       landmarks: [landmark()], places: [place('facility', { kind, landmarkId: 'a' })],
       filter: { labelIds: ['missing'], tagIds: ['missing'] },
     }), 0);
-    expect(ctx.ellipse).toHaveBeenCalledTimes(2);
+    expect(ctx.ellipse).toHaveBeenCalledExactlyOnceWith(200, 300, 10, 10, 0, 0, Math.PI * 2); // 20 px の丸
     expect(ctx.fillText).not.toHaveBeenCalled();
     expect(labels.hitTest!(200, 300)).toEqual({ kind: 'place', id: 'facility' });
   });
@@ -308,13 +317,16 @@ describe('labels Layer', () => {
     const ctx = canvas();
     const data = state({ places: [place('parking', { kind: 'parking', labelIds: ['parking'] })] });
     labels.draw(ctx, { ...view, k: 1 }, data, 0);
-    expect(ctx.ellipse).toHaveBeenCalledTimes(2);
+    // ParkingMark: 22 px の角丸四角に P(丸は描かない)。
+    expect(ctx.ellipse).not.toHaveBeenCalled();
+    expect(ctx.roundRect).toHaveBeenCalledExactlyOnceWith(189, 289, 22, 22, 6);
+    expect(ctx.fillText).toHaveBeenCalledExactlyOnceWith('P', 200, 300.5);
     expect(labels.hitTest!(200, 300)).toEqual({ kind: 'place', id: 'parking' });
     labels.draw(ctx, view, { ...data, filter: { labelIds: ['other'], tagIds: [] } }, 1);
     expect(labels.hitTest!(200, 300)).toBeNull();
   });
 
-  it('Place.name を使い、同じ建物の絞り込み後の企画だけを +N に数える', () => {
+  it('同じ建物の絞り込み後の企画だけを BuildingFlag の数に数える', () => {
     const ctx = canvas();
     labels.draw(ctx, view, state({
       landmarks: [landmark()],
@@ -326,9 +338,8 @@ describe('labels Layer', () => {
       ],
       filter: { labelIds: ['show'], tagIds: ['unknown-tag'] },
     }), 0);
-    expect(ctx.fillText).toHaveBeenCalledWith('展示 +1', 200, expect.any(Number));
-    expect(ctx.fillText).toHaveBeenCalledWith('トイレ', expect.closeTo(320, 8), expect.any(Number));
-    expect(ctx.fillText).toHaveBeenCalledTimes(2);
+    // 建物は名前でなく「旗+絞り込み後の企画数」の丸薬。設備は数えず、文字も出さない。
+    expect(ctx.fillText).toHaveBeenCalledExactlyOnceWith('2', expect.any(Number), expect.any(Number));
   });
 
   it('行き先は同じ建物の代表とし、絞り込み外・低倍率でも単独名と屋根の波紋を出す', () => {
@@ -355,5 +366,70 @@ describe('labels Layer', () => {
       landmarks: [{ ...landmark(), footprint: null }],
       places: [place('indoor', { landmarkId: 'a' })], destination: { placeId: 'indoor' },
     }), 0)).not.toThrow();
+  });
+
+  describe('種類別の印', () => {
+    it('EventMark: 通常は 16 px、拡大(k>=1.25)は 20 px で名前を丸の下に出す', () => {
+      const ctx = canvas();
+      const data = state({ places: [place('屋台')] });
+      labels.draw(ctx, { ...view, k: 1.24 }, data, 0);
+      expect(ctx.ellipse).toHaveBeenLastCalledWith(200, 300, 8, 8, 0, 0, Math.PI * 2);
+      expect(ctx.fillText).not.toHaveBeenCalled();
+      labels.draw(ctx, { ...view, k: 1.25 }, data, 0);
+      expect(ctx.ellipse).toHaveBeenLastCalledWith(200, 300, 10, 10, 0, 0, Math.PI * 2);
+      expect(ctx.fillText).toHaveBeenCalledExactlyOnceWith('屋台', 200, 323.5);
+    });
+
+    it('FacilityMark: 通常 20 px・拡大 26 px。ParkingMark は拡大しても 22 px', () => {
+      const ctx = canvas();
+      labels.draw(ctx, { ...view, k: 2 }, state({ places: [place('t', { kind: 'wc' })] }), 0);
+      expect(ctx.ellipse).toHaveBeenLastCalledWith(200, 300, 13, 13, 0, 0, Math.PI * 2);
+      labels.draw(ctx, { ...view, k: 2 }, state({ places: [place('p', { kind: 'parking' })] }), 0);
+      expect(ctx.roundRect).toHaveBeenLastCalledWith(189, 289, 22, 22, 6);
+    });
+
+    it('Path2D があれば 設備の種類ごとのアイコン・企画の旗を 24 格子のパスで描く', () => {
+      const made: string[] = [];
+      vi.stubGlobal('Path2D', class { constructor(d: string) { made.push(d); } });
+      try {
+        for (const kind of ['info', 'wc', 'rest', 'trash', 'parking', 'event'] as const) {
+          made.length = 0;
+          const ctx = canvas();
+          labels.draw(ctx, { ...view, k: 1 }, state({ places: [place('x', { kind })] }), 0);
+          // parking は P の文字で、アイコンのパスは使わない。
+          if (kind === 'parking') expect(made).toEqual([]);
+          else expect(made.length).toBeGreaterThan(0);
+          if (kind === 'event') expect(made).toEqual(['M6 21V4M6 4h11l-2.5 4L17 12H6']);
+        }
+        const wc: string[] = [];
+        made.length = 0;
+        labels.draw(canvas(), { ...view, k: 1 }, state({ places: [place('x', { kind: 'wc' })] }), 0);
+        wc.push(...made);
+        made.length = 0;
+        labels.draw(canvas(), { ...view, k: 1 }, state({ places: [place('x', { kind: 'trash' })] }), 0);
+        expect(made).not.toEqual(wc);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('BuildingFlag: 建物の企画を「旗+数」の丸薬 1 つにまとめ、低倍率でも出す。押下領域は 44 px 角', () => {
+      const ctx = canvas();
+      const building = landmark();
+      const hgt = buildingHeight(building.footprint!.map((p) => toXY(p.lat, p.lng)));
+      const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0, hgt);
+      labels.draw(ctx, { ...view, k: 1 }, state({
+        landmarks: [building],
+        places: ['a', 'b', 'c'].map((id) => place(id, { landmarkId: 'a' })),
+      }), 0);
+      // 丸薬は高さ 26・端が半円。数字は 13 px。
+      const width = 9 * 2 + 12 + 3 + 10;
+      expect(ctx.roundRect).toHaveBeenCalledExactlyOnceWith(x - width / 2, y - 13, width, 26, 13);
+      expect(ctx.fillText).toHaveBeenCalledExactlyOnceWith('3', expect.any(Number), y + 0.5);
+      expect(labels.hitTest!(x, y)).toEqual({ kind: 'place', id: 'a' });
+      expect(labels.hitTest!(x + 22, y - 22)).toEqual({ kind: 'place', id: 'a' });
+      expect(labels.hitTest!(x + 22.1, y)).toBeNull();
+      expect(labels.hitTest!(x, y + 22.1)).toBeNull();
+    });
   });
 });

@@ -1,47 +1,44 @@
+import { appColors } from '../../app/tokens';
 import { applyFilter } from '../../domain/filter';
 import { toXY } from '../../domain/geo';
 import type { Place } from '../../types';
-import { project, TILT } from '../core';
+import { project } from '../core';
 import type { Layer } from './types';
 
-// 出典: design-system/tokens.json の color.{dark,light} と color.palette。
-// 値は design-system/claude-design/tokens.css の解決済み hex。alpha は描画時に別指定する。
-// labels.ts → buildings.ts の一方向で共有し、出典のトークン名をキーとして固定する。
+// 色の表は I-0 の app/tokens.ts(appColors)から引く。トークン名をキーとして固定する。
+// alpha 付きのトークン(border-subtle)は、描画時に globalAlpha で別指定するため hex の 6 桁だけ使う。
+const darkColors = appColors('dark');
+const lightColors = appColors('light');
+const pick = (name: string) => ({
+  dark: darkColors[`--app-${name}`].slice(0, 7),
+  light: lightColors[`--app-${name}`].slice(0, 7),
+});
 export const mapColors = {
-  destination: { dark: '#ffd84a', light: '#facc15' }, // yellow.300 / yellow.400
-  'destination-border': { dark: '#ffd84a', light: '#1e0b3a' }, // yellow.300 / violet.950
-  'destination-on': { dark: '#1e0b3a', light: '#1e0b3a' }, // violet.950
-  event: { dark: '#5eead4', light: '#0f766e' }, // teal.300 / teal.700
-  'event-on': { dark: '#062a24', light: '#ffffff' }, // teal.950 / white.0
-  parking: { dark: '#60a5fa', light: '#2563eb' }, // blue.400 / blue.600
-  'parking-on': { dark: '#0b1a33', light: '#ffffff' }, // blue.950 / white.0
-  facility: { dark: '#f4f0ff', light: '#1e0b3a' }, // mist.50 / violet.950
-  'facility-on': { dark: '#1e0b3a', light: '#ffffff' }, // violet.950 / white.0
-  'map-ring': { dark: '#130a22', light: '#f6f4fa' }, // ink.900 / violet.50
+  destination: pick('destination'),
+  'destination-border': pick('destination-border'),
+  'destination-on': pick('destination-on'),
+  event: pick('event'),
+  'event-on': pick('event-on'),
+  parking: pick('parking'),
+  'parking-on': pick('parking-on'),
+  facility: pick('facility'),
+  'facility-on': pick('facility-on'),
+  'map-ring': pick('map-ring'),
   // 建物本体の専用トークンはない。企画ありは event、行き先は destination を使う。
   // 通常の建物は地面に近い中立の面として bg-surface、その輪郭は border-subtle を選ぶ。
-  'bg-surface': { dark: '#1c1032', light: '#ffffff' }, // ink.800 / white.0
-  'border-subtle': { dark: '#a78bfa', light: '#1e0b3a' }, // violet.400 / violet.950 (alpha は別指定)
-} as const;
+  'bg-surface': pick('bg-surface'),
+  'border-subtle': pick('border-subtle'),
+  'text-primary': pick('text-primary'),
+  'text-disabled': pick('text-disabled'),
+};
 
 export function resolveColors(ctx: CanvasRenderingContext2D) {
   // DOM の最寄りテーマを使い、未指定・不明・closest のない偽 canvas はダークにする。
   const theme = ctx.canvas.closest?.('[data-theme]')?.getAttribute('data-theme') === 'light'
     ? 'light' : 'dark';
-  return {
-    destination: mapColors.destination[theme],
-    'destination-border': mapColors['destination-border'][theme],
-    'destination-on': mapColors['destination-on'][theme],
-    event: mapColors.event[theme],
-    'event-on': mapColors['event-on'][theme],
-    parking: mapColors.parking[theme],
-    'parking-on': mapColors['parking-on'][theme],
-    facility: mapColors.facility[theme],
-    'facility-on': mapColors['facility-on'][theme],
-    'map-ring': mapColors['map-ring'][theme],
-    'bg-surface': mapColors['bg-surface'][theme],
-    'border-subtle': mapColors['border-subtle'][theme],
-  };
+  return Object.fromEntries(
+    Object.entries(mapColors).map(([name, value]) => [name, value[theme]]),
+  ) as Record<keyof typeof mapColors, string>;
 }
 
 type Point2D = readonly [number, number];
@@ -117,6 +114,145 @@ let buildingHits: {
   markers: { x: number; y: number; r: number }[];
 }[] = [];
 
+/** 押下領域は 44 CSS px 角(中心から ±22)。 */
+export const HIT_HALF = 22;
+
+// 出典: components/ui/Icon.vue(= Figma Icon 22:189)の 24 格子のパス。印に使う 5 種だけ複製する。
+const MARK_ICONS = {
+  flag: { sw: 3, d: ['M6 21V4M6 4h11l-2.5 4L17 12H6'] },
+  info: { sw: 2.2, d: ['M12 2.8a9.2 9.2 0 1 0 0 18.4a9.2 9.2 0 1 0 0-18.4zM12 10.8v6M12 7.3v.3'] },
+  wc: {
+    sw: 0.4,
+    filled: true,
+    d: ['M7 2.2a2 2 0 1 1 0 4a2 2 0 1 1 0-4zM5.6 7.2h2.8a1.2 1.2 0 0 1 1.2 1.2V14H4.4V8.4a1.2 1.2 0 0 1 1.2-1.2zM4.9 14h1.8v7H4.9zM7.3 14h1.8v7H7.3zM17 2.2a2 2 0 1 1 0 4a2 2 0 1 1 0-4zM15.8 7.2h2.4l2.9 8.2h-8.2zM15.2 15.4h1.6V21h-1.6zM17.2 15.4h1.6V21h-1.6zM11.55 3h0.9v18h-0.9z'],
+  },
+  rest: { sw: 2.2, d: ['M5 7h14M4 12h16M7 7v5M17 7v5M6 12v6M18 12v6'] },
+  trash: { sw: 2.2, d: ['M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12'] },
+} satisfies Record<string, { sw: number; filled?: boolean; d: string[] }>;
+export type MarkIcon = keyof typeof MARK_ICONS;
+
+/** 24 格子のアイコンを (cx, cy) を中心に size px で描く。Path2D のない環境では何もしない。 */
+export function drawIcon(
+  ctx: CanvasRenderingContext2D, name: MarkIcon, cx: number, cy: number, size: number, color: string,
+): void {
+  if (typeof Path2D !== 'function') return;
+  const icon: { sw: number; filled?: boolean; d: string[] } = MARK_ICONS[name];
+  ctx.save();
+  ctx.translate(cx - size / 2, cy - size / 2);
+  ctx.scale(size / 24, size / 24);
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = icon.sw;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  for (const d of icon.d) {
+    const path = new Path2D(d);
+    if (icon.filled) ctx.fill(path);
+    ctx.stroke(path);
+  }
+  ctx.restore();
+}
+
+type MarkColors = ReturnType<typeof resolveColors>;
+
+/** 地図の上で浮かせる map-ring の輪つきの丸(画面に平行。TILT はかけない)。 */
+function disc(
+  ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, ring: string, ringWidth = 2,
+): void {
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  ctx.ellipse(x, y, r, r, 0, 0, Math.PI * 2);
+  if (ringWidth > 0) {
+    ctx.strokeStyle = ring;
+    ctx.lineWidth = ringWidth * 2;
+    ctx.stroke();
+  }
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+/** EventMark: 旗の入った event の丸。拡大時は 20 px、通常は 16 px。 */
+export function drawEventMark(
+  ctx: CanvasRenderingContext2D, colors: MarkColors, x: number, y: number, zoomed: boolean, isDest = false,
+): void {
+  const d = zoomed ? 20 : 16;
+  disc(ctx, x, y, d / 2, isDest ? colors.destination : colors.event, colors['map-ring']);
+  drawIcon(ctx, 'flag', x, y, d * 0.6, isDest ? colors['destination-on'] : colors['event-on']);
+}
+
+/** FacilityMark: facility の丸に種類のアイコン。拡大時は 26 px、通常は 20 px。 */
+export function drawFacilityMark(
+  ctx: CanvasRenderingContext2D, colors: MarkColors, x: number, y: number, kind: MarkIcon, zoomed: boolean,
+): void {
+  const d = zoomed ? 26 : 20;
+  disc(ctx, x, y, d / 2, colors.facility, colors['map-ring']);
+  drawIcon(ctx, kind, x, y, d * 0.65, colors['facility-on']);
+}
+
+/** ParkingMark: parking の角丸四角(22 px)に P。 */
+export function drawParkingMark(ctx: CanvasRenderingContext2D, colors: MarkColors, x: number, y: number): void {
+  const s = 22;
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') ctx.roundRect(x - s / 2, y - s / 2, s, s, 6);
+  else ctx.rect(x - s / 2, y - s / 2, s, s);
+  ctx.strokeStyle = colors['map-ring'];
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.fillStyle = colors.parking;
+  ctx.fill();
+  ctx.fillStyle = colors['parking-on'];
+  ctx.font = `700 14px ${MARK_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('P', x, y + 0.5);
+}
+
+/** DestinationMark: 旗の入った黄の丸(24 px)。ライトは destination-border の濃い縁で見分ける。 */
+export function drawDestinationMark(
+  ctx: CanvasRenderingContext2D,
+  colors: Pick<MarkColors, 'destination' | 'destination-border' | 'destination-on' | 'map-ring'>,
+  x: number, y: number,
+): void {
+  const r = 12;
+  disc(ctx, x, y, r + 1.5, colors['destination-border'], colors['map-ring']);
+  disc(ctx, x, y, r, colors.destination, colors['destination-border'], 0);
+  drawIcon(ctx, 'flag', x, y, 13, colors['destination-on']);
+}
+
+export const FLAG_PILL = { h: 26, padX: 9, icon: 12, gap: 3 } as const;
+export const MARK_FONT = '"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif';
+
+/** BuildingFlag の幅。旗 12 + 間 3 + 数字の幅 + 左右 9。 */
+export function flagPillWidth(countWidth: number): number {
+  return FLAG_PILL.padX * 2 + FLAG_PILL.icon + FLAG_PILL.gap + countWidth;
+}
+
+/** BuildingFlag: event の丸薬に「旗+数」。行き先は黄。(x, y) は丸薬の中心。 */
+export function drawBuildingFlag(
+  ctx: CanvasRenderingContext2D, colors: MarkColors, x: number, y: number, w: number, count: number,
+  isDest = false,
+): void {
+  const { h } = FLAG_PILL;
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') ctx.roundRect(x - w / 2, y - h / 2, w, h, h / 2);
+  else ctx.rect(x - w / 2, y - h / 2, w, h);
+  ctx.strokeStyle = colors['map-ring'];
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.fillStyle = isDest ? colors.destination : colors.event;
+  ctx.fill();
+  const on = isDest ? colors['destination-on'] : colors['event-on'];
+  drawIcon(ctx, 'flag', x - w / 2 + FLAG_PILL.padX + FLAG_PILL.icon / 2, y, FLAG_PILL.icon, on);
+  ctx.fillStyle = on;
+  ctx.font = `700 13px ${MARK_FONT}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(count), x - w / 2 + FLAG_PILL.padX + FLAG_PILL.icon + FLAG_PILL.gap, y + 0.5);
+}
+
 const buildings: Layer = {
   name: 'buildings',
   draw(ctx, view, state) {
@@ -148,14 +284,8 @@ const buildings: Layer = {
             if (p.landmarkId !== landmark.id || isFacility(p) || p.kind === 'parking') continue;
             const [wx, wy] = toXY(p.location.lat, p.location.lng);
             const [x, y] = project(view, width, height, wx, wy);
-            const r = Math.max(4, view.k * 4);
-            ctx.globalAlpha = 1;
-            ctx.beginPath();
-            ctx.ellipse(x, y, r, r * TILT, 0, 0, Math.PI * 2);
-            ctx.fillStyle = isDest ? colors.destination : colors.event;
-            ctx.fill();
-            ctx.strokeStyle = isDest ? colors['destination-border'] : colors['map-ring'];
-            ctx.stroke();
+            drawEventMark(ctx, colors, x, y, view.k >= 1.25, isDest);
+            const r = HIT_HALF;
             markers.push({ x, y, r });
           }
           buildingHits.push({ id: landmark.id, polygons: [], markers });
@@ -203,7 +333,7 @@ const buildings: Layer = {
     for (let i = buildingHits.length - 1; i >= 0; i--) {
       const hit = buildingHits[i];
       if (hit.polygons.some((polygon) => pointInPolygon(x, y, polygon))
-        || hit.markers.some((p) => Math.hypot(x - p.x, (y - p.y) / TILT) <= p.r)) {
+        || hit.markers.some((p) => Math.abs(x - p.x) <= p.r && Math.abs(y - p.y) <= p.r)) {
         return { kind: 'building', id: hit.id };
       }
     }
