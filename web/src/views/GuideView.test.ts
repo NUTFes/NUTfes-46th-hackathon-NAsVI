@@ -18,6 +18,16 @@ const place: Place = {
 const landmark: Landmark = {
   id: 'building-1', name: '総合研究棟', location: place.location, footprint: null, floors: [],
 };
+const otherPlace: Place = { ...place, id: 'event-2', name: '別の企画' };
+const themeHosts: HTMLElement[] = [];
+
+function themeHost(theme?: string) {
+  const host = document.createElement('div');
+  if (theme !== undefined) host.dataset.theme = theme;
+  document.body.append(host);
+  themeHosts.push(host);
+  return host;
+}
 
 let storage: storageModule.StorageRepositories;
 let position: ReturnType<typeof usePosition>;
@@ -27,7 +37,7 @@ const fetchMock = vi.fn(() => { throw new Error('案内画面からの通信は�
 const networkMock = vi.fn(() => { throw new Error('案内画面からの通信は禁止'); });
 const watchPosition = vi.fn();
 
-async function renderGuide() {
+async function renderGuide(attachTo?: HTMLElement) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -40,7 +50,7 @@ async function renderGuide() {
   });
   await router.push('/guide');
   await router.isReady();
-  wrapper = mount({ render: () => h(RouterView) }, { global: { plugins: [pinia, router] } });
+  wrapper = mount({ render: () => h(RouterView) }, { attachTo, global: { plugins: [pinia, router] } });
   await flushPromises();
   return wrapper;
 }
@@ -77,6 +87,7 @@ beforeEach(async () => {
 afterEach(async () => {
   wrapper?.unmount();
   wrapper = undefined;
+  themeHosts.splice(0).forEach(host => host.remove());
   position.dispose();
   await storage.close();
   expect(fetchMock).not.toHaveBeenCalled();
@@ -88,6 +99,42 @@ afterEach(async () => {
 });
 
 describe('GuideView', () => {
+  it.each(['light', 'dark', undefined, 'unknown'])('テーマ %s を resolveColors と同じ規則で解決する', async theme => {
+    const view = await renderGuide(themeHost(theme));
+    const style = view.get<HTMLElement>('.guide-view').element.style;
+    const expected = theme === 'light'
+      ? ['#f6f4fa', '#ffffff', '#1e0b3a', '#5b5274', '#facc15', '#1e0b3a', '#1e0b3a', '#1e0b3a26', '#6d28d9', '#c2410c', '#b91c1c']
+      : ['#130a22', '#1c1032', '#f4f0ff', '#b4a9cf', '#ffd84a', '#1e0b3a', '#ffd84a', '#a78bfa47', '#a78bfa', '#fdba74', '#fecaca'];
+    const tokens = ['page', 'surface', 'text', 'secondary', 'destination', 'destination-on', 'destination-border', 'border', 'focus', 'stale', 'danger'];
+    tokens.forEach((token, index) => {
+      expect(style.getPropertyValue(`--guide-${token}`)).toBe(expected[index]);
+    });
+  });
+
+  it('最寄りのテーマを優先し、属性の追加・切替・削除に追従する', async () => {
+    const outer = themeHost('light');
+    const inner = document.createElement('div');
+    outer.append(inner);
+    const view = await renderGuide(inner);
+    const color = () => view.get<HTMLElement>('.guide-view').element.style.getPropertyValue('--guide-destination');
+    expect(color()).toBe('#facc15');
+    inner.dataset.theme = 'dark';
+    await flushPromises();
+    expect(color()).toBe('#ffd84a');
+    inner.dataset.theme = 'light';
+    await flushPromises();
+    expect(color()).toBe('#facc15');
+    inner.dataset.theme = 'unknown';
+    await flushPromises();
+    expect(color()).toBe('#ffd84a');
+    inner.removeAttribute('data-theme');
+    await flushPromises();
+    expect(color()).toBe('#facc15');
+    outer.dataset.theme = 'dark';
+    await flushPromises();
+    expect(color()).toBe('#ffd84a');
+  });
+
   it('保存済みの行き先・建物・階・北基準の方角・直線距離・更新時刻・精度を表示する', async () => {
     const view = await renderGuide();
     expect(view.text()).toContain('お化け屋敷');
@@ -248,10 +295,11 @@ describe('GuideView', () => {
   });
 
   it.each(['remove', 'setAll'] as const)('一覧の %s で場所が消えたら自動で案内を終え、マップへ戻る', async change => {
+    usePlacesStore().setAll([place, otherPlace]);
     const view = await renderGuide();
     const clear = vi.spyOn(storage.destination, 'clear');
     if (change === 'remove') usePlacesStore().remove(place.id);
-    else usePlacesStore().setAll([]);
+    else usePlacesStore().setAll([otherPlace]);
     await nextTick();
     expect(view.text()).not.toContain('お化け屋敷');
     expect(view.text()).not.toContain('直線距離');
@@ -263,8 +311,47 @@ describe('GuideView', () => {
     expect(view.findComponent(GuideView).exists()).toBe(false);
   });
 
-  it('保存済みの行き先が初めから一覧に無い場合も自動で解除する', async () => {
+  it('場所の取得前は一覧が空でも解除せず、取得後に保存済みの行き先を案内する', async () => {
     usePlacesStore().setAll([]);
+    const clear = vi.spyOn(storage.destination, 'clear');
+    const view = await renderGuide();
+    expect(clear).not.toHaveBeenCalled();
+    expect(await storage.destination.get()).toEqual({ placeId: place.id });
+    expect(view.vm.$router.currentRoute.value.name).toBe('guide');
+    expect(view.find('.destination-card').exists()).toBe(false);
+    usePlacesStore().setAll([place]);
+    await flushPromises();
+    expect(clear).not.toHaveBeenCalled();
+    expect(await storage.destination.get()).toEqual({ placeId: place.id });
+    expect(view.get('.destination-card').text()).toContain('お化け屋敷');
+  });
+
+  it.each(['remove', 'setAll'] as const)('一覧の %s で0件になっても未取得扱いで自動解除しない', async change => {
+    const view = await renderGuide();
+    const clear = vi.spyOn(storage.destination, 'clear');
+    if (change === 'remove') usePlacesStore().remove(place.id);
+    else usePlacesStore().setAll([]);
+    await flushPromises();
+    expect(clear).not.toHaveBeenCalled();
+    expect(await storage.destination.get()).toEqual({ placeId: place.id });
+    expect(view.vm.$router.currentRoute.value.name).toBe('guide');
+    expect(view.find('.destination-card').exists()).toBe(false);
+  });
+
+  it('空だった一覧を取得して1件以上になり、行き先が無いと分かったら解除する', async () => {
+    usePlacesStore().setAll([]);
+    const clear = vi.spyOn(storage.destination, 'clear');
+    const view = await renderGuide();
+    expect(clear).not.toHaveBeenCalled();
+    usePlacesStore().setAll([otherPlace]);
+    await flushPromises();
+    expect(clear).toHaveBeenCalledOnce();
+    expect(await storage.destination.get()).toBeNull();
+    expect(view.vm.$router.currentRoute.value.name).toBe('map');
+  });
+
+  it('1件以上の一覧に保存済みの行き先が初めから無い場合も自動で解除する', async () => {
+    usePlacesStore().setAll([otherPlace]);
     const clear = vi.spyOn(storage.destination, 'clear');
     const view = await renderGuide();
     expect(clear).toHaveBeenCalledOnce();
@@ -275,6 +362,7 @@ describe('GuideView', () => {
   });
 
   it('削除時の自動解除に失敗したら古い案内を出さず、再試行で解除できる', async () => {
+    usePlacesStore().setAll([place, otherPlace]);
     const view = await renderGuide();
     const clear = vi.spyOn(storage.destination, 'clear').mockRejectedValueOnce(new Error('保存失敗'));
     usePlacesStore().remove(place.id);
@@ -297,6 +385,7 @@ describe('GuideView', () => {
   });
 
   it('自動解除が終わるまで理由を知らせ、完了後に履歴を置き換えてマップへ戻る', async () => {
+    usePlacesStore().setAll([place, otherPlace]);
     const view = await renderGuide();
     const router = view.vm.$router;
     const replace = vi.spyOn(router, 'replace');

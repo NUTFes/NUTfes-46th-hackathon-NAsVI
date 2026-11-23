@@ -12,6 +12,35 @@ const ARRIVAL_DISTANCE_M = 20;
 const STALE_AFTER_MS = 30_000;
 const DIRECTIONS = ['北', '北東', '東', '南東', '南', '南西', '西', '北西'] as const;
 
+// 出典: design-system/tokens.json の color.{dark,light}。
+// 値は design-system/claude-design/tokens.css の解決済み色。
+const guideColors = {
+  '--guide-page': { dark: '#130a22', light: '#f6f4fa' },
+  '--guide-surface': { dark: '#1c1032', light: '#ffffff' },
+  '--guide-text': { dark: '#f4f0ff', light: '#1e0b3a' },
+  '--guide-secondary': { dark: '#b4a9cf', light: '#5b5274' },
+  '--guide-destination': { dark: '#ffd84a', light: '#facc15' },
+  '--guide-destination-on': { dark: '#1e0b3a', light: '#1e0b3a' },
+  '--guide-destination-border': { dark: '#ffd84a', light: '#1e0b3a' },
+  '--guide-border': { dark: '#a78bfa47', light: '#1e0b3a26' },
+  '--guide-focus': { dark: '#a78bfa', light: '#6d28d9' },
+  '--guide-stale': { dark: '#fdba74', light: '#c2410c' },
+  '--guide-danger': { dark: '#fecaca', light: '#b91c1c' },
+} as const;
+const root = ref<HTMLElement>();
+const theme = ref<'light' | 'dark'>('dark');
+const colors = computed(() => Object.fromEntries(
+  Object.entries(guideColors).map(([token, values]) => [token, values[theme.value]]),
+));
+let themeObserver: MutationObserver | undefined;
+
+function resolveColors() {
+  // map の resolveColors / FloorPlan と同じく、最寄りが light のときだけライト。
+  // 未指定・不明なテーマはダーク。親の data-theme の切替にも追従する。
+  theme.value = root.value?.closest('[data-theme]')?.getAttribute('data-theme') === 'light'
+    ? 'light' : 'dark';
+}
+
 const places = usePlacesStore();
 const landmarks = useLandmarksStore();
 const router = useRouter();
@@ -53,7 +82,11 @@ const accuracy = computed(() => {
   return value != null && Number.isFinite(value) && value >= 0 ? `精度 ±${Math.round(value)} m` : '精度不明';
 });
 
-watch(() => !loading.value && destination.value !== null && !place.value, missing => {
+// W-09 が出来事 placeRemoved で先に行き先を解除する。
+// この watch は、一覧の取り直しで行き先の場所が消えていた場合の備え。
+// S-08 の結線側が場所の取得完了まで画面を出さないことを前提とする。
+// stores に取得状態がないため、0 件は未取得扱いにして自動解除しない。
+watch(() => !loading.value && destination.value !== null && places.items.length > 0 && !place.value, missing => {
   if (!missing) return;
   // API-5 / remove-clears-destination: 端末内で終了。地図へ自動で戻すのは今回の追加決定。
   unavailable.value = true;
@@ -61,6 +94,11 @@ watch(() => !loading.value && destination.value !== null && !place.value, missin
 });
 
 onMounted(async () => {
+  resolveColors();
+  themeObserver = new MutationObserver(resolveColors);
+  for (let ancestor = root.value; ancestor; ancestor = ancestor.parentElement ?? undefined) {
+    themeObserver.observe(ancestor, { attributes: true, attributeFilter: ['data-theme'] });
+  }
   ticker = setInterval(() => { now.value = Date.now(); }, 1000);
   try {
     const storage = await getStorage();
@@ -75,6 +113,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   disposed = true;
+  themeObserver?.disconnect();
   clearInterval(ticker);
 });
 
@@ -100,7 +139,7 @@ async function clearDestination() {
 </script>
 
 <template>
-  <main class="guide-view">
+  <main ref="root" class="guide-view" :style="colors">
     <h1>案内中</h1>
     <p v-if="loading" role="status">行き先を確認しています</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -158,20 +197,6 @@ async function clearDestination() {
 
 <style scoped>
 .guide-view {
-  /* design-system/tokens.json: 親の color.{dark,light}.* を優先する。
-     テーマ切替は design-system/claude-design/tokens.css の意味トークンに依存。
-     未提供時は color.light.* の組み合わせで文字・背景・縁のコントラストを保つ。 */
-  --guide-page: var(--bg-page, #f6f4fa); /* color.light.bg-page */
-  --guide-surface: var(--bg-surface, #ffffff); /* color.light.bg-surface */
-  --guide-text: var(--text-primary, #1e0b3a); /* color.light.text-primary */
-  --guide-secondary: var(--text-secondary, #5b5274); /* color.light.text-secondary */
-  --guide-destination: var(--destination, #facc15); /* color.light.destination */
-  --guide-destination-on: var(--destination-on, #1e0b3a); /* color.light.destination-on */
-  --guide-destination-border: var(--destination-border, #1e0b3a); /* color.light.destination-border */
-  --guide-border: var(--border-subtle, #1e0b3a26); /* color.light.border-subtle */
-  --guide-focus: var(--action-primary, #6d28d9); /* color.light.action-primary */
-  --guide-stale: var(--stale, #c2410c); /* color.light.stale */
-  --guide-danger: var(--danger-text, #b91c1c); /* color.light.danger-text */
   --guide-space-1: 4px; /* space.1 */
   --guide-space-2: 8px; /* space.2 */
   --guide-space-3: 12px; /* space.3 */
