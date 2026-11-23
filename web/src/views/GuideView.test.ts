@@ -1,7 +1,7 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-import { nextTick } from 'vue';
-import { createMemoryHistory, createRouter } from 'vue-router';
+import { h, nextTick } from 'vue';
+import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fromXY } from '../domain/geo';
 import { usePosition } from '../services/position';
@@ -40,7 +40,7 @@ async function renderGuide() {
   });
   await router.push('/guide');
   await router.isReady();
-  wrapper = mount(GuideView, { global: { plugins: [pinia, router] } });
+  wrapper = mount({ render: () => h(RouterView) }, { global: { plugins: [pinia, router] } });
   await flushPromises();
   return wrapper;
 }
@@ -92,18 +92,27 @@ describe('GuideView', () => {
     const view = await renderGuide();
     expect(view.text()).toContain('お化け屋敷');
     expect(view.text()).toContain('総合研究棟 2階');
-    expect(view.text()).toContain('直線距離 150 m');
+    expect(view.text()).toContain('直線距離 約 150 m');
     expect(view.text()).toContain('方角：東（北を基準）');
     expect(view.text()).toContain('10 秒前に更新・精度 ±8 m');
     expect(view.get('a').attributes('href')).toBe('/camera');
     expect(view.get('button').text()).toBe('案内をやめる');
   });
 
+  it.each([
+    { distance: 149.6, text: '直線距離 約 150 m' },
+    { distance: 1500, text: '直線距離 約 1500 m' },
+  ])('追加決定に従い距離 $distance を「約」付きの整数 m で表示する', async ({ distance, text }) => {
+    usePlacesStore().upsert({ ...place, location: fromXY(distance, 0) });
+    const view = await renderGuide();
+    expect(view.get('.distance').text()).toBe(text);
+  });
+
   it('現在地の更新に追従し、距離・方角・時刻・精度を再計算する', async () => {
     const view = await renderGuide();
     setPosition(150, -60, 12);
     await nextTick();
-    expect(view.text()).toContain('直線距離 60 m');
+    expect(view.text()).toContain('直線距離 約 60 m');
     expect(view.text()).toContain('方角：北（北を基準）');
     expect(view.text()).toContain('0 秒前に更新・精度 ±12 m');
   });
@@ -115,7 +124,7 @@ describe('GuideView', () => {
     await nextTick();
     expect(view.text()).toContain('新しい企画名');
     expect(view.text()).toContain('新しい建物名 0階');
-    expect(view.text()).toContain('直線距離 141 m');
+    expect(view.text()).toContain('直線距離 約 141 m');
     expect(view.text()).toContain('方角：南西（北を基準）');
   });
 
@@ -207,7 +216,7 @@ describe('GuideView', () => {
     await nextTick();
     expect(view.text()).toContain('現在地が使えません');
     expect(view.text()).not.toContain('着きました');
-    expect(view.text()).not.toContain('直線距離 0 m');
+    expect(view.find('.distance').exists()).toBe(false);
     expect(view.get('.position-banner a').attributes('href')).toBe('/noloc');
     expect(await storage.destination.get()).toEqual({ placeId: place.id });
   });
@@ -230,22 +239,86 @@ describe('GuideView', () => {
 
   it('行き先がない場合は距離を作らずマップへの手を出す', async () => {
     await storage.destination.clear();
+    const clear = vi.spyOn(storage.destination, 'clear');
     const view = await renderGuide();
     expect(view.text()).toContain('行き先が選ばれていません');
     expect(view.text()).not.toContain('直線距離');
     expect(view.get('a').attributes('href')).toBe('/');
+    expect(clear).not.toHaveBeenCalled();
   });
 
-  it('場所が削除されたら古い案内を表示せず、行き先を解除できる', async () => {
+  it.each(['remove', 'setAll'] as const)('一覧の %s で場所が消えたら自動で案内を終え、マップへ戻る', async change => {
     const view = await renderGuide();
-    usePlacesStore().remove(place.id);
+    const clear = vi.spyOn(storage.destination, 'clear');
+    if (change === 'remove') usePlacesStore().remove(place.id);
+    else usePlacesStore().setAll([]);
     await nextTick();
-    expect(view.text()).toContain('行き先の場所が見つかりません');
     expect(view.text()).not.toContain('お化け屋敷');
     expect(view.text()).not.toContain('直線距離');
+    await flushPromises();
+    expect(clear).toHaveBeenCalledOnce();
+    expect(await storage.destination.get()).toBeNull();
+    expect(view.vm.$router.currentRoute.value.name).toBe('map');
+    expect(view.text()).toBe('マップ');
+    expect(view.findComponent(GuideView).exists()).toBe(false);
+  });
+
+  it('保存済みの行き先が初めから一覧に無い場合も自動で解除する', async () => {
+    usePlacesStore().setAll([]);
+    const clear = vi.spyOn(storage.destination, 'clear');
+    const view = await renderGuide();
+    expect(clear).toHaveBeenCalledOnce();
+    expect(await storage.destination.get()).toBeNull();
+    expect(view.text()).not.toContain('直線距離');
+    expect(view.vm.$router.currentRoute.value.name).toBe('map');
+    expect(view.findComponent(GuideView).exists()).toBe(false);
+  });
+
+  it('削除時の自動解除に失敗したら古い案内を出さず、再試行で解除できる', async () => {
+    const view = await renderGuide();
+    const clear = vi.spyOn(storage.destination, 'clear').mockRejectedValueOnce(new Error('保存失敗'));
+    usePlacesStore().remove(place.id);
+    await flushPromises();
+    expect(clear).toHaveBeenCalledOnce();
+    expect(await storage.destination.get()).toEqual({ placeId: place.id });
+    expect(view.get('[role="alert"]').text()).toContain('もう一度お試しください');
+    expect(view.get('[role="status"]').text()).toBe('この場所は案内できなくなりました');
+    expect(view.find('.destination-card').exists()).toBe(false);
+    expect(view.get('a').attributes('href')).toBe('/');
+    expect(view.vm.$router.currentRoute.value.name).toBe('guide');
+    expect(view.get('button').text()).toBe('案内を終える');
     await view.get('button').trigger('click');
     await flushPromises();
+    expect(clear).toHaveBeenCalledTimes(2);
     expect(await storage.destination.get()).toBeNull();
+    expect(view.find('[role="alert"]').exists()).toBe(false);
+    expect(view.vm.$router.currentRoute.value.name).toBe('map');
+    expect(view.findComponent(GuideView).exists()).toBe(false);
+  });
+
+  it('自動解除が終わるまで理由を知らせ、完了後に履歴を置き換えてマップへ戻る', async () => {
+    const view = await renderGuide();
+    const router = view.vm.$router;
+    const replace = vi.spyOn(router, 'replace');
+    const originalClear = storage.destination.clear.bind(storage.destination);
+    let finish!: () => void;
+    const clear = vi.spyOn(storage.destination, 'clear').mockImplementationOnce(async () => {
+      await new Promise<void>(resolve => { finish = resolve; });
+      await originalClear();
+    });
+    usePlacesStore().remove(place.id);
+    await flushPromises();
+    expect(view.get('[role="status"]').text()).toBe('この場所は案内できなくなりました');
+    expect(view.find('.destination-card').exists()).toBe(false);
+    expect(view.get('button').attributes('disabled')).toBeDefined();
+    expect(router.currentRoute.value.name).toBe('guide');
+    expect(replace).not.toHaveBeenCalled();
+    expect(clear).toHaveBeenCalledOnce();
+    finish();
+    await flushPromises();
+    expect(await storage.destination.get()).toBeNull();
+    expect(replace).toHaveBeenCalledExactlyOnceWith({ name: 'map' });
+    expect(router.currentRoute.value.name).toBe('map');
   });
 
   it('保存先の読み込みに失敗しても理由とマップへの手を出す', async () => {

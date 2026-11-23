@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { RouterLink } from 'vue-router';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { RouterLink, useRouter } from 'vue-router';
 import { bearingDeg, distanceM } from '../domain/geo';
 import { usePosition } from '../services/position';
 import { getStorage } from '../storage';
@@ -14,6 +14,7 @@ const DIRECTIONS = ['北', '北東', '東', '南東', '南', '南西', '西', '�
 
 const places = usePlacesStore();
 const landmarks = useLandmarksStore();
+const router = useRouter();
 // 許可・再取得は位置の画面が担当する。ここでは共有中の位置を読むだけ。
 const { position, status } = usePosition();
 // 行き先の Pinia ストアは未提供。contracts.md §8 の端末内保存を使う。
@@ -21,6 +22,7 @@ const destination = ref<Destination | null>(null);
 const loading = ref(true);
 const clearing = ref(false);
 const finished = ref(false);
+const unavailable = ref(false);
 const error = ref('');
 const now = ref(Date.now());
 let ticker: ReturnType<typeof setInterval> | undefined;
@@ -51,6 +53,13 @@ const accuracy = computed(() => {
   return value != null && Number.isFinite(value) && value >= 0 ? `精度 ±${Math.round(value)} m` : '精度不明';
 });
 
+watch(() => !loading.value && destination.value !== null && !place.value, missing => {
+  if (!missing) return;
+  // API-5 / remove-clears-destination: 端末内で終了。地図へ自動で戻すのは今回の追加決定。
+  unavailable.value = true;
+  void clearDestination();
+});
+
 onMounted(async () => {
   ticker = setInterval(() => { now.value = Date.now(); }, 1000);
   try {
@@ -75,11 +84,12 @@ async function clearDestination() {
   error.value = '';
   try {
     const storage = await getStorage();
-    // D-026: 到着の表示だけでは消さず、「やめる」「終える」で同じ clear を呼ぶ。
+    // D-026: 到着の表示だけでは消さない。削除時も手動の終了と同じ clear を使う。
     await storage.destination.clear();
     if (!disposed) {
       destination.value = null;
       finished.value = true;
+      if (unavailable.value) await router.replace({ name: 'map' });
     }
   } catch {
     if (!disposed) error.value = '案内を終えられませんでした。もう一度お試しください。';
@@ -95,7 +105,7 @@ async function clearDestination() {
     <p v-if="loading" role="status">行き先を確認しています</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
 
-    <section v-if="!loading && destination && place" class="destination-card" aria-label="行き先への案内">
+    <section v-if="!loading && !unavailable && destination && place" class="destination-card" aria-label="行き先への案内">
       <div class="card-heading">
         <span class="direction-mark" aria-hidden="true">
           <span v-if="arrived">✓</span>
@@ -113,7 +123,8 @@ async function clearDestination() {
       </div>
 
       <template v-if="guide">
-        <p class="distance">直線距離 <strong>{{ Math.round(guide.distance) }} m</strong></p>
+        <!-- 距離表記の追加決定: 「約」+ 整数 m。 -->
+        <p class="distance">直線距離 <strong>約 {{ Math.round(guide.distance) }} m</strong></p>
         <p>方角：{{ direction }}（北を基準）</p>
         <p class="caption" :class="{ stale }">
           <span v-if="stale">更新が止まっています・</span>{{ updated }}・{{ accuracy }}
@@ -137,9 +148,9 @@ async function clearDestination() {
     </section>
 
     <section v-else-if="!loading" class="empty-state">
-      <p role="status">{{ finished ? '案内を終了しました' : destination ? '行き先の場所が見つかりません' : '行き先が選ばれていません' }}</p>
+      <p role="status">{{ unavailable ? 'この場所は案内できなくなりました' : finished ? '案内を終了しました' : '行き先が選ばれていません' }}</p>
       <p class="caption">マップから行き先を選べます。</p>
-      <button v-if="destination" type="button" class="action" :disabled="clearing" @click="clearDestination">案内をやめる</button>
+      <button v-if="destination" type="button" class="action" :disabled="clearing" @click="clearDestination">案内を終える</button>
       <RouterLink class="action" :to="{ name: 'map' }">マップへ</RouterLink>
     </section>
   </main>
@@ -147,18 +158,20 @@ async function clearDestination() {
 
 <style scoped>
 .guide-view {
-  /* design-system/tokens.json: color.dark.* (外側の同名トークンでテーマを上書き可能) */
-  --guide-page: var(--bg-page, #130a22); /* color.dark.bg-page */
-  --guide-surface: var(--bg-surface, #1c1032); /* color.dark.bg-surface */
-  --guide-text: var(--text-primary, #f4f0ff); /* color.dark.text-primary */
-  --guide-secondary: var(--text-secondary, #b4a9cf); /* color.dark.text-secondary */
-  --guide-destination: var(--destination, #ffd84a); /* color.dark.destination */
-  --guide-destination-on: var(--destination-on, #1e0b3a); /* color.dark.destination-on */
-  --guide-destination-border: var(--destination-border, #ffd84a); /* color.dark.destination-border */
-  --guide-border: var(--border-subtle, #a78bfa47); /* color.dark.border-subtle */
-  --guide-focus: var(--action-primary, #a78bfa); /* color.dark.action-primary */
-  --guide-stale: var(--stale, #fdba74); /* color.dark.stale */
-  --guide-danger: var(--danger-text, #fecaca); /* color.dark.danger-text */
+  /* design-system/tokens.json: 親の color.{dark,light}.* を優先する。
+     テーマ切替は design-system/claude-design/tokens.css の意味トークンに依存。
+     未提供時は color.light.* の組み合わせで文字・背景・縁のコントラストを保つ。 */
+  --guide-page: var(--bg-page, #f6f4fa); /* color.light.bg-page */
+  --guide-surface: var(--bg-surface, #ffffff); /* color.light.bg-surface */
+  --guide-text: var(--text-primary, #1e0b3a); /* color.light.text-primary */
+  --guide-secondary: var(--text-secondary, #5b5274); /* color.light.text-secondary */
+  --guide-destination: var(--destination, #facc15); /* color.light.destination */
+  --guide-destination-on: var(--destination-on, #1e0b3a); /* color.light.destination-on */
+  --guide-destination-border: var(--destination-border, #1e0b3a); /* color.light.destination-border */
+  --guide-border: var(--border-subtle, #1e0b3a26); /* color.light.border-subtle */
+  --guide-focus: var(--action-primary, #6d28d9); /* color.light.action-primary */
+  --guide-stale: var(--stale, #c2410c); /* color.light.stale */
+  --guide-danger: var(--danger-text, #b91c1c); /* color.light.danger-text */
   --guide-space-1: 4px; /* space.1 */
   --guide-space-2: 8px; /* space.2 */
   --guide-space-3: 12px; /* space.3 */
