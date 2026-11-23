@@ -2,7 +2,7 @@ import type { Hono } from 'hono';
 import { z } from 'zod';
 import { CLOSING_TIME, CONGESTION_TTL_MIN, VENUE_BOUNDS } from '../../config';
 import type { AppEnv } from '../../env';
-import { getHub, type ChangeEvent } from '../../lib/changes';
+import { commitWithChange } from '../../lib/changes';
 import { problem } from '../../lib/errors';
 import { newId } from '../../lib/ids';
 import { nowIso } from '../../lib/time';
@@ -13,8 +13,6 @@ const stampInput = z.object({
   kind: z.enum(['congestion-1', 'congestion-2', 'congestion-3', 'congestion-4', 'congestion-5', 'fun', 'food', 'good']),
   at: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }),
 });
-
-interface StoredChange { id: number; payload: string; created_at: string }
 
 function expiresAt(kind: components['schemas']['StampKind'], pressedAt: string): string {
   if (kind.startsWith('congestion-')) {
@@ -51,40 +49,23 @@ export function register(app: Hono<AppEnv>) {
       const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(proof));
       const proofHash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 
-      // commitWithChange serializes its payload before writing. Build this payload
-      // from the stored row in SQL, keeping the stamp and history in one batch.
-      const results = await c.env.DB.batch<StoredChange>([
+      let ctx: { waitUntil(p: Promise<unknown>): void } | undefined;
+      try { ctx = c.executionCtx; } catch { ctx = undefined; }
+      const { payload } = await commitWithChange({ ...c.env, NOW: pressedAt }, [
         c.env.DB.prepare(`INSERT INTO stamps (id, kind, lat, lng, pressed_at, expires_at, proof_hash)
           VALUES (?, ?, ?, ?, ?, ?, ?)`)
           .bind(id, kind, at.lat, at.lng, pressedAt, expiresAt(kind, pressedAt), proofHash),
-        c.env.DB.prepare(`INSERT INTO changes (type, payload, created_at)
-          SELECT 'stampPressed', json_object(
+      ], {
+        type: 'stampPressed',
+        payloadSql: {
+          sql: `SELECT json_object(
             'id', id, 'kind', kind, 'at', json_object('lat', lat, 'lng', lng),
             'pressedAt', pressed_at, 'expiresAt', expires_at
-          ), ? FROM stamps WHERE id = ?`).bind(pressedAt, id),
-        c.env.DB.prepare('SELECT id, payload, created_at FROM changes WHERE id = last_insert_rowid()'),
-      ]);
-      const stored = results[2].results[0];
-      if (!stored) throw new Error('Stamp change was not stored');
-      const stamp = JSON.parse(stored.payload) as components['schemas']['Stamp'];
-      const change: ChangeEvent = { id: stored.id, type: 'stampPressed', payload: stamp, createdAt: stored.created_at };
-      const publishing = (async () => {
-        try {
-          const response = await getHub(c.env).fetch('http://hub/publish', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(change),
-          });
-          await response.body?.cancel();
-        } catch {
-          // D1 is authoritative; reconnecting clients can replay this change.
-        }
-      })();
-      // Do not delay the response on the Hub; fall back to awaiting when no execution context exists.
-      let ctx: { waitUntil(p: Promise<unknown>): void } | undefined;
-      try { ctx = c.executionCtx; } catch { ctx = undefined; }
-      if (ctx) ctx.waitUntil(publishing);
-      else await publishing;
+          ) FROM stamps WHERE id = ?`,
+          params: [id],
+        },
+      }, ctx);
+      const stamp = payload as components['schemas']['Stamp'];
       const pressed: components['schemas']['PressedStamp'] = { ...stamp, proof };
       return c.json(pressed, 201);
     } catch {
