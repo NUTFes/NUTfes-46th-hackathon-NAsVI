@@ -27,18 +27,26 @@ function color(path: string): string {
 }
 const touchTarget = token<Dimension>('size.touch-target').value; // size.touch-target
 const shadow = token<{ color: Color; offsetX: Dimension; offsetY: Dimension; blur: Dimension; spread: Dimension }>('shadow.sheet'); // shadow.sheet
-const theme = {
-  '--page': color('color.dark.bg-page'), // color.dark.bg-page
-  '--surface': color('color.dark.bg-surface'), // color.dark.bg-surface
-  '--text': color('color.dark.text-primary'), // color.dark.text-primary
-  '--secondary': color('color.dark.text-secondary'), // color.dark.text-secondary
-  '--primary': color('color.dark.action-primary'), // color.dark.action-primary
-  '--on-primary': color('color.dark.action-on-primary'), // color.dark.action-on-primary
-  '--border': color('color.dark.border-subtle'), // color.dark.border-subtle
-  '--pressed': color('color.dark.state-pressed'), // color.dark.state-pressed
-  '--danger': color('color.dark.danger'), // color.dark.danger
-  '--danger-bg': color('color.dark.danger-bg'), // color.dark.danger-bg
-  '--danger-text': color('color.dark.danger-text'), // color.dark.danger-text
+const root = ref<HTMLElement>();
+const currentTheme = ref<'light' | 'dark'>('dark');
+let themeObserver: MutationObserver | undefined;
+function resolveColors() {
+  // map / GuideView と同じく、最寄りが light のときだけライトにする。
+  currentTheme.value = root.value?.closest('[data-theme]')?.getAttribute('data-theme') === 'light'
+    ? 'light' : 'dark';
+}
+const theme = computed(() => ({
+  '--page': color(`color.${currentTheme.value}.bg-page`), // color.{light,dark}.bg-page
+  '--surface': color(`color.${currentTheme.value}.bg-surface`), // color.{light,dark}.bg-surface
+  '--text': color(`color.${currentTheme.value}.text-primary`), // color.{light,dark}.text-primary
+  '--secondary': color(`color.${currentTheme.value}.text-secondary`), // color.{light,dark}.text-secondary
+  '--primary': color(`color.${currentTheme.value}.action-primary`), // color.{light,dark}.action-primary
+  '--on-primary': color(`color.${currentTheme.value}.action-on-primary`), // color.{light,dark}.action-on-primary
+  '--border': color(`color.${currentTheme.value}.border-subtle`), // color.{light,dark}.border-subtle
+  '--pressed': color(`color.${currentTheme.value}.state-pressed`), // color.{light,dark}.state-pressed
+  '--danger': color(`color.${currentTheme.value}.danger`), // color.{light,dark}.danger
+  '--danger-bg': color(`color.${currentTheme.value}.danger-bg`), // color.{light,dark}.danger-bg
+  '--danger-text': color(`color.${currentTheme.value}.danger-text`), // color.{light,dark}.danger-text
   '--space-1': dimension('space.1'), // space.1
   '--space-2': dimension('space.2'), // space.2
   '--space-3': dimension('space.3'), // space.3
@@ -56,7 +64,7 @@ const theme = {
   '--weight': token<number>('font.weight.bold'), // font.weight.bold
   '--disabled': token<number>('opacity.disabled'), // opacity.disabled
   '--shadow': `${[shadow.offsetX, shadow.offsetY, shadow.blur, shadow.spread].map(v => `${v.value}${v.unit}`).join(' ')} ${rgba(shadow.color)}`, // shadow.sheet
-};
+}));
 
 const route = useRoute();
 const router = useRouter();
@@ -78,6 +86,24 @@ const busy = ref(false);
 const memoryOnly = ref(false);
 const reload = ref(0);
 const sheet = ref<HTMLElement>();
+let composing = false;
+let compositionJustEnded = false;
+let compositionEndTimer: ReturnType<typeof setTimeout> | undefined;
+function startComposition() {
+  clearTimeout(compositionEndTimer);
+  compositionJustEnded = false;
+  composing = true;
+}
+function endComposition() {
+  composing = false;
+  // compositionend が keydown より先に来るブラウザーでも、同じ確定操作を送信しない。
+  compositionJustEnded = true;
+  clearTimeout(compositionEndTimer);
+  compositionEndTimer = setTimeout(() => { compositionJustEnded = false; }, 0);
+}
+function guardImeEnter(event: KeyboardEvent) {
+  if (composing || event.isComposing || event.keyCode === 229 || compositionJustEnded) event.preventDefault();
+}
 let storage: StorageRepositories | undefined;
 let disposed = false;
 
@@ -134,7 +160,7 @@ async function toggle(tagId: string) {
 }
 
 async function createTag() {
-  if (!canEdit.value || !storage) return;
+  if (composing || compositionJustEnded || !canEdit.value || !storage) return;
   // Provisional (OQ-13): trim, reject blank/exact duplicates; no length/count limit.
   // Renaming/deletion, including BUILTIN_TAGS, are not offered while OQ-13 is undecided.
   const name = title.value.trim();
@@ -181,19 +207,26 @@ function endSwipe(event: TouchEvent) {
 }
 let previousFocus: HTMLElement | null = null;
 onMounted(async () => {
+  resolveColors();
+  themeObserver = new MutationObserver(resolveColors);
+  for (let ancestor = root.value; ancestor; ancestor = ancestor.parentElement ?? undefined) {
+    themeObserver.observe(ancestor, { attributes: true, attributeFilter: ['data-theme'] });
+  }
   previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   await nextTick();
   if (!disposed) sheet.value?.focus();
 });
 onBeforeUnmount(() => {
   disposed = true;
+  themeObserver?.disconnect();
+  clearTimeout(compositionEndTimer);
   if (previousFocus?.isConnected) previousFocus.focus();
   // getStorage() is shared by the app: release listeners, never close its database here.
 });
 </script>
 
 <template>
-  <main class="tags-page" :style="theme">
+  <main ref="root" class="tags-page" :style="theme">
     <section ref="sheet" class="tags-sheet" role="dialog" aria-labelledby="tags-title"
       aria-describedby="tags-place" tabindex="-1" @keydown.esc.stop.prevent="close">
       <header @touchstart.passive="startSwipe" @touchend.passive="endSwipe" @touchcancel="swipeStart = undefined">
@@ -237,7 +270,8 @@ onBeforeUnmount(() => {
           <label for="new-tag-title">新しいタグの名前</label>
           <input id="new-tag-title" v-model="title" type="text" autocomplete="off" :disabled="!canEdit"
             :aria-invalid="!!inputError" :aria-describedby="inputError ? 'tag-help tag-input-error' : 'tag-help'"
-            @input="inputError = ''">
+            @input="inputError = ''" @compositionstart="startComposition" @compositionend="endComposition"
+            @keydown.enter="guardImeEnter">
           <p v-if="inputError" id="tag-input-error" class="input-error" role="alert">{{ inputError }}</p>
           <p id="tag-help" class="secondary">タグはこの端末の中にだけ保存し、他の来場者には見えません。ブラウザーのデータ削除などで消えることがあります。作ると、この場所にそのまま付きます。</p>
           <button type="submit" class="primary-button" :disabled="!canEdit">タグを作って付ける</button>

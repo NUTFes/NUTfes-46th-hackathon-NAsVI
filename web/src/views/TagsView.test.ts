@@ -4,6 +4,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { IDBDatabase, IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
+import tokensJson from '../../../design-system/tokens.json?raw';
 import * as localStorage from '../storage';
 import { usePlacesStore } from '../stores/places';
 import type { Place } from '../types';
@@ -18,6 +19,25 @@ let storage: localStorage.StorageRepositories;
 let instances: localStorage.StorageRepositories[];
 let wrappers: VueWrapper[];
 const fetchMock = vi.fn(() => { throw new Error('External communication is forbidden'); });
+const colorTokens = {
+  '--page': 'bg-page', '--surface': 'bg-surface', '--text': 'text-primary',
+  '--secondary': 'text-secondary', '--primary': 'action-primary', '--on-primary': 'action-on-primary',
+  '--border': 'border-subtle', '--pressed': 'state-pressed', '--danger': 'danger',
+  '--danger-bg': 'danger-bg', '--danger-text': 'danger-text',
+};
+function expectTheme(wrapper: VueWrapper, theme: 'light' | 'dark') {
+  const tokens: unknown = JSON.parse(tokensJson);
+  function resolve(path: string): string {
+    const node = path.split('.').reduce<unknown>((value, key) => (value as Record<string, unknown>)[key], tokens);
+    const value = (node as { $value: string | { components: number[]; alpha?: number } }).$value;
+    if (typeof value === 'string') return resolve(value.slice(1, -1));
+    return `rgb(${value.components.map(component => component * 255).join(' ')} / ${value.alpha ?? 1})`;
+  }
+  const style = wrapper.get<HTMLElement>('.tags-page').element.style;
+  for (const [property, name] of Object.entries(colorTokens)) {
+    expect(style.getPropertyValue(property), property).toBe(resolve(`color.${theme}.${name}`));
+  }
+}
 
 beforeEach(async () => {
   vi.stubGlobal('indexedDB', new IDBFactory());
@@ -38,7 +58,7 @@ afterEach(async () => {
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
-async function render(id = first.id, items = [first, second]) {
+async function render(id = first.id, items = [first, second], attachTo = document.body) {
   const pinia = createPinia();
   const places = usePlacesStore(pinia);
   places.setAll(items);
@@ -51,7 +71,7 @@ async function render(id = first.id, items = [first, second]) {
     ],
   });
   await router.push({ name: 'tags', params: { id } });
-  const wrapper = mount(TagsView, { attachTo: document.body, global: { plugins: [pinia, router] } });
+  const wrapper = mount(TagsView, { attachTo, global: { plugins: [pinia, router] } });
   wrappers.push(wrapper);
   await vi.waitFor(() => expect(wrapper.find('[role="status"]').exists()).toBe(false));
   return { wrapper, router, places };
@@ -66,8 +86,50 @@ async function submit(wrapper: VueWrapper, title: string) {
 async function idle(wrapper: VueWrapper) {
   await vi.waitFor(() => expect(wrapper.get('input').attributes('disabled')).toBeUndefined());
 }
+async function pressEnter(wrapper: VueWrapper, options: KeyboardEventInit = {}) {
+  const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...options });
+  // happy-dom は Enter による暗黙の submit を行わないため、既定動作だけ補う。
+  if (wrapper.get('input').element.dispatchEvent(event)) await wrapper.get('form').trigger('submit');
+  return event;
+}
 
 describe('TagsView', () => {
+  it.each(['light', 'dark', undefined, 'unknown'])('data-theme=%s の色をトークンから解決する', async theme => {
+    const host = document.createElement('div');
+    if (theme !== undefined) host.dataset.theme = theme;
+    document.body.append(host);
+    const { wrapper } = await render(first.id, [first, second], host);
+    expectTheme(wrapper, theme === 'light' ? 'light' : 'dark');
+  });
+
+  it('最寄りの data-theme を優先し、属性の追加・切替・削除に追従する', async () => {
+    const outer = document.createElement('div');
+    outer.dataset.theme = 'light';
+    const inner = document.createElement('div');
+    outer.append(inner);
+    document.body.append(outer);
+    const { wrapper } = await render(first.id, [first, second], inner);
+    expectTheme(wrapper, 'light');
+    inner.dataset.theme = 'dark';
+    await flushPromises();
+    expectTheme(wrapper, 'dark');
+    inner.dataset.theme = 'light';
+    await flushPromises();
+    expectTheme(wrapper, 'light');
+    inner.dataset.theme = 'unknown';
+    await flushPromises();
+    expectTheme(wrapper, 'dark');
+    inner.removeAttribute('data-theme');
+    await flushPromises();
+    expectTheme(wrapper, 'light');
+    outer.dataset.theme = 'dark';
+    await flushPromises();
+    expectTheme(wrapper, 'dark');
+    wrapper.get<HTMLElement>('.tags-page').element.dataset.theme = 'light';
+    await flushPromises();
+    expectTheme(wrapper, 'light');
+  });
+
   it('ストアの場所名と、最初からある2タグを規定順で表示する', async () => {
     const { wrapper, places } = await render();
     expect(wrapper.get('h1').text()).toBe('タグを付ける・作る');
@@ -117,6 +179,53 @@ describe('TagsView', () => {
     await row(wrapper, custom.title).trigger('click');
     await idle(wrapper);
     expect(await storage.tagLinks.list(first.id)).toEqual([]);
+  });
+
+  it.each(['isComposing', 'composition', 'keyCode229'])('%s による変換中の Enter は作らず、確定後の Enter で作る', async method => {
+    const { wrapper } = await render();
+    const input = wrapper.get('input');
+    await input.setValue('変換したタグ');
+    if (method === 'composition') await input.trigger('compositionstart');
+    const event = await pressEnter(wrapper, {
+      isComposing: method === 'isComposing', keyCode: method === 'keyCode229' ? 229 : 13,
+    });
+    expect(event.defaultPrevented).toBe(true);
+    if (method === 'composition') await wrapper.get('form').trigger('submit');
+    expect(await storage.tags.list()).toHaveLength(2);
+    expect(await storage.tagLinks.list()).toEqual([]);
+    expect((input.element as HTMLInputElement).value).toBe('変換したタグ');
+
+    if (method === 'composition') await input.trigger('compositionend');
+    await input.trigger('keyup', { key: 'Enter' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect((await pressEnter(wrapper)).defaultPrevented).toBe(false);
+    await idle(wrapper);
+    expect(await storage.tags.list()).toHaveLength(3);
+    expect(row(wrapper, '変換したタグ').attributes('aria-checked')).toBe('true');
+    expect(await storage.tagLinks.list(first.id)).toHaveLength(1);
+  });
+
+  it('compositionend 直後に isComposing=false の同じ Enter が来ても作成しない', async () => {
+    const { wrapper } = await render();
+    const input = wrapper.get('input');
+    await input.trigger('compositionstart');
+    (input.element as HTMLInputElement).value = '確定したタグ';
+    await input.trigger('input');
+    await input.trigger('compositionend');
+    const event = await pressEnter(wrapper, { isComposing: false });
+    expect(event.defaultPrevented).toBe(true);
+    await wrapper.get('form').trigger('submit');
+    expect(await storage.tags.list()).toHaveLength(2);
+    expect(await storage.tagLinks.list()).toEqual([]);
+    expect((input.element as HTMLInputElement).value).toBe('確定したタグ');
+
+    await input.trigger('keyup', { key: 'Enter' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect((await pressEnter(wrapper)).defaultPrevented).toBe(false);
+    await idle(wrapper);
+    expect(await storage.tags.list()).toHaveLength(3);
+    expect(row(wrapper, '確定したタグ').attributes('aria-checked')).toBe('true');
+    expect(await storage.tagLinks.list(first.id)).toHaveLength(1);
   });
 
   it.each(['', '  　\n'])('空欄 %j は作らず、入力欄に結び付いたエラーで知らせる（OQ-13 仮置き）', async title => {
