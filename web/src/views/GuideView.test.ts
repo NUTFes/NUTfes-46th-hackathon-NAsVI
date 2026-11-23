@@ -1,0 +1,266 @@
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
+import { nextTick } from 'vue';
+import { createMemoryHistory, createRouter } from 'vue-router';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fromXY } from '../domain/geo';
+import { usePosition } from '../services/position';
+import * as storageModule from '../storage';
+import { useLandmarksStore, usePlacesStore } from '../stores';
+import type { Landmark, Place } from '../types';
+import GuideView from './GuideView.vue';
+
+const NOW = Date.parse('2026-11-24T03:00:00Z');
+const place: Place = {
+  id: 'event-1', name: 'お化け屋敷', kind: 'event', location: fromXY(150, 0),
+  landmarkId: 'building-1', floor: 2, description: '', hours: [], labelIds: [],
+};
+const landmark: Landmark = {
+  id: 'building-1', name: '総合研究棟', location: place.location, footprint: null, floors: [],
+};
+
+let storage: storageModule.StorageRepositories;
+let position: ReturnType<typeof usePosition>;
+let wrapper: VueWrapper | undefined;
+let pinia: ReturnType<typeof createPinia>;
+const fetchMock = vi.fn(() => { throw new Error('案内画面からの通信は禁止'); });
+const networkMock = vi.fn(() => { throw new Error('案内画面からの通信は禁止'); });
+const watchPosition = vi.fn();
+
+async function renderGuide() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/guide', name: 'guide', component: GuideView },
+      { path: '/', name: 'map', component: { template: '<p>マップ</p>' } },
+      { path: '/camera', name: 'camera', component: { template: '<p>カメラ</p>' } },
+      { path: '/noloc', name: 'noloc', component: { template: '<p>位置の設定</p>' } },
+      { path: '/buildings/:id', name: 'building', component: { template: '<p>建物の中の地図</p>' } },
+    ],
+  });
+  await router.push('/guide');
+  await router.isReady();
+  wrapper = mount(GuideView, { global: { plugins: [pinia, router] } });
+  await flushPromises();
+  return wrapper;
+}
+
+function setPosition(x: number, y: number, accuracy = 8) {
+  const point = fromXY(x, y);
+  position.setManually(point.lat, point.lng, accuracy);
+}
+
+beforeEach(async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(NOW - 10_000);
+  vi.stubGlobal('fetch', fetchMock.mockClear());
+  networkMock.mockClear();
+  for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource']) vi.stubGlobal(name, networkMock);
+  vi.stubGlobal('navigator', {
+    userAgent: navigator.userAgent,
+    geolocation: { watchPosition: watchPosition.mockReset(), clearWatch: vi.fn() },
+    sendBeacon: networkMock,
+  });
+  pinia = createPinia();
+  setActivePinia(pinia);
+  storage = await storageModule.createStorage({ memory: true });
+  vi.spyOn(storageModule, 'getStorage').mockResolvedValue(storage);
+  await storage.destination.save({ placeId: place.id });
+  usePlacesStore().setAll([place]);
+  useLandmarksStore().setAll([landmark]);
+  // 位置画面などの既存利用者を再現。実 GPS・外部通信は使わない。
+  position = usePosition();
+  setPosition(0, 0);
+  vi.setSystemTime(NOW);
+});
+
+afterEach(async () => {
+  wrapper?.unmount();
+  wrapper = undefined;
+  position.dispose();
+  await storage.close();
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(networkMock).not.toHaveBeenCalled();
+  expect(watchPosition).not.toHaveBeenCalled();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+describe('GuideView', () => {
+  it('保存済みの行き先・建物・階・北基準の方角・直線距離・更新時刻・精度を表示する', async () => {
+    const view = await renderGuide();
+    expect(view.text()).toContain('お化け屋敷');
+    expect(view.text()).toContain('総合研究棟 2階');
+    expect(view.text()).toContain('直線距離 150 m');
+    expect(view.text()).toContain('方角：東（北を基準）');
+    expect(view.text()).toContain('10 秒前に更新・精度 ±8 m');
+    expect(view.get('a').attributes('href')).toBe('/camera');
+    expect(view.get('button').text()).toBe('案内をやめる');
+  });
+
+  it('現在地の更新に追従し、距離・方角・時刻・精度を再計算する', async () => {
+    const view = await renderGuide();
+    setPosition(150, -60, 12);
+    await nextTick();
+    expect(view.text()).toContain('直線距離 60 m');
+    expect(view.text()).toContain('方角：北（北を基準）');
+    expect(view.text()).toContain('0 秒前に更新・精度 ±12 m');
+  });
+
+  it('場所と建物のストアの更新に追従する', async () => {
+    const view = await renderGuide();
+    usePlacesStore().upsert({ ...place, name: '新しい企画名', location: fromXY(-100, -100), floor: 0 });
+    useLandmarksStore().setAll([{ ...landmark, name: '新しい建物名' }]);
+    await nextTick();
+    expect(view.text()).toContain('新しい企画名');
+    expect(view.text()).toContain('新しい建物名 0階');
+    expect(view.text()).toContain('直線距離 141 m');
+    expect(view.text()).toContain('方角：南西（北を基準）');
+  });
+
+  it.each([
+    { x: 120, arrived: false }, // 行き先から 30 m
+    { x: 131, arrived: true }, // 既存の仮置き 20 m の内側
+    { x: 150, arrived: true }, // 同じ位置
+  ])('現在地 x=$x の到着表示は $arrived（操作前には行き先を消さない）', async ({ x, arrived }) => {
+    setPosition(x, 0);
+    const clear = vi.spyOn(storage.destination, 'clear');
+    const view = await renderGuide();
+    expect(view.text().includes('行き先に着きました')).toBe(arrived);
+    expect(view.get('button').text()).toBe(arrived ? '案内を終える' : '案内をやめる');
+    expect(await storage.destination.get()).toEqual({ placeId: place.id });
+    expect(clear).not.toHaveBeenCalled();
+  });
+
+  it('移動で到着表示に変わり、案内を終えると端末内の行き先を解除する', async () => {
+    const view = await renderGuide();
+    setPosition(140, 0);
+    await nextTick();
+    expect(view.text()).toContain('行き先に着きました');
+    expect(view.get('a').text()).toBe('建物の中の地図');
+    expect(view.get('a').attributes('href')).toBe('/buildings/building-1');
+    const clear = vi.spyOn(storage.destination, 'clear');
+    await view.get('button').trigger('click');
+    await flushPromises();
+    expect(clear).toHaveBeenCalledOnce();
+    expect(await storage.destination.get()).toBeNull();
+    expect(view.text()).toContain('案内を終了しました');
+    expect(view.find('.destination-card').exists()).toBe(false);
+    expect(view.get('a').attributes('href')).toBe('/');
+  });
+
+  it('到着前の「案内をやめる」も同じ保存APIで解除する', async () => {
+    const view = await renderGuide();
+    await view.get('button').trigger('click');
+    await flushPromises();
+    expect(await storage.destination.get()).toBeNull();
+    expect(view.text()).toContain('案内を終了しました');
+  });
+
+  it('解除の失敗を表示して行き先を残し、同じ操作で再試行できる', async () => {
+    const view = await renderGuide();
+    vi.spyOn(storage.destination, 'clear').mockRejectedValueOnce(new Error('保存失敗'));
+    await view.get('button').trigger('click');
+    await flushPromises();
+    expect(view.get('[role="alert"]').text()).toContain('もう一度お試しください');
+    expect(await storage.destination.get()).toEqual({ placeId: place.id });
+    expect(view.get('button').attributes('disabled')).toBeUndefined();
+    await view.get('button').trigger('click');
+    await flushPromises();
+    expect(await storage.destination.get()).toBeNull();
+    expect(view.find('[role="alert"]').exists()).toBe(false);
+  });
+
+  it('解除の処理中は二重操作を防ぐ', async () => {
+    const view = await renderGuide();
+    let finish!: () => void;
+    const clear = vi.spyOn(storage.destination, 'clear').mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    await view.get('button').trigger('click');
+    await flushPromises();
+    expect(view.get('button').attributes('disabled')).toBeDefined();
+    await view.get('button').trigger('click');
+    expect(clear).toHaveBeenCalledOnce();
+    finish();
+    await flushPromises();
+  });
+
+  it('新しい位置が来なくても経過時間を更新し、30秒で古いことを示す', async () => {
+    const view = await renderGuide();
+    await vi.advanceTimersByTimeAsync(19_000);
+    expect(view.text()).toContain('29 秒前に更新');
+    expect(view.text()).not.toContain('更新が止まっています');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(view.get('.stale').text()).toContain('更新が止まっています・30 秒前に更新');
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(view.get('.stale').text()).toContain('1 分前に更新');
+    setPosition(0, 0);
+    await nextTick();
+    expect(view.text()).toContain('0 秒前に更新');
+    expect(view.find('.stale').exists()).toBe(false);
+  });
+
+  it('位置が使えなくなれば数値と到着表示を消し、位置の設定へ案内する', async () => {
+    setPosition(150, 0);
+    const view = await renderGuide();
+    position.refuse();
+    await nextTick();
+    expect(view.text()).toContain('現在地が使えません');
+    expect(view.text()).not.toContain('着きました');
+    expect(view.text()).not.toContain('直線距離 0 m');
+    expect(view.get('.position-banner a').attributes('href')).toBe('/noloc');
+    expect(await storage.destination.get()).toEqual({ placeId: place.id });
+  });
+
+  it('精度が不明な手入力を精度0として表示しない', async () => {
+    setPosition(0, 0, Infinity);
+    const view = await renderGuide();
+    expect(view.text()).toContain('精度不明');
+    expect(view.text()).not.toMatch(/Infinity|NaN|±0/);
+  });
+
+  it('屋外の行き先では建物名・階・建物の中の地図を出さない', async () => {
+    usePlacesStore().upsert({ ...place, landmarkId: null, floor: null });
+    setPosition(150, 0);
+    const view = await renderGuide();
+    expect(view.text()).toContain('着きました');
+    expect(view.text()).not.toContain('総合研究棟');
+    expect(view.text()).not.toContain('建物の中の地図');
+  });
+
+  it('行き先がない場合は距離を作らずマップへの手を出す', async () => {
+    await storage.destination.clear();
+    const view = await renderGuide();
+    expect(view.text()).toContain('行き先が選ばれていません');
+    expect(view.text()).not.toContain('直線距離');
+    expect(view.get('a').attributes('href')).toBe('/');
+  });
+
+  it('場所が削除されたら古い案内を表示せず、行き先を解除できる', async () => {
+    const view = await renderGuide();
+    usePlacesStore().remove(place.id);
+    await nextTick();
+    expect(view.text()).toContain('行き先の場所が見つかりません');
+    expect(view.text()).not.toContain('お化け屋敷');
+    expect(view.text()).not.toContain('直線距離');
+    await view.get('button').trigger('click');
+    await flushPromises();
+    expect(await storage.destination.get()).toBeNull();
+  });
+
+  it('保存先の読み込みに失敗しても理由とマップへの手を出す', async () => {
+    vi.mocked(storageModule.getStorage).mockRejectedValueOnce(new Error('読み込み失敗'));
+    const view = await renderGuide();
+    expect(view.get('[role="alert"]').text()).toContain('行き先を読み込めませんでした');
+    expect(view.get('a').attributes('href')).toBe('/');
+    expect(view.text()).not.toContain('直線距離');
+  });
+
+  it('アンマウント時に経過時間用タイマーを解放する', async () => {
+    const view = await renderGuide();
+    expect(vi.getTimerCount()).toBe(1);
+    view.unmount();
+    wrapper = undefined;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
