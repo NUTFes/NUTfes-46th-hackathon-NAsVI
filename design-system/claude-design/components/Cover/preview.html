@@ -1,0 +1,61 @@
+<!-- 見本(Claude Design のカードの印) @dsCard height=288 -->
+<!doctype html>
+<html lang="ja">
+<head>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../bundle.css">
+<script>document.documentElement.setAttribute('data-theme', new URLSearchParams(location.search).get('theme') || 'dark');</script>
+<script src="../lib/react.production.min.js"></script>
+<script src="../lib/react-dom.production.min.js"></script>
+<script src="../bundle.js"></script>
+
+<meta charset="utf-8">
+<title>NAsVI デザインシステム</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg-page); color: var(--text-primary); font-family: var(--font-base); overflow: hidden; }
+  .cover { position: relative; width: 960px; height: 288px; overflow: hidden; }
+  /* 上の帯: 名前が 440px に収まらないので、帯を上に全幅で置く */
+  .band { position: absolute; left: 0; top: 0; width: 960px; height: 120px; }
+  .band svg { display: block; width: 960px; height: 120px; }
+  .brand { fill: var(--action-primary); }
+  .tint { fill: var(--violet-300); }
+  .event { fill: var(--event); }
+  .dest { fill: var(--destination); stroke: var(--destination-border); stroke-width: 1.5; }
+  .blk { rx: var(--radius-2xl); }
+  .me { fill: var(--facility); stroke: var(--event); stroke-width: 3; }
+  .dot { fill: var(--destination-border); }
+  .words { position: absolute; left: var(--space-6); right: var(--space-6); bottom: var(--space-6); }
+  .name { margin: 0; font-size: 64px; line-height: .95; font-weight: 800; letter-spacing: -0.01em; color: var(--text-primary); white-space: nowrap; }
+  .tag { margin: var(--space-2) 0 0 2px; font-size: 14px; line-height: 20px; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="band" aria-hidden="true">
+<svg viewBox="0 0 960 120" width="960" height="120">
+<!--
+  blocks      action-primary 336×114 (the brand's lilac, largest, bled off the top) · violet-300 144×78 (the tint) · event 144×114 (mint, every 企画) · destination 96×72 with its destination-border (yellow is only ever the destination) — about 26% of 960×288
+  arrangement a strip of unequal bands across the top, gutters space-4, the name below it (NAsVI デザインシステム is wider than 440px at 64px)
+  pattern     a literal motif: the dotted straight line from you (a facility disc ringed in event) to the destination block — D-003, direction and straight distance only, never a route; dots r 3 at a space-4 pitch in destination-border, as the map draws the line
+  scales      sides in space-2 multiples; gutters space-4; dot pitch space-4; corners radius-2xl on every block
+-->
+<rect class="brand blk" x="24" y="-18" width="336" height="114" rx="18"/>
+<rect class="tint blk" x="376" y="-18" width="144" height="78" rx="18"/>
+<rect class="event blk" x="536" y="-18" width="144" height="114" rx="18"/>
+<circle class="me" cx="720" cy="60" r="12"/>
+<circle class="dot" cx="748" cy="60" r="3"/>
+<circle class="dot" cx="764" cy="60" r="3"/>
+<circle class="dot" cx="780" cy="60" r="3"/>
+<circle class="dot" cx="796" cy="60" r="3"/>
+<circle class="dot" cx="812" cy="60" r="3"/>
+<rect class="dest blk" x="840" y="24" width="96" height="72" rx="18"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">NAsVI デザインシステム</h1>
+<p class="tag">会場の中で、手早く知る。</p>
+</div>
+</div>
+</body>
+</html>

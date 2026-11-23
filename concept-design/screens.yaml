@@ -1,7 +1,7 @@
 # 画面設計(skill screen-design の成果物)。作成: 2026-11-21
 # もと: doc/screen-design/screen-selection.md と wireframe.md(版 35)、groups.yaml の案 1
 # 画面の id は英数字。( ) の V1-a などはワイヤーフレームの盤の名前
-status: proposed
+status: confirmed   # 画面の分け方と画面の一覧は、チームで合意(2026-11-21)
 progress: {step: 6, done: [1, 2, 3, 4, 5]}   # 5 の机上の点検は doc/screen-design/desk-check.md。6(3 人に試す)は未着手
 
 concepts: [Place, Search, Labeling, Position, Destination, Stamp, Landmark]
@@ -24,8 +24,8 @@ grouping:
 screens:
   - id: map
     title: マップ
-    wireframe: [V1-a, V1-i, V1-m]
-    shows: [場所の印(建物の旗と企画数・屋外の企画・設備・駐車場), 現在地と向き, スタンプ(混雑の濃淡・感想のマーク), 行き先の印と直線(案内中), 種類・タグのチップ, 絞り込み中の帯と件数(V1-m)]
+    wireframe: [V1-a, V1-i, V1-m, V1-o]
+    shows: [場所の印(建物の旗と企画数・屋外の企画・設備・駐車場), 現在地と向き, スタンプ(混雑の濃淡・感想のマーク), 行き先の印と直線(案内中), 種類・タグのチップ, 絞り込み中の帯と件数(V1-m)、0 件の理由と次の手(V1-o)]
     concepts: [Place, Position, Stamp, Labeling]
     actions:
       - {do: Labeling.applyFilter, undo: Labeling.clearFilter}
@@ -82,7 +82,7 @@ screens:
     title: 建物の中の地図
     wireframe: [V1-j, V1-k]
     shows: [建物の名前, 階, 見取り図と企画の位置, 階ごとの企画数]
-    concepts: [Place]        # 建物と階で絞る(※ 概念設計の変更が要る)。状態を変える操作は無い
+    concepts: [Place]        # 建物と階で絞る(D-017)。状態を変える操作は無い
     actions: []
   - id: list
     title: 一覧
@@ -97,9 +97,9 @@ screens:
   - id: camera
     title: カメラ
     wireframe: [V3-a, V3-b, V3-c]
-    shows: [認識した建物の名前, その棟の企画(または無いこと), 現在地と向き, 案内バー(案内中)]
+    shows: [正面の建物の名前(現在地と向きと建物の輪郭から決める。D-018), その建物の企画(または無いこと), 企画の方向と距離の札(建物の奥かどうか), ミニマップ, 現在地と向き, 案内バー(案内中)]
     concepts: [Landmark, Place, Position, Destination]   # Position・Destination は見せるだけ
-    actions: []              # 建物の認識は読み取り(状態を変えない)
+    actions: []              # 正面の建物の判定は読み取り(状態を変えない)
   - id: op_places
     title: 場所の登録・管理(運営)
     wireframe: [O1]
@@ -186,8 +186,8 @@ journeys:
       - {screen: card}
   - id: F5
     title: 迷いを解く
-    start: 来場者がカメラで建物を映す
-    end: 建物の名前と、その棟の企画(または企画が無いこと)が分かる
+    start: 来場者がカメラを周りの建物に向ける
+    end: 正面の建物の名前と、その建物の企画(または企画が無いこと)が分かる
     steps:
       - {screen: camera}
       - {screen: card}

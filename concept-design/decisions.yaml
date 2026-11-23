@@ -167,13 +167,14 @@ decisions:
     options:
       - 案 1 {Search, Labeling} | {Position, Destination, Stamp} | {Landmark}(点数 8、画面 3)
       - 案 2 {Search} | {Labeling} | {Position, Destination, Stamp} | {Landmark}(点数 7、画面 4)
-    adopted: 案 1(提案。チームの合意待ち)
+    adopted: 案 1
     reason: >-
       screen_groups.py(groups.yaml、2026-11-21)の点数が最も高い。画面選定(PR #16)で理由から選んだ分け方
       (一覧・検索 / マップ / カメラ)と同じ。一緒にできなかった Landmark-Position・Landmark-Destination は、
       カメラの画面に現在地と案内バーを見せるだけ重ねて補う。
       案 2 は、絞り込みを検索結果にも効かせる(D-012)ので、Search と Labeling を分けると、絞り込みの状態が見えない画面ができるため捨てた。
-    status: open
+      チームで合意(2026-11-21)。
+    status: resolved
     derived_from: concept-design/groups.yaml、concept-design/screens.yaml、doc/screen-design/screen-selection.md
 
   - id: D-016

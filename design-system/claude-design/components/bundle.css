@@ -1,0 +1,302 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&display=swap');
+
+/* NAsVI — 部品の見た目。値はすべて tokens.json の変数から取る */
+body { margin: 0; background: var(--bg-page); color: var(--text-primary); font-family: var(--font-base); -webkit-font-smoothing: antialiased; word-break: auto-phrase; }
+.nv-pv { box-sizing: border-box; padding: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-start; }
+.nv-pv--col { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+.nv-pv--phone { width: 390px; }
+.nv-pv-label { width: 100%; margin: 0; font-size: 11px; font-weight: 700; color: var(--text-secondary); }
+.nv-ground { position: relative; background: var(--bg-page); }
+
+.nv-icon { display: block; flex: none; }
+:where(.nv-root) button { font-family: inherit; }
+.nv-focus:focus-visible, .nv-btn:focus-visible, .nv-ibtn:focus-visible, .nv-chip:focus-visible, .nv-check:focus-visible,
+.nv-tab:focus-visible, .nv-floor:focus-visible, .nv-feel:focus-visible, .nv-cg:focus-visible, .nv-flag:focus-visible,
+.nv-row-main:focus-visible, .nv-row-tag:focus-visible, .nv-input:focus-visible {
+  outline: 2px solid var(--action-primary); outline-offset: 2px;
+}
+
+/* Button */
+.nv-btn { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  height: 44px; padding: 0 var(--space-4); border-radius: var(--radius-lg); border: 1px solid transparent;
+  font-family: inherit; font-size: 14px; line-height: 1.4; font-weight: 700; white-space: nowrap; cursor: pointer; text-decoration: none; }
+.nv-btn--lg { height: 48px; font-size: 16px; font-weight: 800; }
+.nv-btn--sm { height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-md); font-size: 13px; }
+.nv-btn--primary { background: var(--action-primary); border-color: var(--action-primary); color: var(--action-on-primary); font-weight: 800; }
+.nv-btn--secondary { background: transparent; border-color: var(--border-control); color: var(--text-primary); }
+.nv-btn--destination { background: var(--destination); border-color: var(--destination-border); color: var(--destination-on); font-weight: 800; }
+.nv-btn--danger { background: var(--danger); border-color: var(--danger); color: var(--danger-on); font-weight: 800; }
+.nv-btn:active:not(:disabled), .nv-ibtn:active:not(:disabled), .nv-chip:active, .nv-check:active, .nv-feel:active:not(:disabled), .nv-row-main:active { box-shadow: inset 0 0 0 999px var(--state-pressed); }
+.nv-btn:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
+
+/* IconButton */
+.nv-ibtn { box-sizing: border-box; width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-lg); background: var(--bg-surface); border: 1px solid var(--border-subtle); color: var(--text-primary); cursor: pointer; }
+.nv-ibtn:disabled { color: var(--text-disabled); opacity: var(--opacity-disabled); cursor: not-allowed; }
+.nv-ibtn--plain { background: transparent; border-color: transparent; color: inherit; }
+
+/* Chip */
+.nv-chip-row { display: flex; align-items: center; gap: var(--space-1-5); overflow-x: auto; padding: 6px 0; scrollbar-width: none; }
+.nv-chip-sep { flex: none; width: 1px; height: 20px; background: var(--border-control); }
+.nv-chip { flex: none; box-sizing: border-box; height: 32px; padding: 0 11px; border-radius: var(--radius-pill); display: inline-flex; align-items: center; gap: var(--space-1);
+  background: var(--bg-surface); border: 1px solid var(--border-control); color: var(--text-secondary); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.nv-chip[aria-pressed="true"] { background: var(--action-primary); border-color: var(--action-primary); color: var(--action-on-primary); font-weight: 800; }
+
+/* TabBar */
+.nv-tabbar { box-sizing: border-box; height: 72px; padding: var(--space-2) var(--space-3) 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  background: var(--bg-surface); border-top: 1px solid var(--border-subtle); }
+.nv-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1); background: none; border: 0; border-radius: var(--radius-lg);
+  color: var(--text-secondary); font-family: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.nv-tab[aria-current="page"] { color: var(--text-primary); }
+.nv-tab[aria-current="page"] .nv-icon { color: var(--event); }
+
+/* SearchField */
+.nv-search { box-sizing: border-box; height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 6px 0 14px;
+  background: var(--bg-surface); border: 1px solid var(--border-control); border-radius: var(--radius-xl); color: var(--text-secondary); }
+.nv-search:focus-within { border-color: var(--action-primary); }
+.nv-search input { flex: 1; min-width: 0; height: 100%; background: none; border: 0; outline: 0; color: var(--text-primary); font-family: inherit; font-size: 16px; font-weight: 500; }
+.nv-search input::placeholder { color: var(--text-secondary); }
+.nv-search input::-webkit-search-cancel-button { display: none; }
+.nv-search-natural { flex: none; height: 32px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px dashed var(--border-control); background: none; color: var(--text-secondary); font-family: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+
+/* FilterBand */
+.nv-band { box-sizing: border-box; min-height: 40px; display: flex; align-items: center; gap: var(--space-2); padding: 0 6px 0 14px;
+  background: var(--bg-surface); border: 1px solid var(--border-control); border-radius: var(--radius-lg); }
+.nv-band--empty { padding-top: var(--space-2); padding-bottom: var(--space-2); }
+.nv-band .nv-icon { color: var(--action-primary); }
+.nv-band-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 700; line-height: 1.4; }
+.nv-band-hint { font-size: 12px; font-weight: 400; line-height: 1.5; color: var(--text-secondary); }
+.nv-band-clear { flex: none; height: 32px; padding: 0 10px; border-radius: var(--radius-sm); background: none; border: 0; color: var(--text-primary); font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+
+/* Banner */
+.nv-banner { box-sizing: border-box; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: var(--danger-bg); border: 1px solid var(--danger); border-radius: var(--radius-xl); }
+.nv-banner-head { display: flex; gap: 10px; align-items: flex-start; }
+.nv-banner-head .nv-icon { color: var(--danger); margin-top: 1px; }
+.nv-banner-title { margin: 0; font-size: 15px; font-weight: 800; line-height: 1.35; }
+.nv-banner-body { margin: 4px 0 0; font-size: 12px; line-height: 1.6; color: var(--danger-text); }
+.nv-actions { display: flex; gap: var(--space-2); }
+.nv-actions > .nv-btn { flex: 1; min-width: 0; }
+
+/* Toast */
+.nv-toast { box-sizing: border-box; padding: 10px 10px 10px 14px; display: flex; align-items: center; gap: 10px; border-radius: var(--radius-xl);
+  background: var(--bg-surface); border: 1px solid var(--action-primary); font-size: 14px; font-weight: 700; }
+.nv-toast > .nv-btn { flex: none; }
+.nv-toast-msg { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+
+/* Badge */
+.nv-badge { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 700; white-space: nowrap;
+  background: var(--action-selected-bg); color: var(--text-primary); }
+.nv-badge--parking { background: var(--parking); color: var(--parking-on); }
+.nv-badge--ok { background: var(--event); color: var(--event-on); }
+.nv-badge--warn { background: var(--danger-bg); color: var(--danger-text); box-shadow: inset 0 0 0 1px var(--danger); }
+
+/* CheckRow */
+.nv-check { box-sizing: border-box; width: 100%; min-height: 54px; padding: 0 14px; display: flex; align-items: center; gap: var(--space-3);
+  background: none; border: 0; color: var(--text-primary); font-family: inherit; text-align: left; cursor: pointer; }
+.nv-check + .nv-check { border-top: 1px solid var(--border-subtle); }
+.nv-check-ic { flex: none; color: var(--text-secondary); display: flex; }
+.nv-check-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.nv-check-label { font-size: 15px; font-weight: 700; line-height: 1.35; }
+.nv-check-sub { font-size: 11px; line-height: 1.4; color: var(--text-secondary); }
+.nv-check-box { flex: none; box-sizing: border-box; width: 24px; height: 24px; border-radius: var(--radius-sm); border: 2px solid var(--border-control);
+  display: flex; align-items: center; justify-content: center; color: var(--action-on-primary); }
+.nv-check[aria-checked="true"] .nv-check-box { background: var(--action-primary); border-color: var(--action-primary); }
+
+/* EmptyState */
+.nv-empty { box-sizing: border-box; padding: 20px 18px 18px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
+  background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-xl); }
+.nv-empty > .nv-icon { color: var(--text-secondary); }
+.nv-empty-title { margin: 0; font-size: 15px; font-weight: 800; line-height: 1.5; }
+.nv-empty-body { margin: 0; font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
+.nv-empty-actions { width: 100%; margin-top: 6px; display: flex; flex-direction: column; gap: var(--space-2); }
+.nv-empty-actions > .nv-btn { width: 100%; }
+
+/* 地図の印(地図の上に置く。left / top で位置を渡すと、その点が印の中心になる) */
+.nv-mark { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px var(--map-ring); }
+.nv-mark--at { position: absolute; transform: translate(-50%, -50%); }
+.nv-flag { height: 26px; padding: 0 9px; border: 0; border-radius: var(--radius-pill); gap: 3px; background: var(--event); color: var(--event-on);
+  font-family: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.nv-flag--selected { box-shadow: 0 0 0 2px var(--text-primary); }
+.nv-flag--dest { background: var(--destination); color: var(--destination-on); box-shadow: 0 0 0 1.5px var(--destination-border), 0 0 0 3.5px var(--map-ring); }
+.nv-dot { border-radius: 50%; }
+.nv-event { width: 16px; height: 16px; background: var(--event); color: var(--event-on); }
+.nv-event--zoomed { width: 20px; height: 20px; }
+.nv-maplabel { padding: 3px 8px; border-radius: var(--radius-sm); background: var(--facility); color: var(--facility-on); font-size: 11px; font-weight: 700; line-height: 1.4; white-space: nowrap; }
+.nv-mark-wrap { display: inline-flex; flex-direction: column; align-items: center; gap: 6px; }
+.nv-mark-wrap.nv-mark--at { transform: translate(-50%, -10px); }
+.nv-fac { width: 20px; height: 20px; background: var(--facility); color: var(--facility-on); }
+.nv-fac--zoomed { width: 26px; height: 26px; }
+.nv-park { width: 22px; height: 22px; border-radius: 6px; background: var(--parking); color: var(--parking-on); font-size: 13px; font-weight: 800; }
+.nv-stamp-cg { position: relative; width: 14px; height: 14px; border: 1.5px solid var(--congestion-border); }
+.nv-stamp-more { position: absolute; left: 8px; top: -11px; box-sizing: border-box; min-width: 18px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: var(--facility); color: var(--facility-on); font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px var(--map-ring); }
+.nv-stamp-feel { width: 20px; height: 20px; background: var(--feeling); color: var(--feeling-on); border: 1px solid var(--feeling-on); }
+.nv-stamp-pill { height: 22px; padding: 0 8px; border-radius: var(--radius-pill); gap: 4px; border: 1px solid var(--congestion-border); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.nv-stamp-pill--feel { height: 24px; padding: 0 8px 0 4px; background: var(--feeling); color: var(--feeling-on); border-color: var(--feeling-on); }
+.nv-stamp-age { font-weight: 500; }
+.nv-pos { position: relative; width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; }
+.nv-pos-acc, .nv-pos-ring { position: absolute; inset: 0; border-radius: 50%; }
+.nv-pos-acc { background: var(--event); opacity: .14; }
+.nv-pos-ring { border: 1px solid var(--event); opacity: .5; }
+.nv-pos--stale .nv-pos-acc { background: var(--text-disabled); }
+.nv-pos--stale .nv-pos-ring { border: 1px dashed var(--text-disabled); opacity: .8; }
+.nv-pos svg { position: relative; }
+.nv-dest { position: relative; display: inline-flex; }
+.nv-dest-pin { width: 24px; height: 24px; border-radius: 50%; background: var(--destination); color: var(--destination-on); box-shadow: 0 0 0 1.5px var(--destination-border), 0 0 0 3.5px var(--map-ring); }
+.nv-dest-line { position: absolute; left: 12px; top: 12px; height: 4px; transform-origin: 0 50%; background: repeating-linear-gradient(90deg, var(--destination-border) 0 2px, transparent 2px 10px); border-radius: 2px; }
+
+.nv-pos.nv-mark--at, .nv-dest.nv-mark--at, .nv-stamp-cg.nv-mark--at { position: absolute; }
+
+/* PlaceRow */
+.nv-list { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-xl); overflow: hidden; display: flex; flex-direction: column; }
+.nv-row { position: relative; display: flex; align-items: center; padding: 4px 4px 4px 0; }
+.nv-row + .nv-row { border-top: 1px solid var(--border-subtle); }
+.nv-row--dest::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 0 2px 2px 0; background: var(--destination); box-shadow: 0 0 0 1px var(--destination-border); }
+.nv-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--space-3); padding: 10px 0 10px 14px; background: none; border: 0; border-radius: var(--radius-md);
+  color: var(--text-primary); font-family: inherit; text-align: left; cursor: pointer; }
+.nv-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.nv-row-name { font-size: 15px; font-weight: 700; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.nv-row-name mark { background: var(--action-selected-bg); color: inherit; font-weight: 800; border-radius: 3px; padding: 0 1px; }
+.nv-row-meta { display: flex; align-items: center; gap: var(--space-1-5); font-size: 12px; color: var(--text-secondary); }
+.nv-row-dist { flex: none; font-size: 12px; font-weight: 700; color: var(--text-secondary); }
+.nv-row-tag { flex: none; width: 40px; height: 44px; padding: 0; display: flex; align-items: center; justify-content: center; background: none; border: 0; border-radius: var(--radius-md); color: var(--text-disabled); cursor: pointer; }
+.nv-row-tag[aria-pressed="true"] { color: var(--action-primary); }
+.nv-skel { display: block; height: 12px; border-radius: 6px; background: var(--skeleton); }
+
+/* PlaceCard / DestinationCard */
+.nv-card { box-sizing: border-box; padding: 16px 16px 14px; display: flex; flex-direction: column; gap: var(--space-3);
+  background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-2xl); box-shadow: var(--shadow-sheet); }
+.nv-card-top { display: flex; align-items: flex-start; gap: var(--space-3); }
+.nv-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.nv-card-eyebrow { margin: 0; font-size: 12px; font-weight: 700; line-height: 1.4; color: var(--event); }
+.nv-card-title { margin: 0; font-size: 20px; font-weight: 800; line-height: 1.35; }
+.nv-card-desc { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-secondary); white-space: pre-line; }
+.nv-card-dist { flex: none; text-align: right; }
+.nv-num { margin: 0; font-size: 24px; font-weight: 800; line-height: 1.1; }
+.nv-num small { font-size: 13px; font-weight: 700; margin-left: 2px; }
+.nv-num-sub { margin: 2px 0 0; font-size: 12px; color: var(--text-secondary); }
+.nv-tagbtn { flex: none; white-space: nowrap; box-sizing: border-box; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-md); display: inline-flex; align-items: center; gap: var(--space-1-5);
+  background: none; border: 1px solid var(--border-control); color: var(--text-secondary); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.nv-tagbtn[aria-pressed="true"] { background: var(--action-selected-bg); border-color: var(--action-primary); color: var(--text-primary); font-weight: 800; }
+.nv-tagbtn[aria-pressed="true"] .nv-icon { color: var(--action-primary); }
+.nv-card-row { display: flex; gap: var(--space-2); }
+.nv-card-row > .nv-btn--lg { flex: 1; }
+.nv-card-error { margin: 0; font-size: 13px; font-weight: 700; color: var(--danger-text); }
+.nv-card--dest { padding: 14px 16px; border-color: var(--destination-border); }
+.nv-dest-box { flex: none; width: 56px; height: 56px; border-radius: var(--radius-xl); background: var(--destination); color: var(--destination-on); display: flex; align-items: center; justify-content: center; }
+.nv-dest-eyebrow { margin: 0; font-size: 12px; font-weight: 700; line-height: 1.4; color: var(--destination-text); }
+.nv-dest-name { margin: 0; font-size: 16px; font-weight: 800; line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.nv-dest-meta { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+.nv-dest-meta--stale { color: var(--stale); font-weight: 700; }
+.nv-num--lg { font-size: 28px; line-height: 1.05; }
+.nv-dest-dir { margin: 2px 0 0; font-size: 13px; font-weight: 700; color: var(--destination-text); }
+
+/* DestinationBar */
+.nv-dbar { box-sizing: border-box; height: 52px; padding: 0 6px 0 12px; display: flex; align-items: center; gap: 10px; border-radius: var(--radius-xl);
+  background: var(--destination); color: var(--destination-on); box-shadow: inset 0 0 0 1.5px var(--destination-border); }
+.nv-dbar-text { flex: 1; min-width: 0; font-size: 15px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nv-dbar .nv-ibtn { width: 40px; height: 40px; }
+
+/* Sheet */
+.nv-sheet { box-sizing: border-box; padding: 10px 16px 16px; display: flex; flex-direction: column; gap: var(--space-3);
+  background: var(--bg-surface); border-top: 1px solid var(--border-subtle); border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; box-shadow: var(--shadow-sheet); }
+.nv-sheet-grab { align-self: center; width: 40px; height: 4px; border-radius: 2px; background: var(--border-control); }
+.nv-sheet-head { display: flex; align-items: flex-start; gap: var(--space-3); }
+.nv-sheet-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.nv-sheet-title { margin: 0; font-size: 16px; font-weight: 800; line-height: 1.35; }
+.nv-sheet-sub { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+.nv-field-label { margin: 0; font-size: 12px; font-weight: 700; color: var(--text-secondary); }
+.nv-group { display: flex; flex-direction: column; gap: var(--space-1-5); }
+
+/* StampCongestionPicker / StampFeelingButton */
+.nv-cg-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-1-5); }
+.nv-cg { box-sizing: border-box; height: 52px; border-radius: var(--radius-lg); border: 1.5px solid var(--congestion-border); font-family: inherit; font-size: 20px; font-weight: 800; cursor: pointer; }
+.nv-cg:disabled, .nv-feel:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
+.nv-cg-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); }
+.nv-feel-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-1-5); }
+.nv-feel { box-sizing: border-box; height: 50px; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  background: var(--bg-surface); border: 1px solid var(--feeling); color: var(--text-primary); font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.nv-feel-ic { width: 26px; height: 26px; border-radius: 50%; background: var(--feeling); color: var(--feeling-on); display: flex; align-items: center; justify-content: center; }
+
+/* MyStampRow */
+.nv-mystamp { box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); }
+.nv-mystamp--busy { opacity: var(--opacity-disabled); }
+.nv-pill { flex: none; height: 22px; padding: 0 8px; border-radius: var(--radius-pill); display: inline-flex; align-items: center; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.nv-mystamp-when { flex: 1; min-width: 0; font-size: 12px; color: var(--text-secondary); }
+
+/* TagCreateField / FormField */
+.nv-input { flex: 1; min-width: 0; box-sizing: border-box; height: 44px; padding: 0 var(--space-3); border-radius: var(--radius-md); background: var(--bg-page);
+  border: 1px solid var(--border-control); color: var(--text-primary); font-family: inherit; font-size: 14px; }
+.nv-input::placeholder { color: var(--text-secondary); }
+.nv-input--error { border-color: var(--danger); }
+.nv-inline { display: flex; gap: var(--space-2); }
+.nv-inline > .nv-btn { flex: none; }
+.nv-help { margin: 0; font-size: 11px; line-height: 1.5; color: var(--text-secondary); }
+.nv-error { margin: 0; font-size: 12px; font-weight: 700; line-height: 1.5; color: var(--danger-text); }
+.nv-form { display: flex; flex-direction: column; gap: 6px; }
+.nv-form .nv-input { flex: none; width: 100%; height: 40px; font-size: 15px; }
+.nv-form textarea.nv-input { height: auto; min-height: 84px; padding: 10px var(--space-3); line-height: 1.5; resize: vertical; }
+
+/* BuildingFloorTabs / BuildingFloorPlan */
+.nv-floors { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--space-2); }
+.nv-floor { box-sizing: border-box; height: 44px; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: center; gap: var(--space-1-5);
+  background: transparent; border: 1px solid var(--border-control); color: var(--text-primary); font-family: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
+.nv-floor[aria-pressed="true"] { background: var(--action-primary); border-color: var(--action-primary); color: var(--action-on-primary); }
+.nv-count { box-sizing: border-box; min-width: 20px; height: 20px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--event); color: var(--event-on); font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+.nv-plan { position: relative; height: 150px; border-radius: var(--radius-lg); background: var(--bg-page); border: 1px solid var(--border-subtle); overflow: hidden; }
+.nv-plan svg { display: block; width: 100%; height: 100%; }
+.nv-plan-shape { fill: var(--action-selected-bg); stroke: var(--event); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.nv-plan-note { position: absolute; right: 8px; top: 6px; padding: 2px 6px; border-radius: 5px; background: var(--bg-surface); font-size: 10px; color: var(--text-secondary); }
+.nv-plan-pin { position: absolute; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; background: none; border: 0; padding: 0; cursor: pointer; font-family: inherit; }
+.nv-plan-pin-label { padding: 4px 10px; border-radius: var(--radius-sm); background: var(--facility); color: var(--facility-on); font-size: 12px; font-weight: 800; white-space: nowrap; }
+.nv-plan-pin-stem { width: 2px; height: 10px; background: var(--facility); }
+.nv-plan-pin-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--event); box-shadow: 0 0 0 2px var(--map-ring); }
+
+/* BuildingCameraOverlay */
+.nv-cam { position: relative; overflow: hidden; border-radius: var(--radius-lg); background: var(--bg-page); }
+.nv-cam-scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.nv-cam-status { position: absolute; left: 12px; top: 12px; height: 32px; padding: 0 12px; border-radius: var(--radius-pill); display: flex; align-items: center; gap: var(--space-2);
+  background: var(--bg-surface); border: 1px solid var(--border-subtle); color: var(--text-primary); font-size: 12px; font-weight: 700; }
+.nv-cam-status i { width: 8px; height: 8px; border-radius: 50%; background: var(--event); }
+.nv-cam-status--off i { background: var(--danger); }
+.nv-cam-front { position: absolute; left: 50%; transform: translateX(-50%); padding: 5px 12px; border-radius: var(--radius-sm); background: var(--event); color: var(--event-on); font-size: 13px; font-weight: 800; white-space: nowrap; }
+.nv-cam-label { position: absolute; padding: 3px 8px; border-radius: 6px; background: var(--facility); color: var(--facility-on); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.nv-cam-label--behind { opacity: .6; }
+.nv-cam-label--dest { padding: 4px 9px; background: var(--destination); color: var(--destination-on); font-size: 12px; font-weight: 800; box-shadow: inset 0 0 0 1px var(--destination-border); }
+.nv-cam-cross { position: absolute; left: 50%; top: 50%; width: 24px; height: 24px; transform: translate(-50%, -50%); }
+.nv-cam-cross::before, .nv-cam-cross::after { content: ""; position: absolute; background: var(--facility); opacity: .8; }
+.nv-cam-cross::before { left: 11px; top: 0; width: 2px; height: 24px; }
+.nv-cam-cross::after { left: 0; top: 11px; width: 24px; height: 2px; }
+.nv-cam-mini { position: absolute; right: 12px; top: 54px; width: 76px; height: 76px; border-radius: var(--radius-xl); background: var(--bg-surface); border: 1px solid var(--border-control); overflow: hidden; }
+.nv-cam-mini svg { display: block; }
+.nv-cam-drag { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); padding: 6px 12px; border-radius: var(--radius-pill); background: var(--bg-surface); border: 1px dashed var(--border-control); font-size: 12px; font-weight: 700; white-space: nowrap; }
+
+/* 運営(PC): DataTable / LocationPicker / BuildingShapePreview / DeleteConfirm */
+.nv-table-wrap { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow: auto; }
+.nv-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.nv-table th { padding: 12px 8px; text-align: left; font-size: 12px; font-weight: 700; color: var(--text-secondary); white-space: nowrap; }
+.nv-table td { padding: 11px 8px; border-top: 1px solid var(--border-subtle); vertical-align: middle; }
+.nv-table th:first-child, .nv-table td:first-child { padding-left: 16px; }
+.nv-table th:last-child, .nv-table td:last-child { padding-right: 16px; text-align: right; }
+.nv-table tr[aria-selected="true"] td { background: var(--action-selected-bg); }
+.nv-table-sub { display: block; font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+.nv-table-empty { padding: 24px 16px; text-align: center; color: var(--text-secondary); font-size: 13px; }
+.nv-picker { position: relative; height: 180px; border-radius: var(--radius-lg); border: 1px solid var(--border-control); background: var(--bg-page); overflow: hidden; cursor: crosshair; }
+.nv-picker svg { display: block; width: 100%; height: 100%; }
+.nv-picker-bldg { fill: var(--action-selected-bg); stroke: var(--border-control); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.nv-picker .nv-dest-pin { position: absolute; transform: translate(-50%, -50%); }
+.nv-shape { display: flex; flex-direction: column; gap: var(--space-2); }
+.nv-shape-box { height: 140px; border-radius: var(--radius-lg); border: 1px solid var(--border-subtle); background: var(--bg-page); display: flex; align-items: center; justify-content: center; }
+.nv-shape-box svg { display: block; width: 100%; height: 100%; }
+.nv-shape-path { fill: var(--action-selected-bg); stroke: var(--event); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.nv-shape-none { margin: 0; font-size: 12px; font-weight: 700; color: var(--danger-text); }
+.nv-attr { margin: 0; font-size: 10px; color: var(--text-secondary); }
+.nv-confirm { box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 10px; border-radius: var(--radius-lg); background: var(--danger-bg); border: 1px solid var(--danger); }
+.nv-confirm-title { margin: 0; font-size: 15px; font-weight: 800; line-height: 1.4; }
+.nv-confirm-effects { margin: 0; font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
+.nv-confirm .nv-actions > .nv-btn { flex: none; }
+
+/* Icon の一覧(見本) */
+.nv-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: var(--space-2); width: 100%; }
+.nv-icons figure { margin: 0; padding: 10px 4px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; border-radius: var(--radius-lg); background: var(--bg-surface); border: 1px solid var(--border-subtle); }
+.nv-icons figcaption { font-size: 10px; color: var(--text-secondary); }

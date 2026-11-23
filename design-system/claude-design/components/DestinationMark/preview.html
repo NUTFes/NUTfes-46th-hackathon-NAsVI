@@ -1,0 +1,32 @@
+<!-- 見本(Claude Design のカードの印) @dsCard group="地図の印" height=150 -->
+<!doctype html>
+<html lang="ja">
+<head>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../bundle.css">
+<script>document.documentElement.setAttribute('data-theme', new URLSearchParams(location.search).get('theme') || 'dark');</script>
+<script src="../lib/react.production.min.js"></script>
+<script src="../lib/react-dom.production.min.js"></script>
+<script src="../bundle.js"></script>
+<meta charset="utf-8"><title>DestinationMark — 見本</title></head>
+<body>
+<div id="root"></div>
+<script>
+  var N = window.NAsVI, h = React.createElement;
+  function L(t) { return h('p', { className: 'nv-pv-label' }, t); }
+  function S(v) { return React.useState(v); }
+  function ago(m) { return Date.now() - m * 60000; }
+  function SCENE() {
+    return h('svg', { className: 'nv-cam-scene', viewBox: '0 0 300 420', preserveAspectRatio: 'xMidYMid slice', 'aria-hidden': 'true' },
+      h('rect', { width: 300, height: 420, fill: 'var(--ink-800)' }), h('rect', { y: 300, width: 300, height: 120, fill: 'var(--ink-700)' }),
+      h('rect', { x: 50, y: 130, width: 200, height: 170, fill: 'var(--mist-600)', opacity: 0.6 }));
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'nv-pv'},
+  L('行き先の印と、現在地からの直線(左が現在地)・線なし'),
+  h('div',{className:'nv-ground',style:{width:300,height:90}},
+    h(N.PositionMark,{headingDeg:80,accuracyM:8,x:40,y:45}),
+    h(N.DestinationMark,{placeId:'f1',name:'お化け屋敷',x:250,y:45,lineAngleDeg:180,lineLength:210})),
+  h('div',{className:'nv-ground',style:{width:80,height:90}},h(N.DestinationMark,{placeId:'f1',name:'お化け屋敷',showLine:false,x:40,y:45}))));
+</script>
+</body>
+</html>

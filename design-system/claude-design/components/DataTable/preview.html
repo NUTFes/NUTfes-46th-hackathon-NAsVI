@@ -1,0 +1,31 @@
+<!-- 見本(Claude Design のカードの印) @dsCard group="運営の部品(PC)" height=255 -->
+<!doctype html>
+<html lang="ja">
+<head>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../bundle.css">
+<script>document.documentElement.setAttribute('data-theme', new URLSearchParams(location.search).get('theme') || 'dark');</script>
+<script src="../lib/react.production.min.js"></script>
+<script src="../lib/react-dom.production.min.js"></script>
+<script src="../bundle.js"></script>
+<meta charset="utf-8"><title>DataTable — 見本</title></head>
+<body>
+<div id="root"></div>
+<script>
+  var N = window.NAsVI, h = React.createElement;
+  function L(t) { return h('p', { className: 'nv-pv-label' }, t); }
+  function S(v) { return React.useState(v); }
+  function ago(m) { return Date.now() - m * 60000; }
+  function SCENE() {
+    return h('svg', { className: 'nv-cam-scene', viewBox: '0 0 300 420', preserveAspectRatio: 'xMidYMid slice', 'aria-hidden': 'true' },
+      h('rect', { width: 300, height: 420, fill: 'var(--ink-800)' }), h('rect', { y: 300, width: 300, height: 120, fill: 'var(--ink-700)' }),
+      h('rect', { x: 50, y: 130, width: 200, height: 170, fill: 'var(--mist-600)', opacity: 0.6 }));
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'nv-pv nv-pv--col',style:{width:680}},h(N.DataTable,{selectedId:'f2',
+  columns:[{key:'name',label:'名前',render:function(r){return h('span',null,h('b',null,r.name),h('span',{className:'nv-table-sub'},r.where));}},{key:'kind',label:'種別'},
+    {key:'label',label:'種類',render:function(r){return h(N.Badge,{label:r.label});}},{key:'pos',label:'位置',render:function(r){return h(N.Badge,{label:r.pos,tone:r.pos==='設定済み'?'ok':'warn'});}}],
+  rows:[{id:'pmc',name:'PMC LIVE',where:'講義棟 D講義室',kind:'企画',label:'ステージ',pos:'設定済み'},{id:'f2',name:'F2 ポケモンカード体験会',where:'図書館棟',kind:'企画',label:'体験',pos:'設定済み'},
+    {id:'k1',name:'キッチンカー',where:'屋外',kind:'企画',label:'飲食',pos:'要確認'}]})));
+</script>
+</body>
+</html>
