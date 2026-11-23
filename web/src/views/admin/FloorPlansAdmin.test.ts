@@ -24,8 +24,8 @@ const buildings: Landmark[] = [
 function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
 }
-function problem(status = 400) {
-  return new Response(JSON.stringify({ code: 'invalid_input', message: '見取り図を確認してください', field: 'plan' }), {
+function problem(status = 400, field = 'plan') {
+  return new Response(JSON.stringify({ code: status === 413 ? 'payload_too_large' : 'invalid_input', message: '見取り図を確認してください', field }), {
     status, headers: { 'Content-Type': 'application/problem+json' },
   });
 }
@@ -56,7 +56,7 @@ async function mountScreen() {
     },
   });
   const pinia = createPinia();
-  const wrapper = mount(Host, { global: { plugins: [pinia] } });
+  const wrapper = mount(Host, { attachTo: document.body, global: { plugins: [pinia] } });
   await flushPromises();
   return { wrapper, feedback, store: useLandmarksStore(pinia) };
 }
@@ -75,6 +75,10 @@ async function enterPlan(wrapper: Screen, value = plan) {
 }
 function deleteButton(wrapper: Screen) { return wrapper.get('button.delete'); }
 function reloadButton(wrapper: Screen) { return wrapper.get('main > button'); }
+async function confirmDelete(wrapper: Screen) {
+  await deleteButton(wrapper).trigger('click');
+  await wrapper.get('[role="alertdialog"] button.delete').trigger('click');
+}
 
 describe('見取り図の登録・管理', () => {
   it('建物一覧を取得して store に保持し、建物・階ごとの既存値を読み込む', async () => {
@@ -149,6 +153,14 @@ describe('見取り図の登録・管理', () => {
     ['south', '38', 'north > south'],
     ['east', '138.7776', 'east > west'],
     ['west', '139', 'east > west'],
+    ['north', '90.001', '-90〜90'],
+    ['north', '-90.001', '-90〜90'],
+    ['south', '90.001', '-90〜90'],
+    ['south', '-90.001', '-90〜90'],
+    ['east', '180.001', '-180〜180'],
+    ['east', '-180.001', '-180〜180'],
+    ['west', '180.001', '-180〜180'],
+    ['west', '-180.001', '-180〜180'],
     ['floor', '', '階は -5〜20 の整数'],
     ['floor', '-6', '階は -5〜20 の整数'],
     ['floor', '21', '階は -5〜20 の整数'],
@@ -162,6 +174,104 @@ describe('見取り図の登録・管理', () => {
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined();
     await wrapper.get('form').trigger('submit');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('緯度経度の境界と d の 200000 文字を受け付け、200001 文字は送らない', async () => {
+    const { wrapper } = await render();
+    await choose(wrapper);
+    const boundaryPlan = { ...plan, plan: { ...plan.plan, d: 'M' + '0'.repeat(199999) },
+      bounds: { north: 90, south: -90, east: 180, west: -180 } };
+    await enterPlan(wrapper, boundaryPlan);
+    expect(wrapper.get('#floorplan-validation').text()).toBe('');
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined();
+    fetchMock.mockResolvedValueOnce(json(boundaryPlan));
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ plan: boundaryPlan.plan, bounds: boundaryPlan.bounds });
+    await wrapper.get('#floorplan-d').setValue(boundaryPlan.plan.d + '0');
+    expect(wrapper.get('#floorplan-validation').text()).toContain('200000 文字以下');
+    expect(wrapper.get('#floorplan-d').attributes('aria-invalid')).toBe('true');
+    expect(wrapper.find('svg').exists()).toBe(false);
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined();
+    await wrapper.get('form').trigger('submit');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('JSON 本文がちょうど 1 MB なら送り、1 バイトでも超えれば止める', async () => {
+    const { wrapper } = await render();
+    await choose(wrapper);
+    const originalBytes = new TextEncoder().encode(JSON.stringify({ plan: plan.plan, bounds: plan.bounds })).byteLength;
+    const viewBox = '0' + ' '.repeat(1024 * 1024 - originalBytes + 1) + '0 400 240';
+    await wrapper.get('#floorplan-viewbox').setValue(viewBox);
+    expect(wrapper.get('#floorplan-validation').text()).toBe('');
+    fetchMock.mockResolvedValueOnce(json({ ...plan, plan: { ...plan.plan, viewBox } }));
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+    expect(new TextEncoder().encode(String(fetchMock.mock.calls[1][1]?.body)).byteLength).toBe(1024 * 1024);
+    await wrapper.get('#floorplan-viewbox').setValue(viewBox.replace('0 400', '0  400'));
+    expect(wrapper.get('#floorplan-validation').text()).toContain('見取り図は 1 MB 以下');
+    expect(wrapper.get('#floorplan-payload-error').text()).toContain('見取り図は 1 MB 以下');
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('svg').exists()).toBe(false);
+    await wrapper.get('form').trigger('submit');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['viewbox', '0' + '\u3000'.repeat(350000) + '0 400 240'],
+    ['d', '\u0001'.repeat(190000)],
+  ])('%s の UTF-8 または JSON のエスケープによるサイズ超過も送らない', async (field, value) => {
+    const { wrapper } = await render();
+    await choose(wrapper);
+    await wrapper.get(`#floorplan-${field}`).setValue(value);
+    expect(wrapper.get('#floorplan-validation').text()).toBe('見取り図は 1 MB 以下にしてください。');
+    await wrapper.get('form').trigger('submit');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['plan', ['viewbox', 'd']],
+    ['plan.viewBox', ['viewbox']],
+    ['plan.d', ['d']],
+    ['bounds', ['north', 'south', 'east', 'west']],
+    ['bounds.north', ['north']],
+    ['bounds.south', ['south']],
+    ['bounds.east', ['east']],
+    ['bounds.west', ['west']],
+    ['floor', ['floor']],
+    ['body', ['viewbox', 'd', 'north', 'south', 'east', 'west']],
+  ])('400 の field=%s を対応する入力と項目横のエラーに結ぶ', async (field, invalidFields) => {
+    const { wrapper, feedback } = await render();
+    await choose(wrapper);
+    fetchMock.mockResolvedValueOnce(problem(400, field));
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+    expect(feedback.reportError).toHaveBeenCalledWith(expect.objectContaining({ status: 400, field }));
+    expect(wrapper.get('[role="alert"]').text()).toContain('見取り図を確認してください');
+    for (const key of ['floor', 'viewbox', 'd', 'north', 'south', 'east', 'west']) {
+      const input = wrapper.get(`#floorplan-${key}`);
+      expect(input.attributes('aria-invalid')).toBe(String(invalidFields.includes(key)));
+      const descriptions = input.attributes('aria-describedby')!.split(' ').map((id) => wrapper.get(`#${id}`));
+      expect(descriptions.some((description) => description.text().includes('見取り図を確認してください'))).toBe(invalidFields.includes(key));
+      if (invalidFields.includes(key)) expect(input.element.parentElement?.textContent).toContain('見取り図を確認してください');
+    }
+    // 修正後に前のサーバーエラーを項目に残さない。
+    await wrapper.get('#floorplan-d').setValue('M1 1 L20 20');
+    expect(wrapper.findAll('form [aria-invalid="true"]')).toHaveLength(0);
+  });
+
+  it('413 は共通バナーに加えてフォーム付近に容量の案内を表示する', async () => {
+    const { wrapper, feedback } = await render();
+    await choose(wrapper);
+    fetchMock.mockResolvedValueOnce(problem(413));
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+    expect(feedback.reportError).toHaveBeenCalledWith(expect.objectContaining({ status: 413, code: 'payload_too_large' }));
+    expect(wrapper.get('[role="alert"]').text()).toContain('payload_too_large');
+    expect(wrapper.get('form #floorplan-payload-error').text()).toBe('見取り図は 1 MB 以下にしてください。');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await choose(wrapper, 'lm_b');
+    expect(wrapper.find('#floorplan-payload-error').exists()).toBe(false);
   });
 
   it.each([-5, 0, 20])('%i 階の登録を契約どおりの PUT 本文で送り、応答を store に反映する', async (floor) => {
@@ -206,7 +316,7 @@ describe('見取り図の登録・管理', () => {
     await choose(wrapper);
     await wrapper.get('#floorplan-d').setValue('');
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
-    await deleteButton(wrapper).trigger('click');
+    await confirmDelete(wrapper);
     await flushPromises();
     expect(fetchMock.mock.calls[1][0]).toBe('/api/landmarks/lm_a/floors/1/plan');
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'DELETE', credentials: 'include', body: undefined });
@@ -220,6 +330,42 @@ describe('見取り図の登録・管理', () => {
     await wrapper.get('#floorplan-floor').setValue('-1');
     await wrapper.get('#floorplan-floor').setValue('1');
     expect(wrapper.text()).toContain('未登録');
+  });
+
+  it('削除前に対象と影響を確認し、やめる操作では送信せず入力を保つ', async () => {
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirm);
+    const { wrapper, store } = await render();
+    await choose(wrapper);
+    await wrapper.get('#floorplan-d').setValue('M1 1 L20 20');
+    await deleteButton(wrapper).trigger('click');
+    const panel = wrapper.get('[role="alertdialog"]');
+    expect(panel.get(`#${panel.attributes('aria-labelledby')}`).text()).toContain('A 棟 の 1 階の見取り図');
+    expect(panel.get(`#${panel.attributes('aria-describedby')}`).text()).toContain('来場者の画面から消えます');
+    const cancel = panel.findAll('button').find((button) => button.text() === 'やめる')!;
+    expect(document.activeElement).toBe(cancel.element);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await wrapper.get('form').trigger('submit');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await cancel.trigger('click');
+    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(deleteButton(wrapper).element);
+    expect(store.items).toEqual(buildings);
+    expect(wrapper.get('path').attributes('d')).toBe('M1 1 L20 20');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('登録済みの階を表で表示し、編集ボタンから選択する', async () => {
+    const { wrapper } = await render();
+    await choose(wrapper);
+    expect(wrapper.get('table caption').text()).toContain('A 棟');
+    expect(wrapper.get('tbody tr[aria-current="true"]').text()).toContain('1 階');
+    await wrapper.get('button[aria-label="-1 階を編集"]').trigger('click');
+    expect(wrapper.get('tbody tr[aria-current="true"]').text()).toContain('-1 階');
+    expect(wrapper.get('svg').attributes('viewBox')).toBe('0 0 200 100');
+    await choose(wrapper, 'lm_b');
+    expect(wrapper.get('table').text()).toContain('まだ登録されていません');
   });
 
   it('建物が0件なら登録先の案内を表示する', async () => {
@@ -253,7 +399,7 @@ describe('見取り図の登録・管理', () => {
     await choose(wrapper);
     await wrapper.get('#floorplan-d').setValue('M0 0 L100 100');
     fetchMock.mockResolvedValueOnce(problem());
-    const act = () => method === 'PUT' ? wrapper.get('form').trigger('submit') : deleteButton(wrapper).trigger('click');
+    const act = () => method === 'PUT' ? wrapper.get('form').trigger('submit') : confirmDelete(wrapper);
     await act();
     await flushPromises();
     expect(feedback.reportError).toHaveBeenCalledWith(expect.any(ApiError));
