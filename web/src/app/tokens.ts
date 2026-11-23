@@ -18,8 +18,35 @@ const COLOR_NAMES = [
   'bg-page', 'bg-surface', 'text-primary', 'text-secondary', 'action-primary',
   'action-on-primary', 'border-subtle', 'danger', 'danger-bg', 'danger-text', 'event',
 ] as const; // color.{dark,light}.<name>
-const BORDER_CONTROL = designTokens.color.tokens.find(token => token.name === 'border-control')!.value;
-// claude-design/tokens.json color.tokens.border-control（DTCG 側には未収録）
+const DTCG_COLOR_NAMES = [
+  'action-selected-bg', 'destination', 'destination-on', 'destination-border', 'event-on',
+  'parking', 'parking-on', 'facility', 'facility-on', 'feeling', 'feeling-on', 'map-ring',
+  'congestion-border', 'state-pressed', 'text-disabled', 'skeleton', 'stale',
+  'congestion-1', 'congestion-1-on', 'congestion-2', 'congestion-2-on', 'congestion-3',
+  'congestion-3-on', 'congestion-4', 'congestion-4-on', 'congestion-5', 'congestion-5-on',
+] as const; // color.{dark,light}.<name>（DTCG にある、残りの意味の色）
+// DTCG 側に未収録の 3 つ（仮置き変数）。値は claude-design/tokens.json color.tokens から読む。
+const PLACEHOLDER_NAMES = ['border-control', 'danger-on', 'destination-text'] as const;
+type Theme = 'dark' | 'light';
+type DesignToken = { name: string; value: string | { dark: string; light: string } };
+const designColors = designTokens.color.tokens as DesignToken[];
+function designColor(name: string, theme: Theme): string {
+  const value = designColors.find(token => token.name === name)!.value;
+  const color = typeof value === 'string' ? value : value[theme];
+  const ref = /^\{(.+)\}$/.exec(color);
+  return ref ? designColor(ref[1], theme) : color; // {violet-950} はパレットの項目名
+}
+/** 指定のテーマで --app-* に出す色すべて（検査用に公開）。 */
+export function appColors(theme: Theme): Record<string, string> {
+  return {
+    ...Object.fromEntries(COLOR_NAMES.map(name =>
+      [`--app-${name}`, cssColor(tokens.color[theme][name].$value)])),
+    ...Object.fromEntries(DTCG_COLOR_NAMES.map(name =>
+      [`--app-${name}`, cssColor(tokens.color[theme][name].$value)])),
+    // claude-design/tokens.json color.tokens.{border-control,danger-on,destination-text}
+    ...Object.fromEntries(PLACEHOLDER_NAMES.map(name => [`--app-${name}`, designColor(name, theme)])),
+  };
+}
 export const APP_TOKENS = {
   '--app-space-1': dimension(tokens.space['1'].$value), // space.1
   '--app-space-2': dimension(tokens.space['2'].$value), // space.2
@@ -40,7 +67,7 @@ export const APP_TOKENS = {
 } as const;
 
 export function useAppTokens(root: Ref<HTMLElement | undefined>) {
-  const theme = ref<'dark' | 'light'>('dark');
+  const theme = ref<Theme>('dark');
   let observer: MutationObserver | undefined;
   function resolveColors() {
     theme.value = root.value?.closest('[data-theme]')?.getAttribute('data-theme') === 'light'
@@ -54,11 +81,5 @@ export function useAppTokens(root: Ref<HTMLElement | undefined>) {
     }
   });
   onBeforeUnmount(() => observer?.disconnect());
-  return computed(() => ({
-    ...APP_TOKENS,
-    '--app-border-control': typeof BORDER_CONTROL === 'string'
-      ? BORDER_CONTROL : BORDER_CONTROL[theme.value],
-    ...Object.fromEntries(COLOR_NAMES.map(name =>
-      [`--app-${name}`, cssColor(tokens.color[theme.value][name].$value)])),
-  }));
+  return computed(() => ({ ...APP_TOKENS, ...appColors(theme.value) }));
 }
