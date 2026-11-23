@@ -185,3 +185,32 @@ it('履歴の挿入失敗は更新・hours の置換もロールバックし、5
     await env.DB.exec('DROP TRIGGER reject_place_update_change');
   }
 });
+
+it('未知の項目だけの PATCH は 400 とし、変更も履歴の配信もしない', async () => {
+  await expectProblem(await patch({ foo: 1 }), 400, 'invalid_input');
+  await expectNoChange();
+});
+
+it('読み取り後に別の運営が別の項目を直しても、応答と配信の本文は DB の現在値になる', async () => {
+  const realBatch = env.DB.batch.bind(env.DB);
+  let raced = false;
+  vi.spyOn(env.DB, 'batch').mockImplementation((async (statements: D1PreparedStatement[]) => {
+    if (!raced) {
+      raced = true;
+      await env.DB.prepare("UPDATE places SET description = '別の運営の説明' WHERE id = 'pl_01'").run();
+    }
+    return realBatch(statements);
+  }) as typeof env.DB.batch);
+
+  const response = await patch({ name: '新しい名前' });
+  expect(response.status).toBe(200);
+  const body = await response.json() as { name: string; description: string };
+  expect(body.name).toBe('新しい名前');
+  expect(body.description).toBe('別の運営の説明');
+
+  const rows = (await env.DB.prepare('SELECT payload FROM changes ORDER BY id').all<{ payload: string }>()).results;
+  const last = JSON.parse(rows[rows.length - 1].payload);
+  expect(last).toEqual(body);
+  const published = JSON.parse(publish.mock.calls[publish.mock.calls.length - 1][1]?.body as string);
+  expect(published.payload).toEqual(body);
+});

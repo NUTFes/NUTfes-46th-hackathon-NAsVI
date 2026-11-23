@@ -16,6 +16,20 @@ type PlaceRow = {
 };
 
 const dateTime = z.iso.datetime({ offset: true }).transform(value => new Date(value).toISOString());
+async function readPlace(db: D1Database, id: string): Promise<Place | null> {
+  const row = await first<PlaceRow>(db, 'SELECT * FROM places WHERE id = ?', [id]);
+  if (!row) return null;
+  const hours = await all<Place['hours'][number]>(db,
+    'SELECT start_at AS start, end_at AS end FROM place_hours WHERE place_id = ? ORDER BY start_at', [id]);
+  const labels = await all<{ label_id: string }>(db,
+    'SELECT label_id FROM place_labels WHERE place_id = ? ORDER BY label_id', [id]);
+  return {
+    id: row.id, name: row.name, kind: row.kind, location: { lat: row.lat, lng: row.lng },
+    description: row.description, landmarkId: row.landmark_id, floor: row.floor,
+    hours, labelIds: labels.map(label => label.label_id),
+  };
+}
+
 const patchSchema = z.looseObject({
   // Supplying kind is invalid even when it equals the current kind.
   kind: z.never().optional(),
@@ -27,7 +41,7 @@ const patchSchema = z.looseObject({
   hours: z.array(z.object({ start: dateTime, end: dateTime }))
     .refine(hours => new Set(hours.map(period => period.start)).size === hours.length,
       '開催時間の開始が重複しています').optional(),
-}).refine(value => Object.keys(value).length > 0, '更新する項目を入れてください');
+}).refine(value => ['name', 'location', 'description', 'landmarkId', 'floor', 'hours'].some(key => key in value), '更新する項目を入れてください');
 
 export function register(app: Hono<AppEnv>) {
   app.patch('/places/:placeId', requireOperator, async c => {
@@ -90,7 +104,13 @@ export function register(app: Hono<AppEnv>) {
         }
       }
       await commitWithChange(c.env, statements, { type: 'placeUpdated', payload: place });
-      return c.json(place, 200);
+      // 読み取りと書き込みの間に別の運営が別の項目を直した場合に備え、DB の現在値を応答と配信に使う。
+      const current = await readPlace(db, id);
+      if (!current) return problem(c, 404, 'not_found', `場所 ${id} は見つかりません`);
+      if (JSON.stringify(current) !== JSON.stringify(place)) {
+        await commitWithChange(c.env, [], { type: 'placeUpdated', payload: current });
+      }
+      return c.json(current, 200);
     } catch {
       return problem(c, 500, 'internal_error', '時間をおいて、もう一度試してください');
     }
