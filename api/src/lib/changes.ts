@@ -22,16 +22,23 @@ async function publish(env: Env, event: ChangeEvent): Promise<void> {
 }
 
 export async function commitWithChange(
-  env: Env, stmts: D1PreparedStatement[], change: { type: ChangeType; payload: unknown },
+  env: Env, stmts: D1PreparedStatement[],
+  change: { type: ChangeType; payload: unknown } | { type: ChangeType; payloadSql: { sql: string; params: unknown[] } },
   ctx?: { waitUntil(p: Promise<unknown>): void },
-): Promise<{ changeId: number }> {
+): Promise<{ changeId: number; payload: unknown }> {
   const createdAt = nowIso(env);
-  const insert = env.DB.prepare('INSERT INTO changes (type, payload, created_at) VALUES (?, ?, ?)')
-    .bind(change.type, JSON.stringify(change.payload), createdAt);
+  const insert = 'payloadSql' in change
+    ? env.DB.prepare(`INSERT INTO changes (type, payload, created_at) SELECT ?, (${change.payloadSql.sql}), ?`)
+      .bind(change.type, ...change.payloadSql.params, createdAt)
+    : env.DB.prepare('INSERT INTO changes (type, payload, created_at) VALUES (?, ?, ?)')
+      .bind(change.type, JSON.stringify(change.payload), createdAt);
   const results = await env.DB.batch([...stmts, insert]);
   const changeId = results[results.length - 1].meta.last_row_id;
-  const pending = publish(env, { id: changeId, ...change, createdAt });
+  const payload: unknown = 'payloadSql' in change
+    ? JSON.parse((await env.DB.prepare('SELECT payload FROM changes WHERE id = ?').bind(changeId).first<string>('payload'))!)
+    : change.payload;
+  const pending = publish(env, { id: changeId, type: change.type, payload, createdAt });
   if (ctx) ctx.waitUntil(pending);
   else await pending;
-  return { changeId };
+  return { changeId, payload };
 }
