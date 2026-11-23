@@ -16,9 +16,21 @@ export async function migrateTestDb(bindings: TestEnv = env): Promise<void> {
   await applyD1Migrations(bindings.DB, bindings.TEST_MIGRATIONS);
 }
 
+let requestSequence = 0;
+
+function createTestRequest(path: string, init: RequestInit = {}): Request {
+  const sequence = ++requestSequence;
+  const headers = new Headers(init.headers);
+  // Isolate requests from rate limits unless a test explicitly shares an IP.
+  if (!headers.has('cf-connecting-ip')) {
+    headers.set('cf-connecting-ip', `10.${(sequence >>> 16) & 255}.${(sequence >>> 8) & 255}.${sequence & 255}`);
+  }
+  return new Request(new URL(path, 'http://local'), { ...init, headers });
+}
+
 /** SELF is a local service binding; these requests never use the public network. */
 export function request(path: string, init?: RequestInit): Promise<Response> {
-  return SELF.fetch(new Request(new URL(path, 'http://local'), init));
+  return SELF.fetch(createTestRequest(path, init));
 }
 
 /** Use per-request bindings so bypass cannot leak into another test. */
@@ -27,7 +39,7 @@ export function operatorEnv(overrides: Partial<Env> = {}): Env {
 }
 
 export function requestWithEnv(path: string, init: RequestInit = {}, bindings: Env = env): Promise<Response> {
-  return Promise.resolve(app.fetch(new Request(new URL(path, 'http://local'), init), bindings));
+  return Promise.resolve(app.fetch(createTestRequest(path, init), bindings));
 }
 
 export function requestAsOperator(path: string, init?: RequestInit): Promise<Response> {
