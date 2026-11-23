@@ -38,6 +38,31 @@ const shape = computed(() => {
   };
 });
 const draft = reactive({ name: '', lat: '' as string | number, lng: '' as string | number });
+type FormField = 'name' | 'lat' | 'lng' | 'location';
+const fieldErrors = ref<Partial<Record<FormField, string>>>({});
+const formElement = ref<HTMLFormElement | null>(null);
+
+function clearFieldError(field: 'name' | 'lat' | 'lng') {
+  delete fieldErrors.value[field];
+  if (field !== 'name') delete fieldErrors.value.location;
+}
+
+function focusInvalidField() {
+  void nextTick(() => formElement.value?.querySelector<HTMLInputElement>('[aria-invalid="true"]')?.focus());
+}
+
+function reportSaveError(error: unknown) {
+  if (error instanceof ApiError && error.status === 400) {
+    const fields: Record<string, FormField> = { name: 'name', location: 'location', 'location.lat': 'lat', 'location.lng': 'lng' };
+    const field = fields[error.field ?? ''];
+    if (field) {
+      fieldErrors.value[field] = error.message;
+      focusInvalidField();
+      return;
+    }
+  }
+  reportError(error);
+}
 const confirmingDelete = ref(false);
 const locked = computed(() => busy.value || confirmingDelete.value);
 const cancelButton = ref<HTMLButtonElement | null>(null);
@@ -45,7 +70,8 @@ const deleteButton = ref<HTMLButtonElement | null>(null);
 let controller: AbortController | null = null;
 
 // 一度に一つだけ送信し、管理画面を離れた後の応答・エラーは反映しない。
-async function perform<T>(request: (signal: AbortSignal) => Promise<T>, apply: (value: T) => void) {
+async function perform<T>(request: (signal: AbortSignal) => Promise<T>, apply: (value: T) => void,
+  onError: (error: unknown) => void = reportError) {
   if (busy.value) return;
   const current = new AbortController();
   controller = current;
@@ -56,7 +82,7 @@ async function perform<T>(request: (signal: AbortSignal) => Promise<T>, apply: (
     const result = await request(current.signal);
     if (!current.signal.aborted) apply(result);
   } catch (error) {
-    if (!current.signal.aborted) reportError(error);
+    if (!current.signal.aborted) onError(error);
   } finally {
     if (controller === current) {
       busy.value = false;
@@ -66,6 +92,7 @@ async function perform<T>(request: (signal: AbortSignal) => Promise<T>, apply: (
 }
 
 function resetForm() {
+  fieldErrors.value = {};
   selectedId.value = null;
   Object.assign(draft, { name: '', lat: '', lng: '' });
   confirmingDelete.value = false;
@@ -83,6 +110,7 @@ function load() {
 function edit(item: Landmark) {
   if (locked.value) return;
   clearError();
+  fieldErrors.value = {};
   notice.value = '';
   selectedId.value = item.id;
   Object.assign(draft, { name: item.name, lat: String(item.location.lat), lng: String(item.location.lng) });
@@ -97,16 +125,23 @@ function startNew() {
 
 function save() {
   if (locked.value || !loaded.value) return;
+  clearError();
+  notice.value = '';
+  fieldErrors.value = {};
   // OpenAPI の文字数は Unicode コードポイント。座標の空欄を 0 にしない。
   if ([...draft.name].length < 1 || [...draft.name].length > 50) {
-    reportError(new ApiError({ code: 'invalid_input', message: '名前は1〜50文字で入力してください', field: 'name' }, 400));
-    return;
+    fieldErrors.value.name = '名前は1〜50文字で入力してください';
   }
   const lat = Number(draft.lat);
   const lng = Number(draft.lng);
-  if (!String(draft.lat).trim() || !String(draft.lng).trim() || !Number.isFinite(lat) || !Number.isFinite(lng)
-    || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-    reportError(new ApiError({ code: 'invalid_input', message: '緯度は−90〜90、経度は−180〜180で入力してください', field: 'location' }, 400));
+  if (!String(draft.lat).trim() || !Number.isFinite(lat) || lat < -90 || lat > 90) {
+    fieldErrors.value.lat = '緯度は−90〜90で入力してください';
+  }
+  if (!String(draft.lng).trim() || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    fieldErrors.value.lng = '経度は−180〜180で入力してください';
+  }
+  if (Object.keys(fieldErrors.value).length) {
+    focusInvalidField();
     return;
   }
   const id = selectedId.value;
@@ -118,7 +153,7 @@ function save() {
     selectedId.value = item.id;
     Object.assign(draft, { name: item.name, lat: String(item.location.lat), lng: String(item.location.lng) });
     notice.value = id === null ? '建物を登録しました。' : '建物を更新しました。';
-  });
+  }, reportSaveError);
 }
 
 function reloadFootprint() {
@@ -193,15 +228,24 @@ onBeforeUnmount(() => controller?.abort());
 
     <section aria-labelledby="landmark-form-title">
       <h3 id="landmark-form-title">{{ selected ? '建物の更新' : '建物の登録' }}</h3>
-      <form @submit.prevent="save">
+      <form ref="formElement" novalidate @submit.prevent="save">
         <fieldset :disabled="locked || !loaded">
           <legend>名前と位置</legend>
           <label for="landmark-name">名前（1〜50文字）</label>
-          <input id="landmark-name" v-model="draft.name" name="name" required />
+          <input id="landmark-name" v-model="draft.name" name="name" required
+            :aria-invalid="fieldErrors.name ? 'true' : undefined" :aria-describedby="fieldErrors.name ? 'landmark-name-error' : undefined" @input="clearFieldError('name')" />
+          <p v-if="fieldErrors.name" id="landmark-name-error" class="field-error" role="alert">{{ fieldErrors.name }}</p>
           <label for="landmark-lat">緯度</label>
-          <input id="landmark-lat" v-model="draft.lat" name="lat" type="number" step="any" min="-90" max="90" required />
+          <input id="landmark-lat" v-model="draft.lat" name="lat" type="number" step="any" min="-90" max="90" required
+            :aria-invalid="fieldErrors.lat || fieldErrors.location ? 'true' : undefined"
+            :aria-describedby="fieldErrors.lat ? 'landmark-lat-error' : fieldErrors.location ? 'landmark-location-error' : undefined" @input="clearFieldError('lat')" />
+          <p v-if="fieldErrors.lat" id="landmark-lat-error" class="field-error" role="alert">{{ fieldErrors.lat }}</p>
           <label for="landmark-lng">経度</label>
-          <input id="landmark-lng" v-model="draft.lng" name="lng" type="number" step="any" min="-180" max="180" required />
+          <input id="landmark-lng" v-model="draft.lng" name="lng" type="number" step="any" min="-180" max="180" required
+            :aria-invalid="fieldErrors.lng || fieldErrors.location ? 'true' : undefined"
+            :aria-describedby="fieldErrors.lng ? 'landmark-lng-error' : fieldErrors.location ? 'landmark-location-error' : undefined" @input="clearFieldError('lng')" />
+          <p v-if="fieldErrors.lng" id="landmark-lng-error" class="field-error" role="alert">{{ fieldErrors.lng }}</p>
+          <p v-if="fieldErrors.location" id="landmark-location-error" class="field-error" role="alert">{{ fieldErrors.location }}</p>
           <button type="submit">{{ selected ? '更新する' : '登録する' }}</button>
         </fieldset>
       </form>
@@ -251,6 +295,8 @@ input { min-width: 0; box-sizing: border-box; width: 100%; color: var(--admin-te
 button { justify-self: start; color: var(--admin-action); background: var(--admin-surface); font-weight: var(--admin-bold); cursor: pointer; }
 button:disabled, fieldset:disabled button { color: var(--admin-muted); cursor: default; }
 input:focus-visible, button:focus-visible { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
+.field-error { color: var(--admin-danger-text); }
+input[aria-invalid="true"] { border-color: var(--admin-danger); }
 .missing { color: var(--admin-danger-text); }
 .shape-preview { box-sizing: border-box; width: 100%; aspect-ratio: 2; padding: var(--admin-space-lg); border: thin solid var(--admin-border); border-radius: var(--admin-radius); background: var(--admin-surface); }
 .shape-preview path { fill: var(--admin-selected); stroke: var(--admin-action); vector-effect: non-scaling-stroke; }

@@ -135,15 +135,23 @@ describe('建物の一覧・登録・更新', () => {
 
   it.each([
     ['', '37', '138', 'name'], ['あ'.repeat(51), '37', '138', 'name'],
-    ['A棟', '', '138', 'location'], ['A棟', '37', '', 'location'],
-    ['A棟', '91', '138', 'location'], ['A棟', '-91', '138', 'location'],
-    ['A棟', '37', '181', 'location'], ['A棟', '37', '-181', 'location'],
+    ['A棟', '', '138', 'lat'], ['A棟', '37', '', 'lng'],
+    ['A棟', '91', '138', 'lat'], ['A棟', '-91', '138', 'lat'],
+    ['A棟', '37', '181', 'lng'], ['A棟', '37', '-181', 'lng'],
   ])('契約外の入力を送らない: %s / %s / %s', async (name, lat, lng, field) => {
     const { wrapper } = await render([]);
     await fill(wrapper, name, lat, lng);
     await wrapper.get('form').trigger('submit');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(wrapper.get('[role="alert"]').text()).toContain(field);
+    const input = wrapper.get(`#landmark-${field}`);
+    expect(input.attributes('aria-invalid')).toBe('true');
+    expect(input.attributes('aria-describedby')).toBe(`landmark-${field}-error`);
+    expect(wrapper.get(`#landmark-${field}-error`).text()).not.toBe('');
+    expect(document.activeElement).toBe(input.element);
+    await input.setValue(field === 'name' ? 'A棟' : '0');
+    expect(input.attributes('aria-invalid')).toBeUndefined();
+    expect(input.attributes('aria-describedby')).toBeUndefined();
+    expect(wrapper.find(`#landmark-${field}-error`).exists()).toBe(false);
   });
 
   it('50コードポイントの名前と0の座標を送信できる', async () => {
@@ -157,7 +165,7 @@ describe('建物の一覧・登録・更新', () => {
   });
 
   it.each([
-    [400, 'invalid_input', '位置を確認してください', 'location'],
+    [400, 'invalid_input', '入力を確認してください', 'unknown'],
     [401, 'unauthorized', '運営としてログインしてください', undefined],
     [404, 'not_found', '建物が見つかりません', undefined],
   ])('更新の %i を共通バナーに出し、下書きと保存済みデータを保つ', async (status, code, message, field) => {
@@ -172,6 +180,44 @@ describe('建物の一覧・登録・更新', () => {
     expect(store.items[0].name).toBe('A棟');
     expect((wrapper.get('#landmark-name').element as HTMLInputElement).value).toBe('修正中の名前');
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['name', ['name']], ['location', ['lat', 'lng']],
+    ['location.lat', ['lat']], ['location.lng', ['lng']],
+  ] as const)('400のfield=%sを項目に結び付け、下書きを保つ', async (field, inputs) => {
+    const { wrapper, store } = await render();
+    await editFirst(wrapper);
+    await fill(wrapper, '修正中の名前');
+    fetchMock.mockResolvedValueOnce(json({ code: 'invalid_input', message: '値を確認してください', field }, 400));
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+    expect(wrapper.find('header [role="alert"]').exists()).toBe(false);
+    for (const name of inputs) {
+      const input = wrapper.get(`#landmark-${name}`);
+      expect(input.attributes('aria-invalid')).toBe('true');
+      expect(wrapper.get(`#${input.attributes('aria-describedby')}`).text()).toBe('値を確認してください');
+    }
+    expect(document.activeElement).toBe(wrapper.get(`#landmark-${inputs[0]}`).element);
+    expect(store.items[0].name).toBe('A棟');
+    expect((wrapper.get('#landmark-name').element as HTMLInputElement).value).toBe('修正中の名前');
+    await wrapper.get(`#landmark-${inputs[0]}`).setValue(inputs[0] === 'name' ? 'A棟' : '0');
+    expect(wrapper.find('[aria-invalid="true"]').exists()).toBe(false);
+    expect(wrapper.find('form [role="alert"]').exists()).toBe(false);
+  });
+
+  it('複数の入力エラーを示し、新規登録への切替で消す', async () => {
+    const { wrapper } = await render();
+    await wrapper.get('form').trigger('submit');
+    expect(wrapper.findAll('form [aria-invalid="true"]')).toHaveLength(3);
+    expect(document.activeElement).toBe(wrapper.get('#landmark-name').element);
+    await editFirst(wrapper);
+    expect(wrapper.find('form [role="alert"]').exists()).toBe(false);
+    await fill(wrapper, '');
+    await wrapper.get('form').trigger('submit');
+    await button(wrapper, '新しい建物').trigger('click');
+    expect(wrapper.find('form [aria-invalid="true"]').exists()).toBe(false);
+    expect(wrapper.find('form [role="alert"]').exists()).toBe(false);
   });
 
   it('送信中は操作を止め、重複送信しない', async () => {
