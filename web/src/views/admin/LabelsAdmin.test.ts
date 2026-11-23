@@ -62,7 +62,7 @@ async function render() {
   });
   await router.push('/admin/labels');
   await router.isReady();
-  const wrapper = mount(RouterView, { global: { plugins: [pinia, router] } });
+  const wrapper = mount(RouterView, { attachTo: document.body, global: { plugins: [pinia, router] } });
   return { wrapper, labels: useLabelsStore(pinia), places: usePlacesStore(pinia) };
 }
 
@@ -137,7 +137,7 @@ describe('種類の管理', () => {
     expect(wrapper.text()).toContain('種類を作成しました');
   });
 
-  it.each(['', 'あ'.repeat(21), '😀'.repeat(21)])('API の長さ制約に合わない名前は送らない: %s', async (title) => {
+  it.each(['', ' \t\n　', 'あ'.repeat(21), ` ${'😀'.repeat(21)} `])('trim後の長さ制約に合わない名前は送らない: %s', async (title) => {
     const { wrapper } = await render();
     await flushPromises();
     await wrapper.get('#label-title').setValue(title);
@@ -146,13 +146,13 @@ describe('種類の管理', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('20文字の絵文字をAPIと同じ文字数で受け付ける', async () => {
+  it.each(['あ', 'あ'.repeat(20), '😀'.repeat(20)])('前後の空白を除いた1〜20 code pointの名前だけを送る: %s', async (title) => {
     const { wrapper } = await render();
     await flushPromises();
-    const title = '😀'.repeat(20);
     fetchMock.mockResolvedValueOnce(json({ id: 'lb_new', title }, 201));
-    await wrapper.get('#label-title').setValue(title);
+    await wrapper.get('#label-title').setValue(`　 ${title} \t`);
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined();
+    expect(wrapper.get('#label-title').attributes('aria-invalid')).toBe('false');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
     lastRequest('POST', '/api/labels', { title });
@@ -166,28 +166,64 @@ describe('種類の管理', () => {
     await wrapper.get('form').trigger('submit');
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toContain('種類「飲食」は既にあります');
+    expect(wrapper.get('#label-title-error').text()).toBe('その名前は使われています');
+    expect(wrapper.get('#label-title').attributes('aria-describedby')).toBe('label-title-help label-title-error');
+    expect(wrapper.get('#label-title').attributes('aria-invalid')).toBe('true');
     expect(wrapper.get<HTMLInputElement>('#label-title').element.value).toBe('飲食');
     expect(labels.items).toEqual(initialLabels);
     expect(wrapper.text()).not.toContain('すべての場所から外してから');
     expect(fetchMock).toHaveBeenCalledTimes(3);
     fetchMock.mockResolvedValueOnce(json({ id: 'lb_new', title: '展示' }, 201));
     await wrapper.get('#label-title').setValue('展示');
+    expect(wrapper.find('#label-title-error').exists()).toBe(false);
+    expect(wrapper.get('#label-title').attributes('aria-describedby')).toBe('label-title-help');
+    expect(wrapper.get('#label-title').attributes('aria-invalid')).toBe('false');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
     expect(wrapper.find('[role="alert"]').exists()).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
-  it('未使用の種類を削除し、付け外し欄からも除く', async () => {
+  it.each(['button', 'Escape'])('削除対象と影響を確認し、キャンセル（%s）ではAPIを呼ばずフォーカスを戻す', async (cancel) => {
+    const { wrapper, labels } = await render();
+    await flushPromises();
+    const trigger = wrapper.get<HTMLButtonElement>('[aria-label="ステージを削除"]');
+    await trigger.trigger('click');
+    const dialog = wrapper.get('[role="alertdialog"]');
+    expect(dialog.attributes('aria-labelledby')).toBe('delete-title');
+    expect(dialog.attributes('aria-describedby')).toBe('delete-effects');
+    expect(dialog.get('#delete-title').text()).toContain('「ステージ」を削除');
+    expect(dialog.get('#delete-effects').text()).toContain('場所に付けられなくなります');
+    expect(dialog.text()).toContain('この操作は取り消せません');
+    expect(dialog.text()).toContain('使用中のため削除できません');
+    expect(dialog.text()).toContain('先にすべての場所から外してください');
+    expect(dialog.text()).toContain('場所そのものは削除されません');
+    expect(document.activeElement).toBe(dialog.get('button').element);
+    expect(wrapper.get('fieldset').attributes('disabled')).toBeDefined();
+    window.dispatchEvent(new Event('focus'));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    if (cancel === 'button') await dialog.get('button').trigger('click');
+    else await dialog.trigger('keydown', { key: 'Escape' });
+    await flushPromises();
+    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(trigger.element);
+    expect(labels.items).toEqual(initialLabels);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('確認後だけ未使用の種類を削除し、付け外し欄からも除く', async () => {
     const { wrapper, labels } = await render();
     await flushPromises();
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await wrapper.get('[aria-label="ステージを削除"]').trigger('click');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await wrapper.get('[role="alertdialog"] button:last-child').trigger('click');
     await flushPromises();
     lastRequest('DELETE', '/api/labels/lb_stage');
     expect(labels.items).toEqual([initialLabels[0]]);
     expect(wrapper.find('[aria-label="焼きそば屋台のステージ"]').exists()).toBe(false);
     expect(wrapper.text()).toContain('種類を削除しました');
+    expect(document.activeElement).toBe(wrapper.get('main > button').element);
   });
 
   it('使用中の409は種類を残して外し方を案内し、外したあとに削除できる', async () => {
@@ -195,12 +231,17 @@ describe('種類の管理', () => {
     await flushPromises();
     fetchMock.mockResolvedValueOnce(problem(409, 'label_in_use', '種類 lb_food は 1 件の場所に付いています'));
     await wrapper.get('[aria-label="飲食を削除"]').trigger('click');
+    await wrapper.get('[role="alertdialog"] button:last-child').trigger('click');
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toContain('label_in_use');
     expect(wrapper.text()).toContain('付いているすべての場所から外してから削除');
     expect(labels.items).toEqual(initialLabels);
     expect(places.items).toEqual(initialPlaces);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.slice(2).map(([url, init]) => [init?.method, url])).toEqual([
+      ['DELETE', '/api/labels/lb_food'], ['GET', '/api/labels'], ['GET', '/api/places'],
+    ]);
+    expect(wrapper.get('a[href="#label-place-pl_01"]').text()).toBe('焼きそば屋台の付け外しへ');
+    expect(wrapper.get('#label-place-pl_01').get('legend').text()).toBe('焼きそば屋台');
 
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await wrapper.get('[aria-label="焼きそば屋台の飲食"]').setValue(false);
@@ -213,6 +254,7 @@ describe('種類の管理', () => {
 
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await wrapper.get('[aria-label="飲食を削除"]').trigger('click');
+    await wrapper.get('[role="alertdialog"] button:last-child').trigger('click');
     await flushPromises();
     lastRequest('DELETE', '/api/labels/lb_food');
     expect(labels.items).toEqual([initialLabels[1]]);
@@ -244,18 +286,119 @@ describe('種類の管理', () => {
     expect(wrapper.text()).toContain('場所から種類を外しました');
   });
 
-  it.each([true, false])('付け外しの失敗ではチェックとストアを保つ（元の状態=%s）', async (assigned) => {
+  it.each([
+    { assigned: true, code: 'label_not_found' },
+    { assigned: false, code: 'label_not_found' },
+    { assigned: true, code: 'not_found' },
+    { assigned: false, code: 'not_found' },
+  ])('付け外しの404 $code（元の状態=$assigned）はバナーを残し、両一覧を再取得する', async ({ assigned, code }) => {
     const { wrapper, places } = await render();
     await flushPromises();
-    fetchMock.mockResolvedValueOnce(problem(404, 'label_not_found', '種類が登録されていません'));
+    const reloadedLabels = code === 'label_not_found' ? initialLabels.filter((label) => label.id !== (assigned ? 'lb_food' : 'lb_stage')) : initialLabels;
+    const reloadedPlaces = code === 'not_found' ? [] : [{ ...initialPlaces[0], labelIds: [] }];
+    fetchMock.mockResolvedValueOnce(problem(404, code, '場所か種類が登録されていません'))
+      .mockResolvedValueOnce(json({ items: reloadedLabels }))
+      .mockResolvedValueOnce(json({ items: reloadedPlaces, cursor: '2' }));
     const checkbox = wrapper.get<HTMLInputElement>(assigned
       ? '[aria-label="焼きそば屋台の飲食"]' : '[aria-label="焼きそば屋台のステージ"]');
     await checkbox.setValue(!assigned);
-    await flushPromises();
     expect(checkbox.element.checked).toBe(assigned);
     expect(places.items).toEqual(initialPlaces);
-    expect(wrapper.get('[role="alert"]').text()).toContain('label_not_found');
+    await flushPromises();
+    expect(places.items).toEqual(reloadedPlaces);
+    expect(wrapper.find(assigned ? '[aria-label="焼きそば屋台の飲食"]' : '[aria-label="焼きそば屋台のステージ"]').exists()).toBe(false);
+    expect(wrapper.get('[role="alert"]').text()).toContain(code);
+    expect(fetchMock.mock.calls.slice(2).map(([url, init]) => [init?.method, url])).toEqual([
+      [assigned ? 'DELETE' : 'PUT', `/api/places/pl_01/labels/${assigned ? 'lb_food' : 'lb_stage'}`],
+      ['GET', '/api/labels'], ['GET', '/api/places'],
+    ]);
+  });
+
+  it.each(['not_found', 'label_not_found'])('削除の404 %sもバナーを残し、両一覧を再取得する', async (code) => {
+    const { wrapper, labels, places } = await render();
+    await flushPromises();
+    const updatedPlaces = [{ ...initialPlaces[0], name: '更新された屋台' }];
+    fetchMock.mockResolvedValueOnce(problem(404, code, '削除対象は見つかりません'))
+      .mockResolvedValueOnce(json({ items: [initialLabels[0]] }))
+      .mockResolvedValueOnce(json({ items: updatedPlaces, cursor: '2' }));
+    await wrapper.get('[aria-label="ステージを削除"]').trigger('click');
+    await wrapper.get('[role="alertdialog"] button:last-child').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain(code);
+    expect(labels.items).toEqual([initialLabels[0]]);
+    expect(places.items).toEqual(updatedPlaces);
+    expect(fetchMock.mock.calls.slice(2).map(([url, init]) => [init?.method, url])).toEqual([
+      ['DELETE', '/api/labels/lb_stage'], ['GET', '/api/labels'], ['GET', '/api/places'],
+    ]);
+  });
+
+  it('404のバナーを再取得中と取得失敗後も残し、手動の再取得で復帰する', async () => {
+    const { wrapper, labels, places } = await render();
+    await flushPromises();
+    const pending = deferred<Response>();
+    fetchMock.mockResolvedValueOnce(problem(404, 'not_found', '場所は削除されています'))
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce(problem(500, 'internal_error', '取得失敗'));
+    await wrapper.get('[aria-label="焼きそば屋台のステージ"]').setValue(true);
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain('場所は削除されています');
+    expect(wrapper.get('main').attributes('aria-busy')).toBe('true');
+    pending.resolve(json({ items: [] }));
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain('場所は削除されています');
+    expect(wrapper.text()).toContain('一覧を読み込めませんでした');
+    expect(wrapper.get('#label-title').attributes('disabled')).toBeDefined();
+    expect(labels.items).toEqual(initialLabels);
+    expect(places.items).toEqual(initialPlaces);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    await wrapper.get('main > button').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.get('legend').text()).toBe('焼きそば屋台');
+    expect(fetchMock).toHaveBeenCalledTimes(7);
+  });
+
+  it.each(['focus', 'visibilitychange'])('画面への復帰（%s）で他の運営の変更を取り直し、入力を残す', async (event) => {
+    const { wrapper, labels, places } = await render();
+    await flushPromises();
+    await wrapper.get('#label-title').setValue('入力途中');
+    const updatedLabels = [...initialLabels, { id: 'lb_new', title: '展示' }];
+    const updatedPlaces = [{ ...initialPlaces[0], labelIds: ['lb_new'] }];
+    fetchMock.mockResolvedValueOnce(json({ items: updatedLabels }))
+      .mockResolvedValueOnce(json({ items: updatedPlaces, cursor: '2' }));
+    if (event === 'focus') window.dispatchEvent(new Event(event));
+    else document.dispatchEvent(new Event(event));
+    await flushPromises();
+    expect(labels.items).toEqual(updatedLabels);
+    expect(places.items).toEqual(updatedPlaces);
+    expect(wrapper.get<HTMLInputElement>('[aria-label="焼きそば屋台の展示"]').element.checked).toBe(true);
+    expect(wrapper.get<HTMLInputElement>('#label-title').element.value).toBe('入力途中');
+    expect(fetchMock.mock.calls.slice(2).map(([url, init]) => [init?.method, url])).toEqual([
+      ['GET', '/api/labels'], ['GET', '/api/places'],
+    ]);
+    wrapper.unmount();
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('保存中の復帰では保存を再送せず、完了後に一覧を取り直す', async () => {
+    const { wrapper, places } = await render();
+    await flushPromises();
+    const pending = deferred<Response>();
+    const updatedPlaces = [{ ...initialPlaces[0], name: '他の運営が更新', labelIds: ['lb_food', 'lb_stage'] }];
+    fetchMock.mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce(json({ items: initialLabels }))
+      .mockResolvedValueOnce(json({ items: updatedPlaces, cursor: '2' }));
+    await wrapper.get('[aria-label="焼きそば屋台のステージ"]').setValue(true);
+    window.dispatchEvent(new Event('focus'));
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    pending.resolve(new Response(null, { status: 204 }));
+    await flushPromises();
+    expect(places.items).toEqual(updatedPlaces);
+    expect(fetchMock.mock.calls.slice(2).map(([url, init]) => [init?.method, url])).toEqual([
+      ['PUT', '/api/places/pl_01/labels/lb_stage'], ['GET', '/api/labels'], ['GET', '/api/places'],
+    ]);
   });
 
   it('保存中は再送を防ぎ、成功するまで表示・ストアを変えない', async () => {
@@ -326,6 +469,7 @@ describe('種類の管理', () => {
     await flushPromises();
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     await wrapper.get('[aria-label="ステージを削除"]').trigger('click');
+    await wrapper.get('[role="alertdialog"] button:last-child').trigger('click');
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toContain('通信に失敗しました');
     expect(labels.items).toEqual(initialLabels);

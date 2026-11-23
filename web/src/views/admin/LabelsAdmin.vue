@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { adminGet, adminSend, ApiError } from '../../admin/client';
 import { useAdminFeedback } from '../../admin/feedback';
 import { adminTokens } from '../../admin/tokens';
 import { useLabelsStore, usePlacesStore } from '../../stores';
+import type { Label } from '../../types';
 
 // 色・余白・文字は adminTokens の定数を再利用する。
 // color.{light,dark}.{bg-page,bg-surface,text-primary,text-secondary,border-subtle,action-primary,danger-text}
@@ -21,18 +22,29 @@ const saving = ref(false);
 const ready = ref(false);
 const newTitle = ref('');
 const notice = ref('');
-const labelInUse = ref(false);
-const titleLength = computed(() => [...newTitle.value].length);
+const labelInUse = ref<string | null>(null);
+const titleError = ref('');
+const trimmedTitle = computed(() => newTitle.value.trim());
+const titleLength = computed(() => [...trimmedTitle.value].length);
 const validTitle = computed(() => titleLength.value >= 1 && titleLength.value <= TITLE_MAX_LENGTH);
-const disabled = computed(() => loading.value || saving.value || !ready.value);
+const pendingDelete = ref<Label | null>(null);
+const cancelButton = ref<HTMLButtonElement>();
+const reloadButton = ref<HTMLButtonElement>();
+let deleteTrigger: HTMLButtonElement | null = null;
+let refreshPending = false;
+const disabled = computed(() => loading.value || saving.value || !ready.value || pendingDelete.value !== null);
+const affectedPlaces = computed(() => places.items.filter((place) => place.labelIds.includes(labelInUse.value ?? '')));
 
-async function loadLists() {
+async function loadLists(preserveFeedback = false) {
   if (loading.value || saving.value) return;
   loading.value = true;
   ready.value = false;
   notice.value = '';
-  labelInUse.value = false;
-  clearError();
+  if (!preserveFeedback) {
+    labelInUse.value = null;
+    titleError.value = '';
+    clearError();
+  }
   try {
     const [labelResult, placeResult] = await Promise.allSettled([
       adminGet('/labels', { signal }),
@@ -40,11 +52,11 @@ async function loadLists() {
     ]);
     if (signal.aborted) return;
     if (labelResult.status === 'rejected') {
-      reportError(labelResult.reason);
+      if (!preserveFeedback) reportError(labelResult.reason);
       return;
     }
     if (placeResult.status === 'rejected') {
-      reportError(placeResult.reason);
+      if (!preserveFeedback) reportError(placeResult.reason);
       return;
     }
     labels.setAll(labelResult.value.items);
@@ -56,12 +68,14 @@ async function loadLists() {
 }
 
 // 更新は自動再送せず、成功応答を得たときだけ共有ストアに反映する。
-async function mutate<T>(request: () => Promise<T>, apply: (result: T) => void, message: string) {
+async function mutate<T>(request: () => Promise<T>, apply: (result: T) => void, message: string, labelId?: string) {
   if (disabled.value) return;
   saving.value = true;
   notice.value = '';
-  labelInUse.value = false;
+  labelInUse.value = null;
+  titleError.value = '';
   clearError();
+  let refresh = false;
   try {
     const result = await request();
     if (signal.aborted) return;
@@ -69,17 +83,31 @@ async function mutate<T>(request: () => Promise<T>, apply: (result: T) => void, 
     notice.value = message;
   } catch (error) {
     if (signal.aborted) return;
-    labelInUse.value = error instanceof ApiError && error.status === 409 && error.code === 'label_in_use';
+    if (error instanceof ApiError) {
+      if (error.status === 409 && error.code === 'label_title_taken') {
+        titleError.value = 'その名前は使われています';
+      } else if (error.status === 400 && error.field === 'title') {
+        titleError.value = error.message;
+      }
+      if (error.status === 409 && error.code === 'label_in_use') labelInUse.value = labelId ?? null;
+      refresh = (error.status === 404 && ['not_found', 'label_not_found'].includes(error.code))
+        || labelInUse.value !== null;
+    }
     reportError(error);
   } finally {
     saving.value = false;
+    // 元のエラーは残し、更新 API を再送せず一覧だけを取り直す。
+    if (!signal.aborted && (refresh || refreshPending)) {
+      refreshPending = false;
+      await loadLists(true);
+    }
   }
 }
 
 function createLabel() {
   if (!validTitle.value) return;
   return mutate(
-    () => adminSend('POST', '/labels', { body: { title: newTitle.value }, signal }),
+    () => adminSend('POST', '/labels', { body: { title: trimmedTitle.value }, signal }),
     (label) => {
       labels.setAll([...labels.items, label]);
       newTitle.value = '';
@@ -88,12 +116,32 @@ function createLabel() {
   );
 }
 
-function removeLabel(labelId: string) {
-  return mutate(
+async function askToRemove(label: Label, event: Event) {
+  if (disabled.value) return;
+  deleteTrigger = event.currentTarget as HTMLButtonElement;
+  pendingDelete.value = label;
+  await nextTick();
+  cancelButton.value?.focus();
+}
+
+async function cancelRemove() {
+  pendingDelete.value = null;
+  await nextTick();
+  deleteTrigger?.focus();
+}
+
+async function confirmRemove() {
+  const labelId = pendingDelete.value?.id;
+  if (!labelId || loading.value || saving.value || !ready.value) return;
+  pendingDelete.value = null;
+  await mutate(
     () => adminSend('DELETE', '/labels/{labelId}', { params: { labelId }, signal }),
     () => labels.setAll(labels.items.filter((label) => label.id !== labelId)),
     '種類を削除しました。',
+    labelId,
   );
+  await nextTick();
+  (deleteTrigger?.isConnected ? deleteTrigger : reloadButton.value)?.focus();
 }
 
 function toggleLabel(placeId: string, labelId: string, event: Event) {
@@ -116,14 +164,32 @@ function toggleLabel(placeId: string, labelId: string, event: Event) {
   );
 }
 
-onMounted(loadLists);
-onBeforeUnmount(() => controller.abort());
+// 種類の作成・削除には SSE がないため、画面へ戻ったときに両一覧を確認する。
+function refreshOnReturn() {
+  if (document.visibilityState === 'hidden' || signal.aborted || loading.value || pendingDelete.value) return;
+  if (saving.value) {
+    refreshPending = true;
+    return;
+  }
+  void loadLists(true);
+}
+
+onMounted(() => {
+  void loadLists();
+  window.addEventListener('focus', refreshOnReturn);
+  document.addEventListener('visibilitychange', refreshOnReturn);
+});
+onBeforeUnmount(() => {
+  controller.abort();
+  window.removeEventListener('focus', refreshOnReturn);
+  document.removeEventListener('visibilitychange', refreshOnReturn);
+});
 </script>
 
 <template>
   <main class="labels-admin" :style="TOKENS" :aria-busy="loading || saving">
     <h2>種類の定義・管理(運営)</h2>
-    <button type="button" :disabled="loading || saving" @click="loadLists">一覧を読み込む</button>
+    <button ref="reloadButton" type="button" :disabled="loading || saving || pendingDelete !== null" @click="loadLists()">一覧を読み込む</button>
     <p v-if="loading" role="status">一覧を読み込んでいます。</p>
     <p v-else-if="!ready">一覧を読み込めませんでした。「一覧を読み込む」で再試行してください。</p>
     <p v-if="saving" role="status">変更を保存しています。</p>
@@ -132,50 +198,72 @@ onBeforeUnmount(() => controller.abort());
     <form aria-label="種類の作成" @submit.prevent="createLabel">
       <label for="label-title">新しい種類の名前</label>
       <p id="label-title-help" class="muted">
-        1〜{{ TITLE_MAX_LENGTH }}文字で入力してください。同じ名前の種類は作成できません。
+        前後の空白を除いて1〜{{ TITLE_MAX_LENGTH }}文字で入力してください。同じ名前の種類は作成できません。
       </p>
       <input
         id="label-title" v-model="newTitle" type="text" required
-        aria-describedby="label-title-help" :aria-invalid="titleLength > TITLE_MAX_LENGTH"
+        :aria-describedby="titleError ? 'label-title-help label-title-error' : 'label-title-help'"
+        :aria-invalid="!!titleError || (newTitle.length > 0 && !validTitle)"
         :disabled="disabled"
+        @input="titleError = ''"
       >
+      <p v-if="titleError" id="label-title-error" class="conflict" aria-live="polite">{{ titleError }}</p>
       <button type="submit" :disabled="disabled || !validTitle">種類を作成</button>
     </form>
 
     <section v-if="ready" aria-labelledby="labels-heading">
       <h3 id="labels-heading">登録済みの種類</h3>
       <p class="muted">場所に付いている種類は削除できません。</p>
-      <p v-if="labelInUse" class="conflict" role="status">
-        この種類は場所に付いているため削除できません。
-        「場所への付け外し」で、付いているすべての場所から外してから削除してください。
-      </p>
+      <div v-if="labelInUse" class="conflict" role="status">
+        <p>この種類は場所に付いているため削除できません。「場所への付け外し」で、付いているすべての場所から外してから削除してください。</p>
+        <ul v-if="affectedPlaces.length">
+          <li v-for="place in affectedPlaces" :key="place.id"><a :href="`#label-place-${place.id}`">{{ place.name }}の付け外しへ</a></li>
+        </ul>
+        <a v-else href="#assignments-heading">場所への付け外しを確認する</a>
+      </div>
       <p v-if="labels.items.length === 0">種類はまだ登録されていません。</p>
       <ul v-else class="label-list">
         <li v-for="label in labels.items" :key="label.id">
           <span>{{ label.title }}</span>
           <button
             type="button" :aria-label="`${label.title}を削除`" :disabled="disabled"
-            @click="removeLabel(label.id)"
+            @click="askToRemove(label, $event)"
           >削除</button>
         </li>
       </ul>
     </section>
 
+    <!-- DeleteConfirm の見出し・影響・確認/キャンセルと初期フォーカスに従う。 -->
+    <section
+      v-if="pendingDelete" class="delete-confirm" role="alertdialog"
+      aria-labelledby="delete-title" aria-describedby="delete-effects"
+      @keydown.esc.prevent="cancelRemove"
+    >
+      <h3 id="delete-title">「{{ pendingDelete.title }}」を削除しますか？</h3>
+      <p id="delete-effects">
+        種類の一覧から削除され、場所に付けられなくなります。この操作は取り消せません。
+        この種類が付いている場所がある場合は、使用中のため削除できません。
+        先にすべての場所から外してください。場所そのものは削除されません。
+      </p>
+      <button ref="cancelButton" type="button" @click="cancelRemove">やめる</button>
+      <button type="button" @click="confirmRemove">削除する</button>
+    </section>
+
     <section v-if="ready" aria-labelledby="assignments-heading">
-      <h3 id="assignments-heading">場所への付け外し</h3>
+      <h3 id="assignments-heading" tabindex="-1">場所への付け外し</h3>
       <p class="muted">チェックを切り替えると保存します。外しても種類そのものは削除されません。</p>
       <p v-if="places.items.length === 0">場所はまだ登録されていません。</p>
       <p v-else-if="labels.items.length === 0">種類を作成すると、場所に付けられます。</p>
       <div v-else class="place-list">
-        <fieldset v-for="place in places.items" :key="place.id" :disabled="disabled">
+        <fieldset v-for="place in places.items" :id="`label-place-${place.id}`" :key="place.id" :disabled="disabled" tabindex="-1">
           <legend>{{ place.name }}</legend>
           <label v-for="label in labels.items" :key="label.id" class="check-row">
+            <span>{{ label.title }}</span>
             <input
               type="checkbox" :checked="place.labelIds.includes(label.id)"
               :aria-label="`${place.name}の${label.title}`"
               @change="toggleLabel(place.id, label.id, $event)"
             >
-            <span>{{ label.title }}</span>
           </label>
         </fieldset>
       </div>
@@ -207,6 +295,8 @@ form, fieldset {
 legend { font-weight: var(--admin-bold); }
 .muted { color: var(--admin-muted); }
 .conflict { color: var(--admin-danger-text); }
+.delete-confirm { padding: var(--admin-space-lg); border: thin solid var(--admin-danger); border-radius: var(--admin-radius); background: var(--admin-danger-bg); }
+a { color: var(--admin-action); }
 .label-list { display: grid; gap: var(--admin-space-sm); margin: 0; padding: 0; list-style: none; }
 .label-list li { display: flex; align-items: center; flex-wrap: wrap; gap: var(--admin-space-lg); }
 button, input[type='text'] {
@@ -220,9 +310,10 @@ button, input[type='text'] {
   color: var(--admin-text);
   font: inherit;
 }
+input[aria-invalid='true'] { border-color: var(--admin-danger); }
 button { justify-self: start; font-weight: var(--admin-bold); cursor: pointer; }
 button:disabled, fieldset:disabled .check-row { cursor: default; }
 .check-row { display: flex; align-items: center; gap: var(--admin-space-sm); min-height: var(--admin-touch-target); cursor: pointer; }
 input[type='checkbox'] { accent-color: var(--admin-action); margin: 0; }
-button:focus-visible, input:focus-visible { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
+button:focus-visible, input:focus-visible, a:focus-visible, fieldset:focus { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
 </style>
