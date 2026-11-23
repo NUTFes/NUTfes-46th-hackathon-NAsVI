@@ -657,6 +657,8 @@ tasks:
   owns:
   - web/src/map/layers/me.ts
   - web/src/map/layers/route.ts
+  - web/src/map/layers/me.test.ts
+  - web/src/map/layers/route.test.ts
   reads:
   - doc/impl/contracts.md
   - doc/tech-stack.md
@@ -677,6 +679,7 @@ tasks:
   - M-01
   owns:
   - web/src/map/layers/stamps.ts
+  - web/src/map/layers/stamps.test.ts
   reads:
   - doc/impl/contracts.md
   - doc/tech-stack.md
@@ -811,6 +814,7 @@ tasks:
   - W-07
   owns:
   - web/src/views/PlaceCard.vue
+  - web/src/views/PlaceCard.test.ts
   reads:
   - doc/impl/contracts.md
   - concept-design/screens.yaml
@@ -876,6 +880,7 @@ tasks:
   - W-05
   owns:
   - web/src/views/TagsView.vue
+  - web/src/views/TagsView.test.ts
   reads:
   - doc/impl/contracts.md
   - concept-design/screens.yaml
@@ -917,6 +922,8 @@ tasks:
   - W-07
   owns:
   - web/src/views/BuildingView.vue
+  - web/src/views/BuildingView.test.ts
+  - web/src/components/FloorPlan.test.ts
   - web/src/components/FloorPlan.vue
   reads:
   - doc/impl/contracts.md
