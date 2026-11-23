@@ -1,0 +1,25 @@
+name: ci
+on:
+  pull_request:
+    branches: [impl/main, main]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.32.1 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+      - run: pnpm --filter api test
+      - run: pnpm --filter web test
+      - run: pnpm --filter web build
+      - name: 担当外ファイルのチェック(feat/<id> のブランチだけ)
+        if: startsWith(github.head_ref, 'feat/') && github.base_ref == 'impl/main'
+        run: |
+          pip install pyyaml
+          git diff --name-only origin/${{ github.base_ref }}...HEAD > /tmp/changed.txt
+          python3 tools/check-owns.py "$(basename '${{ github.head_ref }}')" /tmp/changed.txt
