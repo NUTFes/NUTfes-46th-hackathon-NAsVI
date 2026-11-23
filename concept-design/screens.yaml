@@ -106,8 +106,8 @@ screens:
     shows: [場所の表(名前・種別・種類・位置の状態), 入力欄, 削除で連動して起きること]
     concepts: [Place, Labeling]
     actions:
-      - {do: Place.register, undo: Place.remove}
-      - {do: Place.update, undo: Place.update}
+      - {do: Place.register, undo: Place.remove}   # 入力欄の「種類を選ぶ」欄で Labeling.attach・detach も呼ぶ。操作の数には入れない(D-032)
+      - {do: Place.update, undo: Place.update}     # 同上(種類の付け外し。kind は変えない。D-031)
       - {do: Place.remove, undo: "none: 削除の前に、連動して起きること(検索・一覧から消える、案内が終わる)を確認で見せる"}
       - {do: Labeling.define, undo: Labeling.undefine}
   - id: op_landmarks
