@@ -29,7 +29,7 @@ concepts:
         effects: 新しい Place を作り、name・kind・location・description(と、あれば building・floor・hours)を設定して返す
       - name: update
         requires: place が places に含まれる
-        effects: 指定された属性を更新する
+        effects: 指定された属性(kind を除く)を更新する。kind は登録後に変えない(D-031)
       - name: remove
         requires: place が places に含まれる
         effects: place を places から取り除く
@@ -427,12 +427,12 @@ syncs:
 
   - name: show-building-events
     when: Request.showBuildingEvents
-    where: 一致した建物 l について、Place.places に含まれ、Place.building of p が l である p がある   # 距離でなく、建物との結びつきで決める(D-024。API-23)
+    where: 一致した建物 l について、Place.places に含まれ、Place.building of p が l であり、Place.kind of p が設備でない p がある   # 距離でなく、建物との結びつきで決める(D-024。API-23)。設備は建物の企画に含めない(D-030)
     then: Request.respond(建物と、その建物の場所の一覧)   # 各企画の方向・距離・「建物の奥か」は、端末が現在地・向き・輪郭から計算する。概念の外(D-025)
 
   - name: show-no-events
     when: Request.showBuildingEvents
-    where: 一致した建物 l について、Place.places に含まれ、Place.building of p が l である p が無い   # D-024
+    where: 一致した建物 l について、Place.places に含まれ、Place.building of p が l であり、Place.kind of p が設備でない p が無い   # D-024、D-030
     then: Request.respond(建物と、「この建物には企画がない」)
 
 # 機能 × 概念・同期の対応表(定義 6.4)。空の行は実現されていない機能、空の列は使われない概念。

@@ -40,8 +40,8 @@
 | removeLandmark | F5 | Landmark.remove | POST | /landmark TODO | 実行者が場所を管理できる | Landmark.remove: landmark が landmarks に含まれる |
 | recognizeBuilding | F5 | Request.respond | POST | /request TODO | l が Landmark.landmarks に含まれ、l が footprint を持ち、Geometry.facing(Position.at of u, 向き, Landmark.footprint of l) | - |
 | showLandmarks | F5 | Request.respond | GET | /request TODO | l が Landmark.landmarks に含まれる | - |
-| showBuildingEvents | F5 | Request.respond | GET | /request TODO | 一致した建物 l について、Place.places に含まれ、Place.building of p が l である p がある | - |
-| showBuildingEvents | F5 | Request.respond | GET | /request TODO | 一致した建物 l について、Place.places に含まれ、Place.building of p が l である p が無い | - |
+| showBuildingEvents | F5 | Request.respond | GET | /request TODO | 一致した建物 l について、Place.places に含まれ、Place.building of p が l であり、Place.kind of p が設備でない p がある | - |
+| showBuildingEvents | F5 | Request.respond | GET | /request TODO | 一致した建物 l について、Place.places に含まれ、Place.building of p が l であり、Place.kind of p が設備でない p が無い | - |
 
 ## 2. 1 回の要求で複数の概念が動く連動(整合の扱いを決める)
 
