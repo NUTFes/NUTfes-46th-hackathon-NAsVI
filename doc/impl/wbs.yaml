@@ -923,6 +923,7 @@ tasks:
   owns:
   - web/src/views/BuildingView.vue
   - web/src/views/BuildingView.test.ts
+  - web/src/components/FloorPlan.test.ts
   - web/src/components/FloorPlan.vue
   reads:
   - doc/impl/contracts.md
