@@ -1,0 +1,1224 @@
+# NAsVI の API 仕様(skill api-design の成果物。Step 2 のドラフト)
+# もと: concepts.yaml の Request.* 同期、screens.yaml、api/review-ledger.yaml(ゲート 1 の回答 API-5〜11)
+# x-request: 操作が対応する要求名(concepts.yaml の Request.*)
+# x-needs-review: 台帳の未確定の項目(API-n)。確定したら外す
+# 検査: python3 tools/openapi_check.py api/openapi.yaml --ledger api/review-ledger.yaml --concepts concepts.yaml
+openapi: 3.1.0
+info:
+  title: NAsVI API
+  version: 0.1.0-draft
+  description: >-
+    互換性(API-20): 版は付けない。当日の変更は壊さない変更(項目・API・任意の入力の追加、文言の修正)だけに限る。
+    画面は、知らない項目と知らない出来事を無視する。破壊的変更が要るときは /changes に appVersionChanged を流す。
+    学園祭の来場者向けナビ(NAsVI)のサーバー API。
+    サーバーが持つのは、場所・運営の種類・スタンプ・建物の 4 つのリソースだけ。
+    現在地・行き先・案内(API-5)、自分用のタグと絞り込み(D-014・API-8)は端末内で扱い、この API には載らない。
+
+servers:
+  - url: /api
+    description: >-
+      デプロイ先は未定。非機能(API-21): 来場者の読み取りは同じ通信元から 1 分に 60 回まで、
+      スタンプは 1 分に 5 個まで(API-18)、応答は 10 秒まで(/changes は除く。つなぎっぱなしの接続で、30 秒ごとに合図を送る)、本文 1 MB まで
+
+tags:
+  - name: places
+    description: 場所(企画・駐車場)。F1
+  - name: labels
+    description: 運営の種類(飲食・展示など)。F4
+  - name: stamps
+    description: 足元に押すスタンプ(混雑・感想)。F3
+
+  - name: landmarks
+    description: 建物(輪郭)と階の見取り図。F5
+
+x-excluded-requests:
+  allowLocation: 端末内(API-5)。ブラウザの位置情報の許可で足りる
+  refuseLocation: 端末内(API-5)
+  reportPosition: 端末内(API-5)。現在地を継続的にはサーバーに送らない(スタンプを押すときの地点 at だけ送る)
+  setPosition: 端末内(API-5)。P1 に入れるかも未決(OQ-2)
+  chooseDestination: 端末内(API-5・D-013)
+  clearDestination: 端末内(API-5・D-026)。着く前の「案内をやめる」も、着いた後の「案内を終える」も同じ操作で、サーバーに送らない
+  showRoute: 端末内(API-5)。直線の方角と距離は端末で計算する(D-003)
+  defineMyTag: 端末内(D-014)
+  markPlace: 端末内(D-014)
+  unmarkPlace: 端末内(D-014)
+  applyFilter: 端末内(API-8)。絞り込みは端末でまとめて行う
+  clearFilter: 端末内(API-8)
+  browse: 端末内(API-8・D-014)
+  searchNatural: OQ-8(Laya を入れるか)が未決のため外す(API-6)
+  recognizeBuilding: 端末内(D-018)。端末が現在地・向きと GET /landmarks の輪郭から正面の建物を決める。現在地と向きは送らない
+
+paths:
+  /places:
+    get:
+      operationId: showPlaces
+      security: []   # 来場者の操作。認証なし(API-12)
+      x-request: showPlaces
+      tags: [places]
+      summary: 場所の一覧(全件)
+      description: >-
+        マップと一覧が使う。各場所に、付いている運営の種類の id(labelIds)を付けて返す。
+        絞り込みは端末で行う(API-8・D-016)ので、絞り込みの引数は持たない。ページ分けもしない(全件)。
+      x-needs-review: "API-17: 全件を返す前提(場所の件数の見込みは OQ-6)"
+      responses:
+        "200":
+          description: 場所の一覧
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaceList"
+              example:
+                items:
+                  - id: pl_01
+                    name: 焼きそば屋台
+                    kind: event
+                    location: {lat: 37.4249, lng: 138.7781}
+                    description: 2 年生の模擬店
+                    landmarkId: null
+                    floor: null
+                    hours:
+                      - {start: "2026-11-28T11:00:00+09:00", end: "2026-11-28T15:00:00+09:00"}
+                    labelIds: [lb_food]
+                cursor: "120"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: registerPlace
+      x-request: registerPlace
+      tags: [places]
+      summary: 場所を登録する(運営)
+      description: 登録すると、検索の対象にもなる(設備は除く。D-027。同期 index-on-register)。
+      x-transaction: 場所の登録と検索への登録は、まとめて成功か失敗(API-1)
+      security:
+        - operatorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlaceInput"
+            example:
+              name: 焼きそば屋台
+              kind: event
+              location: {lat: 37.4249, lng: 138.7781}
+              description: 2 年生の模擬店
+              hours:
+                - {start: "2026-11-28T11:00:00+09:00", end: "2026-11-28T15:00:00+09:00"}
+      responses:
+        "201":
+          description: 登録した場所
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Place"
+              example:
+                id: pl_01
+                name: 焼きそば屋台
+                kind: event
+                location: {lat: 37.4249, lng: 138.7781}
+                description: 2 年生の模擬店
+                landmarkId: null
+                floor: null
+                hours:
+                  - {start: "2026-11-28T11:00:00+09:00", end: "2026-11-28T15:00:00+09:00"}
+                labelIds: []
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /places/search:
+    get:
+      operationId: search
+      security: []   # 来場者の操作。認証なし(API-12)
+      x-request: search
+      tags: [places]
+      summary: 名前の一部で場所を探す
+      description: >-
+        一致した場所を、一覧と同じ形(labelIds つき)で返す。一致が無ければ items は空。
+        D-012(絞り込みを検索結果にも効かせる)は、端末がこの結果を絞って満たす(API-8)。
+        設備(info・wc・rest・trash)は検索結果に出ない。設備は、地図の「表示する印」で探す。
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: 名前の一部
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 50
+          example: 焼きそば
+      responses:
+        "200":
+          description: 一致した場所(無ければ空)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaceList"
+              example:
+                items:
+                  - id: pl_01
+                    name: 焼きそば屋台
+                    kind: event
+                    location: {lat: 37.4249, lng: 138.7781}
+                    description: 2 年生の模擬店
+                    landmarkId: null
+                    floor: null
+                    hours:
+                      - {start: "2026-11-28T11:00:00+09:00", end: "2026-11-28T15:00:00+09:00"}
+                    labelIds: [lb_food]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /places/{placeId}:
+    parameters:
+      - $ref: "#/components/parameters/PlaceId"
+    patch:
+      operationId: updatePlace
+      x-request: updatePlace
+      tags: [places]
+      summary: 場所を更新する(運営)
+      description: 渡した項目だけを更新する。同時に直したら、あとから送った方が残る(API-18)。名前を変えると、検索の対象も更新する(設備は除く。D-027。同期 reindex-on-update)。
+      x-transaction: 場所の更新と検索の更新は、まとめて成功か失敗(API-2)
+      security:
+        - operatorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlacePatch"
+            example:
+              hours:
+                - {start: "2026-11-28T11:00:00+09:00", end: "2026-11-28T16:00:00+09:00"}
+      responses:
+        "200":
+          description: 更新後の場所
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Place"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removePlace
+      x-request: removePlace
+      tags: [places]
+      summary: 場所を削除する(運営)
+      description: >-
+        削除すると、検索の対象から外し(remove-unindexes)、付いていた運営の種類も外す(remove-releases-labels)。
+        行き先にしていた来場者の案内は、端末が「場所が無い」と知って終える(API-5)。
+        スタンプは地点に付くので、連動しない(D-009)。
+        削除したことは GET /changes で開いている画面に流す(placeRemoved)。
+        運営が企画を営業停止にするときも、今回は削除で表す(API-26)。
+      x-transaction: 場所の削除と、検索から外す・種類を外すは、まとめて成功か失敗(API-3)
+      security:
+        - operatorAuth: []
+      responses:
+        "204":
+          description: 削除した
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: 指定した場所が無い(消されたなど)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: not_found
+                message: 場所 pl_99 は見つかりません
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /places/{placeId}/labels/{labelId}:
+    parameters:
+      - $ref: "#/components/parameters/PlaceId"
+      - $ref: "#/components/parameters/LabelId"
+    put:
+      operationId: assignLabel
+      x-request: assignLabel
+      tags: [places, labels]
+      summary: 場所に運営の種類を付ける(運営)
+      description: 既に付いていても成功にする(何度送っても同じ結果)。
+      security:
+        - operatorAuth: []
+      responses:
+        "204":
+          description: 付けた(または既に付いていた)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: 場所か種類が無い
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: label_not_found
+                message: 種類 lb_food は登録されていません
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: unassignLabel
+      x-request: unassignLabel
+      tags: [places, labels]
+      summary: 場所から運営の種類を外す(運営)
+      description: 付け間違えたときに外す。付いていなくても成功にする(何度送っても同じ結果)。種類そのものは消えない(消すのは DELETE /labels/{labelId})。
+      security:
+        - operatorAuth: []
+      responses:
+        "204":
+          description: 外した(または付いていなかった)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: 場所か種類が無い
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: label_not_found
+                message: 種類 lb_food は登録されていません
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /labels:
+    get:
+      operationId: showLabels
+      x-request: showLabels
+      security: []   # 来場者の操作。認証なし(API-12)
+      tags: [labels]
+      summary: 運営の種類の一覧
+      description: マップと一覧のチップに使う。自分用のタグは端末内なので含まない(D-014)。
+      responses:
+        "200":
+          description: 運営の種類の一覧
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LabelList"
+              example:
+                items:
+                  - {id: lb_food, title: 飲食}
+                  - {id: lb_stage, title: ステージ}
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: defineLabel
+      x-request: defineLabel
+      tags: [labels]
+      summary: 運営の種類を作る(運営)
+      security:
+        - operatorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LabelInput"
+            example:
+              title: 飲食
+      responses:
+        "201":
+          description: 作った種類
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Label"
+              example: {id: lb_food, title: 飲食}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: 同じ名前の種類が既にある
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: label_title_taken
+                message: 種類「飲食」は既にあります
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /labels/{labelId}:
+    parameters:
+      - $ref: "#/components/parameters/LabelId"
+    delete:
+      operationId: removeLabel
+      x-request: removeLabel
+      tags: [labels]
+      summary: 運営の種類を消す(運営)
+      description: どこかの場所にまだ付いている種類は消せない(Labeling.undefine の事前条件。API-10)。
+      security:
+        - operatorAuth: []
+      responses:
+        "204":
+          description: 消した
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: まだ場所に付いている
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: label_in_use
+                message: 種類 lb_food は 3 件の場所に付いています
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /stamps:
+    get:
+      operationId: showStamps
+      security: []   # 来場者の操作。認証なし(API-12)
+      x-request: showStamps
+      tags: [stamps]
+      summary: スタンプの一覧
+      description: >-
+        消える時刻(expiresAt)を過ぎたスタンプは返さない(API-38)。期限の長さは OQ-4。
+        押した人(by)は返さない。
+      x-needs-review: "API-17: 混雑スタンプの許容時間と、感想スタンプの期限(OQ-4)"
+      responses:
+        "200":
+          description: スタンプの一覧
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StampList"
+              example:
+                items:
+                  - id: st_01
+                    kind: congestion-3
+                    at: {lat: 37.4250, lng: 138.7783}
+                    pressedAt: "2026-11-23T11:05:00+09:00"
+                    expiresAt: "2026-11-23T11:35:00+09:00"
+                cursor: "120"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: pressStamp
+      security: []   # 来場者の操作。認証なし(API-12)
+      x-request: pressStamp
+      tags: [stamps]
+      summary: 足元にスタンプを押す
+      description: >-
+        地点(at)は端末が送る、押す人の現在地。現在地はサーバーに無い(API-5)ので、サーバーは足元かどうかを確かめられない。
+        応答の proof(取り消しの証)は、取り消すときに要る(押した本人の確認。API-13・D-021)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StampInput"
+            example:
+              kind: congestion-3
+              at: {lat: 37.4250, lng: 138.7783}
+      responses:
+        "201":
+          description: 押したスタンプ(取り消し用の proof つき)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PressedStamp"
+              example:
+                id: st_01
+                kind: congestion-3
+                at: {lat: 37.4250, lng: 138.7783}
+                pressedAt: "2026-11-23T11:05:00+09:00"
+                expiresAt: "2026-11-23T11:35:00+09:00"
+                proof: 9f2c1e7a
+        "400":
+          description: 入力が正しくない、または会場の範囲の外
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: out_of_venue
+                message: 会場の外ではスタンプを押せません
+                field: at
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /changes:
+    get:
+      operationId: watchChanges
+      security: []   # 来場者の操作。認証なし(API-12)
+      x-request: showStamps
+      tags: [stamps, places]
+      x-non-request-events:
+        placeRemoved: 場所の削除の知らせ(概念の要求ではない)
+        appVersionChanged: 版が変わった知らせ(概念の要求ではない)
+        resync: 続きの履歴が無いので、一覧を取り直す知らせ(概念の要求ではない)
+      summary: スタンプ・場所の削除・版の変更を、リアルタイムで受け取る(Server-Sent Events)
+      description: >-
+        開いている間、スタンプが押された(stampPressed)・取り消された(stampRetracted)こと、
+        場所が削除された(placeRemoved)ことが流れてくる(API-24・API-25)。
+        概念設計の要求 showStamps に対応するのは、stampPressed・stampRetracted だけ(x-request はこのため)。
+        placeRemoved と appVersionChanged は、概念の要求ではない配信(場所の削除の知らせと、版が変わった知らせ)。
+        最初に GET /stamps と GET /places で一覧を取り、そのあとはこの流れで差分を当てる。
+        一覧の応答には cursor(その時点の版の番号)が付く。つなぐときに since=<cursor> を渡すと、その後の出来事から流れてくる(API-42)。
+        各出来事には id(版の番号)が付く。切れたら、ブラウザが自動でつなぎ直し、最後に受け取った id を Last-Event-ID に載せて送る。サーバーは、その続きから送り直す。
+        続きの履歴が、サーバーが持っている範囲に無いときは、resync を流す。端末は、一覧を取り直す(取りこぼしを埋める)。持つ範囲の長さは、サーバーの実装が決める。
+        resync には id を付けない(版の番号を進めない。付けると、実在しない版で再接続する恐れがある)。
+        場所とスタンプの 2 つの一覧に付く cursor は、小さい方(古い方)を since に使う(取りこぼしを避けるため。出来事は、何度当てても同じ結果になる)。
+        期限を過ぎたスタンプは流さない。端末が expiresAt を過ぎたら消す(API-38)。
+        行き先にしていた場所の placeRemoved を受け取ったら、端末は案内を終える(API-5)。
+        appVersionChanged を受け取ったら、画面は再読み込みを促す(破壊的変更をしたとき。API-20)。
+        知らない出来事は無視する。サーバーは 30 秒ごとに空の合図(コメント行)を送り、接続を保つ(API-21)。
+      x-needs-review: "API-25: 対象と流す出来事の形(利用者の仮の回答 C)"
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: 一覧の cursor。これより後の出来事から流す。無ければ、つないだ時点から流す。つなぎ直しは Last-Event-ID が優先される
+          schema: {type: string}
+          example: "120"
+      responses:
+        "200":
+          description: >-
+            出来事の流れ(text/event-stream)。各出来事は id 行(版の番号)、event 行、data 行(JSON)。
+            stampPressed の data は Stamp(proof は含まない)。stampRetracted と placeRemoved の data は {id}。
+            appVersionChanged の data は {version}(新しい版の文字列)。resync の data は空({})。
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                id: 121
+                event: stampPressed
+                data: {"id":"st_02","kind":"food","at":{"lat":37.4251,"lng":138.7780},"pressedAt":"2026-11-23T11:06:00+09:00","expiresAt":"2026-11-23T17:00:00+09:00"}
+
+                id: 122
+                event: stampRetracted
+                data: {"id":"st_01"}
+
+                id: 123
+                event: placeRemoved
+                data: {"id":"pl_07"}
+
+                id: 124
+                event: appVersionChanged
+                data: {"version":"2026-11-23.2"}
+
+                event: resync
+                data: {}
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /stamps/{stampId}:
+    parameters:
+      - name: stampId
+        in: path
+        required: true
+        schema: {type: string}
+        example: st_01
+    delete:
+      operationId: retractStamp
+      security: []   # 来場者の操作。認証なし(API-12)
+      x-request: retractStamp
+      tags: [stamps]
+      summary: 自分が押したスタンプを取り消す
+      description: 押したときに受け取った proof(取り消しの証)を、ヘッダーで渡す(D-021。Stamp.by の代わりに、証の一致で押した本人と確かめる。API-13)。
+      parameters:
+        - name: X-Stamp-Proof
+          in: header
+          required: true
+          schema: {type: string}
+          example: 9f2c1e7a
+      responses:
+        "204":
+          description: 取り消した
+        "403":
+          description: proof が合わない(押した本人でない)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: not_stamp_owner
+                message: このスタンプは取り消せません
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /landmarks:
+    get:
+      operationId: showLandmarks
+      x-request: showLandmarks
+      security: []   # 来場者の操作。認証なし(API-12)
+      tags: [landmarks]
+      summary: 建物の一覧(輪郭つき)
+      description: >-
+        端末が建物を認識するために、建物の輪郭(footprint)を配る。端末は現在地・向き・輪郭から正面の建物を決める(D-018。現在地と向きは送らない)。
+        輪郭の無い建物(footprint が null)も返す。カメラの正面には選ばれないが、一覧・見取り図・その棟の企画には使う(API-37)。
+        運営の建物の画面(op_landmarks)も使う。
+      x-needs-review: "API-33: 輪郭を API で配るか、端末に静的ファイルで同梱するか(OQ-16)"
+      responses:
+        "200":
+          description: 建物の一覧
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LandmarkList"
+              example:
+                items:
+                  - id: lm_a
+                    name: A 棟
+                    location: {lat: 37.4246, lng: 138.7779}
+                    footprint:
+                      - {lat: 37.4248, lng: 138.7776}
+                      - {lat: 37.4248, lng: 138.7782}
+                      - {lat: 37.4244, lng: 138.7782}
+                      - {lat: 37.4244, lng: 138.7776}
+                    floors:
+                      - floor: 1
+                        plan: {viewBox: "0 0 400 240", d: "M10 10 H390 V230 H10 Z M200 10 V230"}
+                        bounds: {north: 37.4248, south: 37.4244, east: 138.7782, west: 138.7776}
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: registerLandmark
+      x-request: registerLandmark
+      tags: [landmarks]
+      summary: 建物を登録する(運営)
+      description: >-
+        輪郭はサーバーが地図データ(OpenStreetMap)から取る。運営は輪郭を描かない(D-019)。
+        輪郭が取れなくても登録する(footprint は null。API-37)。あとで POST /landmarks/{landmarkId}/footprint で取り直せる。
+      security:
+        - operatorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LandmarkInput"
+            example:
+              name: A 棟
+              location: {lat: 37.4246, lng: 138.7779}
+      responses:
+        "201":
+          description: 登録した建物
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Landmark"
+              example:
+                id: lm_a
+                name: A 棟
+                location: {lat: 37.4246, lng: 138.7779}
+                footprint:
+                  - {lat: 37.4248, lng: 138.7776}
+                  - {lat: 37.4248, lng: 138.7782}
+                  - {lat: 37.4244, lng: 138.7782}
+                  - {lat: 37.4244, lng: 138.7776}
+                floors: []
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /landmarks/{landmarkId}:
+    parameters:
+      - $ref: "#/components/parameters/LandmarkId"
+    patch:
+      operationId: updateLandmark
+      x-request: updateLandmark
+      tags: [landmarks]
+      summary: 建物を更新する(運営)
+      description: 名前と位置を直す。輪郭は直せない。取り直すときは POST /landmarks/{landmarkId}/footprint(D-019)。
+      security:
+        - operatorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LandmarkPatch"
+            example:
+              name: A 棟(本館)
+      responses:
+        "200":
+          description: 更新後の建物
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Landmark"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removeLandmark
+      x-request: removeLandmark
+      tags: [landmarks]
+      summary: 建物を削除する(運営)
+      description: >-
+        建物を削除すると、その建物の階ごとの見取り図も一緒に消える(見取り図は建物に付く付属データ。D-029・API-29)。
+        場所が付いている建物は削除できない(409。API-27)。
+      security:
+        - operatorAuth: []
+      responses:
+        "204":
+          description: 削除した(見取り図も消えた)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: まだ場所が付いている。先に場所の建物を空にするか付け替える(API-27)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: landmark_in_use
+                message: A 棟には 12 件の場所が付いています
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /landmarks/{landmarkId}/footprint:
+    parameters:
+      - $ref: "#/components/parameters/LandmarkId"
+    post:
+      operationId: reloadFootprint
+      x-request: reloadFootprint
+      tags: [landmarks]
+      summary: 建物の輪郭を地図データから取り直す(運営)
+      description: >-
+        サーバーが OpenStreetMap から建物の位置の輪郭を取り直し、差し替える(D-019)。本文は要らない。
+        輪郭が取れなければ、輪郭は変えずに 502 footprint_unavailable を返す。
+      security:
+        - operatorAuth: []
+      responses:
+        "200":
+          description: 取り直したあとの建物
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Landmark"
+              example:
+                id: lm_a
+                name: A 棟
+                location: {lat: 37.4246, lng: 138.7779}
+                footprint:
+                  - {lat: 37.4248, lng: 138.7776}
+                  - {lat: 37.4248, lng: 138.7782}
+                  - {lat: 37.4244, lng: 138.7782}
+                  - {lat: 37.4244, lng: 138.7776}
+                floors: []
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/FootprintUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /landmarks/{landmarkId}/floors/{floor}/plan:
+    parameters:
+      - $ref: "#/components/parameters/LandmarkId"
+      - name: floor
+        in: path
+        required: true
+        description: 階(1 = 1 階、地下は負)
+        schema: {type: integer, minimum: -5, maximum: 20}
+        example: 1
+    put:
+      operationId: setFloorPlan
+      tags: [landmarks]
+      summary: 階の見取り図を登録・差し替える(運営)
+      description: >-
+        既にあれば差し替える(何度送っても同じ結果)。
+        概念の要求ではない(建物の付属データ。階ごとの見取り図は概念にしないと決めた。D-029)ので、x-request は付けない。
+      x-no-request: 建物の付属データ(D-029)
+      security:
+        - operatorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FloorPlanInput"
+            example:
+              plan: {viewBox: "0 0 400 240", d: "M10 10 H390 V230 H10 Z M200 10 V230"}
+              bounds: {north: 37.4248, south: 37.4244, east: 138.7782, west: 138.7776}
+      responses:
+        "200":
+          description: 登録した見取り図
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FloorPlan"
+              example:
+                floor: 1
+                plan: {viewBox: "0 0 400 240", d: "M10 10 H390 V230 H10 Z M200 10 V230"}
+                bounds: {north: 37.4248, south: 37.4244, east: 138.7782, west: 138.7776}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: 見取り図の図形が大きすぎる(本文 1 MB まで。API-21)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: payload_too_large
+                message: 見取り図は 1 MB 以下にしてください
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removeFloorPlan
+      tags: [landmarks]
+      summary: 階の見取り図を消す(運営)
+      description: 概念の要求ではない(建物の付属データ。階ごとの見取り図は概念にしないと決めた。D-029)ので、x-request は付けない。
+      x-no-request: 建物の付属データ(D-029)
+      security:
+        - operatorAuth: []
+      responses:
+        "204":
+          description: 消した
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: 指定した建物か、その階の見取り図が無い
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: not_found
+                message: 建物 lm_a の 1 階の見取り図は見つかりません
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /landmarks/{landmarkId}/places:
+    parameters:
+      - $ref: "#/components/parameters/LandmarkId"
+    get:
+      operationId: showBuildingEvents
+      security: []   # 来場者の操作。認証なし(API-12)
+      x-request: showBuildingEvents
+      tags: [landmarks, places]
+      summary: 建物に付いている場所(その棟の企画)
+      description: >-
+        端末が認識した建物に付いている場所(landmarkId がその建物の場所)を返す(API-23)。
+        屋外の企画は含まない(カメラに映っているので見えている)。
+        無ければ items は空(同期 show-no-events。画面は「この棟には企画がない」と出す)。
+      responses:
+        "200":
+          description: 建物と、その建物に付いている場所
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuildingPlaces"
+              example:
+                landmark:
+                  id: lm_a
+                  name: A 棟
+                  location: {lat: 37.4246, lng: 138.7779}
+                  footprint:
+                    - {lat: 37.4248, lng: 138.7776}
+                    - {lat: 37.4248, lng: 138.7782}
+                    - {lat: 37.4244, lng: 138.7782}
+                    - {lat: 37.4244, lng: 138.7776}
+                  floors: []
+                items: []
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  securitySchemes:
+    operatorAuth:
+      type: apiKey
+      in: header
+      name: Cf-Access-Jwt-Assertion
+      description: >-
+        運営の操作だけに要る(API-12)。運営の画面と運営の操作の入口は Cloudflare Access で守る。
+        Access を通ると、リクエストに Cf-Access-Jwt-Assertion(署名つきの JWT)が付く。サーバーはこれを検証する。
+        ログインの操作はこの API に持たない(Access のログインを使う)。
+        来場者の操作は認証なし。出展者のアカウントは今回やらない(api/roadmap.md)
+
+  parameters:
+    PlaceId:
+      name: placeId
+      in: path
+      required: true
+      schema: {type: string}
+      example: pl_01
+    LabelId:
+      name: labelId
+      in: path
+      required: true
+      schema: {type: string}
+      example: lb_food
+    LandmarkId:
+      name: landmarkId
+      in: path
+      required: true
+      schema: {type: string}
+      example: lm_a
+
+  responses:
+    BadRequest:
+      description: 入力が正しくない
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: invalid_input
+            message: 名前を入れてください
+            field: name
+    Unauthorized:
+      description: 運営の認証が無いか、正しくない
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: unauthorized
+            message: 運営としてログインしてください
+    NotFound:
+      description: 指定したものが無い(消されたなど)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: not_found
+            message: 場所 pl_99 は見つかりません
+    TooManyRequests:
+      description: 短い間に送りすぎた。来場者の読み取りは同じ通信元から 1 分に 60 回まで(API-21)、スタンプは 1 分に 5 個まで(API-18)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: too_many_requests
+            message: しばらく待ってから押してください
+    FootprintUnavailable:
+      description: 地図データ(OpenStreetMap)から建物の輪郭が取れなかった
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: footprint_unavailable
+            message: この位置の建物の輪郭が地図データに見つかりません
+    InternalError:
+      description: サーバーの不具合
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: internal_error
+            message: 時間をおいて、もう一度試してください
+
+  schemas:
+    Point:
+      type: object
+      description: 緯度経度(WGS84)
+      required: [lat, lng]
+      properties:
+        lat: {type: number, minimum: -90, maximum: 90}
+        lng: {type: number, minimum: -180, maximum: 180}
+
+    PlaceKind:
+      type: string
+      enum: [event, parking, info, wc, rest, trash]
+      description: >-
+        場所の性質(Place.kind)。運営の種類(Label)とは別(OQ-3)。値は英語のコード(API-36。デザインシステムの部品と同じ)。
+        event = 企画、parking = 駐車場、info = 案内所、wc = トイレ、rest = 休憩所、trash = ゴミ箱。
+        info・wc・rest・trash は設備(API-28)。設備は端末の絞り込みの対象にしない(ワイヤーフレームの案)
+
+    Place:
+      type: object
+      description: >-
+        id は会期中に変わらず、削除した id は再び使わない(API-31)。端末のタグは、この id で場所を覚える
+      required: [id, name, kind, location, description, landmarkId, floor, hours, labelIds]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        kind: {$ref: "#/components/schemas/PlaceKind"}
+        location: {$ref: "#/components/schemas/Point"}
+        description:
+          type: string
+          description: 説明。開催時間は hours に持つ(D-020)
+        landmarkId:
+          type: [string, "null"]
+          description: 場所がある建物の id。屋外の企画・駐車場は null(API-14)
+          x-needs-review: "API-14: 場所に建物と階を持たせる(利用者の意見。チームの合意待ち)"
+        floor:
+          type: [integer, "null"]
+          description: 階(1 = 1 階、地下は負)。建物の外(landmarkId が null)なら必ず null。建物の中でも、階が無ければ null
+        hours:
+          type: array
+          description: 開催時間(D-020)。複数の時間帯を持てる。駐車場・設備など時間が無いものは空
+          items: {$ref: "#/components/schemas/Period"}
+        labelIds:
+          type: array
+          description: 付いている運営の種類の id。端末の絞り込みに使う(API-8)
+          items: {type: string}
+    Period:
+      type: object
+      description: 開催時間の 1 つの時間帯(開始と終了の組。D-020)
+      required: [start, end]
+      properties:
+        start: {type: string, format: date-time}
+        end: {type: string, format: date-time}
+    PlaceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Place"}
+        cursor:
+          type: string
+          description: >-
+            この一覧を取った時点の版の番号(GET /places と GET /stamps だけが返す。検索などでは付かない)。
+            端末は /changes に since として渡して、この時点より後の出来事から受け取る(API-42)
+    PlaceInput:
+      type: object
+      required: [name, kind, location, description]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 50}
+        kind: {$ref: "#/components/schemas/PlaceKind"}
+        location: {$ref: "#/components/schemas/Point"}
+        description: {type: string, maxLength: 500}
+        landmarkId: {type: [string, "null"], description: "場所がある建物の id。屋外・駐車場は null"}
+        floor: {type: [integer, "null"], minimum: -5, maximum: 20, description: "階。landmarkId が null のときは null でなければならない(階は建物の中だけ)。違反は 400。建物があって階が無いのは許す(1 階建てなど)"}
+        hours:
+          type: array
+          items: {$ref: "#/components/schemas/Period"}
+    PlacePatch:
+      type: object
+      minProperties: 1
+      properties:
+        name: {type: string, minLength: 1, maxLength: 50}
+        kind: {$ref: "#/components/schemas/PlaceKind"}
+        location: {$ref: "#/components/schemas/Point"}
+        description: {type: string, maxLength: 500}
+        landmarkId: {type: [string, "null"], description: "場所がある建物の id。屋外・駐車場は null"}
+        floor: {type: [integer, "null"], minimum: -5, maximum: 20, description: "階。landmarkId が null のときは null でなければならない(階は建物の中だけ)。違反は 400。建物があって階が無いのは許す(1 階建てなど)"}
+        hours:
+          type: array
+          items: {$ref: "#/components/schemas/Period"}
+
+    Label:
+      type: object
+      required: [id, title]
+      description: 運営の種類(owner の無い Label)。owner は返さない
+      properties:
+        id: {type: string}
+        title: {type: string}
+    LabelList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Label"}
+    LabelInput:
+      type: object
+      required: [title]
+      description: 種類の名前は重複できない(API-14)
+      properties:
+        title: {type: string, minLength: 1, maxLength: 20}
+
+    StampKind:
+      type: string
+      enum: [congestion-1, congestion-2, congestion-3, congestion-4, congestion-5, fun, food, good]
+      description: >-
+        値は英語のコード(API-36。デザインシステムの部品と同じ)。
+        congestion-1〜5 = 混雑 1〜5、fun = 面白い、food = 美味しい、good = よさ
+      x-needs-review: "API-17: スタンプの種類(OQ-4)"
+    Stamp:
+      type: object
+      required: [id, kind, at, pressedAt, expiresAt]
+      description: 押した人(by)は返さない。サーバーのログにも地点と通信元を残さない(API-19)
+      properties:
+        id: {type: string}
+        kind: {$ref: "#/components/schemas/StampKind"}
+        at: {$ref: "#/components/schemas/Point"}
+        pressedAt: {type: string, format: date-time}
+        expiresAt:
+          type: string
+          format: date-time
+          description: >-
+            このスタンプが消える時刻。サーバーが期限の長さから決める(API-38)。
+            混雑は押した時刻 + 期限、感想はその日の閉場。期限の長さは OQ-4(いまは仮に混雑 30 分。D-022)
+    PressedStamp:
+      allOf:
+        - $ref: "#/components/schemas/Stamp"
+        - type: object
+          required: [proof]
+          properties:
+            proof:
+              type: string
+              description: 取り消しの証(D-021・API-40)。取り消すときに X-Stamp-Proof で渡す。押した端末だけが持つ
+    StampList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Stamp"}
+        cursor:
+          type: string
+          x-needs-review: "API-42: 版の番号つきの取り込み(利用者の方針。仮置き)"
+          description: >-
+            この一覧を取った時点の版の番号。端末は /changes に since として渡して、この時点より後の出来事から受け取る(API-42)
+    StampInput:
+      type: object
+      required: [kind, at]
+      description: >-
+        at は端末が送る現在地。サーバーは足元かどうかを確かめない。会場の範囲の外なら 400 out_of_venue(API-16)
+      properties:
+        kind: {$ref: "#/components/schemas/StampKind"}
+        at: {$ref: "#/components/schemas/Point"}
+
+    Landmark:
+      type: object
+      required: [id, name, location, footprint, floors]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        location: {$ref: "#/components/schemas/Point"}
+        footprint:
+          type: [array, "null"]
+          description: >-
+            建物の輪郭(多角形の頂点。順に結ぶ)。OpenStreetMap から取る(D-018・D-019)。
+            取れなかった建物は null(画面は「形なし」と出し、カメラの正面には選ばない。API-37)
+          minItems: 3
+          items: {$ref: "#/components/schemas/Point"}
+        floors:
+          type: array
+          description: 見取り図のある階(API-29)。無ければ空
+          items: {$ref: "#/components/schemas/FloorPlan"}
+    FloorPlan:
+      type: object
+      required: [floor, plan, bounds]
+      properties:
+        floor: {type: integer}
+        plan: {$ref: "#/components/schemas/PlanShape"}
+        bounds: {$ref: "#/components/schemas/Bounds"}
+    PlanShape:
+      type: object
+      description: >-
+        見取り図の図形(SVG の viewBox と path の d)。デザインシステムの BuildingFloorPlan.plan と同じ形(API-29)。
+        企画の位置は送らない。端末が場所の緯度経度と bounds から、図の上の x・y を出す(API-30)
+      required: [viewBox, d]
+      properties:
+        viewBox: {type: string}
+        d: {type: string}
+    Bounds:
+      type: object
+      description: 見取り図の図形の四辺(viewBox の上下左右)に当たる緯度経度。端末が場所の位置を図の上に換算する(API-30)
+      required: [north, south, east, west]
+      properties:
+        north: {type: number}
+        south: {type: number}
+        east: {type: number}
+        west: {type: number}
+    FloorPlanInput:
+      type: object
+      required: [plan, bounds]
+      properties:
+        plan: {$ref: "#/components/schemas/PlanShape"}
+        bounds: {$ref: "#/components/schemas/Bounds"}
+    LandmarkList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Landmark"}
+    LandmarkInput:
+      type: object
+      required: [name, location]
+      description: 輪郭は送らない。サーバーが location から取る(D-019)
+      properties:
+        name: {type: string, minLength: 1, maxLength: 50}
+        location: {$ref: "#/components/schemas/Point"}
+    LandmarkPatch:
+      type: object
+      minProperties: 1
+      properties:
+        name: {type: string, minLength: 1, maxLength: 50}
+        location: {$ref: "#/components/schemas/Point"}
+    BuildingPlaces:
+      type: object
+      required: [landmark, items]
+      properties:
+        landmark: {$ref: "#/components/schemas/Landmark"}
+        items:
+          type: array
+          description: その建物に付いている場所。無ければ空
+          items: {$ref: "#/components/schemas/Place"}
+
+    Error:
+      type: object
+      required: [code, message]
+      description: エラーの形(API-15)
+      properties:
+        code:
+          type: string
+          description: 機械が読むためのコード(英小文字とアンダースコア)
+        message:
+          type: string
+          description: 画面にそのまま出せる日本語の説明
+        field:
+          type: string
+          description: 入力の誤り(400)のときだけ。誤っている項目の名前(1 つだけ)

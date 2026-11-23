@@ -8,12 +8,522 @@
 #
 # 検査: python3 tools/openapi_check.py api/openapi.yaml --ledger api/review-ledger.yaml --concepts concepts.yaml
 
-items: []
-#  - id: API-1
-#    kind: 認証・認可
-#    content: 運営者用の登録 API を、誰が呼べるか(運営のみか、出展者も含めるか)
-#    state: 要確認
-#    placeholder: ""
-#    decided_by: ""
-#    date: ""
-#    related_oq: OQ-1
+items:
+  # --- Step 1(2026-11-22)で挙げたもの。actions.generated.md の 2 章の連動 ---
+  - id: API-1
+    kind: リソース設計
+    content: >-
+      場所の登録(Place.register)のあと検索への登録(Search.index)が失敗したとき、登録全体を失敗にするか、場所だけ登録して成功にするか
+      回答: 全部まとめて成功か、全部まとめて失敗にする(案 A)。場所・検索・種類を同じ DB に置き、1 つのトランザクションで書く。失敗したら 500 を返し、何も変わらない。
+      検索を別のサービスで動かすことになったら(Laya。OQ-8)見直す
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""
+  - id: API-2
+    kind: リソース設計
+    content: >-
+      場所の更新(Place.update)のあと、名前が変わったときの Search.index が失敗したときの扱い
+      回答: 全部まとめて成功か、全部まとめて失敗にする(案 A)。場所・検索・種類を同じ DB に置き、1 つのトランザクションで書く。失敗したら 500 を返し、何も変わらない。
+      検索を別のサービスで動かすことになったら(Laya。OQ-8)見直す
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""
+  - id: API-3
+    kind: リソース設計
+    content: >-
+      場所の削除(Place.remove)のあと Search.unindex・Labeling.release のどれかが失敗(Destination.clear は API-5 により端末内。行き先の場所が消えたら端末で案内を終える)したときの扱い(削除を取り消すか、削除は成功にするか)
+      回答: 全部まとめて成功か、全部まとめて失敗にする(案 A)。場所・検索・種類を同じ DB に置き、1 つのトランザクションで書く。失敗したら 500 を返し、何も変わらない。
+      検索を別のサービスで動かすことになったら(Laya。OQ-8)見直す
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: OQ-12
+  - id: API-4
+    kind: リソース設計
+    content: >-
+      行き先の選択(Destination.choose)・現在地の更新(Position.update)のあと Destination.updateGuide が失敗したときの扱い。端末内で計算するなら API に載らない。
+      回答: API-5(端末内に置く)により、この連動は API に載らない(端末内の処理)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: OQ-12
+  # --- ゲート 1(2026-11-22) ---
+  - id: API-5
+    kind: リソース設計
+    content: >-
+      来場者の現在地・行き先・案内(Position・Destination)を API に載せるか。
+      回答: 載せない(端末内に置く)。サーバーの API は場所・種類・スタンプ・建物と運営の操作だけにする。
+      allowLocation・refuseLocation・reportPosition・setPosition・chooseDestination・clearDestination(D-026)・showRoute は x-excluded-requests に入れる。
+      D-014 により defineMyTag・markPlace・unmarkPlace・applyFilter・clearFilter・browse も端末内。
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: OQ-12
+  - id: API-6
+    kind: リソース設計
+    content: >-
+      一覧の過不足(ゲート 1 の質問 2)。
+      回答: decisions.yaml に合わせて推奨どおり。a GET /labels(運営の種類の一覧)と b GET /landmarks(輪郭つきの建物の一覧。D-018 で基準画像から輪郭に変わった)を足す。
+      c Labeling.undefine は今回外す → 同日に見直し、足すことにした(API-10)。d assignLabel は残す。e searchNatural は外す(OQ-8)。
+      a・b に対応する Request.* が concepts.yaml に無い件は、API 側で仮置きにして進める(API-7)。
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: OQ-8
+  - id: API-7
+    kind: リソース設計
+    content: >-
+      画面に要るのに concepts.yaml に要求が無かった操作。
+      main の PR #24(D-017・D-019)で Request.showLabels・removeLabel・showLandmarks・reloadFootprint が足され、仕様に x-request を付けた(2026-11-23)。
+      残りは階ごとの見取り図(PUT・DELETE /landmarks/{landmarkId}/floors/{floor}/plan)だけ。見取り図は、OQ-14 の決定(D-029、2026-11-23)で概念にしないと決まった。要求は作らず、x-no-request を付けた
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者(D-029)
+    date: "2026-11-23"
+    related_oq: OQ-14
+  - id: API-8
+    kind: 一覧取得
+    content: >-
+      絞り込み(D-012。検索結果にも効かせる)を、どこで行うか。
+      回答: 端末でまとめて絞る(案 A)。サーバーは GET /places?q= で検索だけを行い、各場所に labelIds(運営の種類)を付けて返す。
+      運営の種類も自分用のタグも、絞り込みは端末で行う。API に絞り込みの引数は付けない。
+      理由: 絞り込みの状態と自分用のタグが端末にあり(API-5・D-014)、処理を 1 か所にそろえられる。通信なしで切り替えられ、応答を使い回せる。
+      経緯: いったん「運営の種類は API の引数で絞る」で確定したが、同日に見直した。
+      場所の件数が多く全件を送れない場合(OQ-6)は見直す
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: OQ-6
+  - id: API-9
+    kind: 状態遷移
+    content: >-
+      絞り込みの組み合わせ方。利用者の決定(2026-11-22): お気に入りのチップは、他の絞り込みと意味を変え、かつ(AND)で効かせる。
+      例: 「飲食」と「お気に入り」を選ぶと、飲食で、かつお気に入りの場所を出す。
+      concepts.yaml の同期 show-places の where(種類のどれかが付いている = OR)と食い違うので、概念設計の変更が要る。
+      回答: 自分用のタグ全部(行きたい場所・お気に入り・自作)を AND にし、運営の種類どうしは OR のまま(案 A)。decisions.yaml の D-016 に記録。
+      API には影響しない(API-8 により端末で絞るため)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""
+  - id: API-10
+    kind: リソース設計
+    content: >-
+      運営の種類(owner の無い Label)を消す API を作るか。質問 2 の c を確かめ直した(c は運営の種類の話で、利用者が作るタグの話ではない)。
+      回答: 足す(案 A)。DELETE /labels/{labelId}。どこかの場所にまだ付いている種類を消そうとしたら 409 Conflict を返す
+      (concepts.yaml の Labeling.undefine の事前条件「どの item にも label が付いていない」に従う)。
+      screens.yaml の op_places の取り消し操作(Labeling.undefine)と一致する。要求が concepts.yaml に無いので API-7 で仮置き
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""
+  - id: API-11
+    kind: 命名
+    content: >-
+      命名規則(ゲート 1 の質問 3)。
+      回答: リソース名は複数形の名詞、パスは kebab-case で動詞を入れない、JSON の項目は camelCase、運営の種類のパスは /labels(推奨どおり)。
+      検索は一覧と分け、GET /places/search?q= にする(利用者の希望。GET /places は一覧 showPlaces が使うため)。
+      注意: 将来 GET /places/{placeId} を足すと、場所の id に search を使わない前提が付く
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""
+  # --- Step 2(2026-11-22)のドラフトで、推測で置いたもの・決められないもの ---
+  - id: API-12
+    kind: 認証・認可
+    content: >-
+      運営の操作(場所・種類・建物の登録・更新・削除)の認証方式と、誰が呼べるか(運営のみか、出展者も含めるか)。
+      回答(2026-11-22、sabo10p): 運営だけが呼べる(案 A)。共通の運営用パスワードでログインし、受け取った token を Authorization: Bearer で付けて呼ぶ。来場者の操作は認証なし。(認証の方法は、下の 2026-11-23 の回答で置き換えた)
+      出展者のアカウント(案 B)は今回やらない。展望として api/roadmap.md に残した
+      回答(2026-11-23、利用者。上の認証の方法を置き換える): 運営の認証は Cloudflare Access にする。共通パスワードと、ログインで token を受け取る操作は、この API に持たない。
+      Access を通ったリクエストの Cf-Access-Jwt-Assertion ヘッダーをサーバーが検証する(openapi.yaml の operatorAuth)。
+      運営の画面・操作の入口を Access で守る設定はインフラ側の作業。API の範囲外。画面設計・概念設計には影響しない(ログイン画面は無い)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p(2026-11-23 の認証方法の変更は、利用者)
+    date: "2026-11-23"
+    related_oq: "OQ-1"
+  - id: API-13
+    kind: 認証・認可
+    content: >-
+      スタンプを取り消すときの「押した本人か」(Stamp.retract の事前条件 by が u)の確かめ方。
+      回答: 取り消し用の token を返す(案 A)。押したときに retractToken を返し、端末が保存する。取り消しでヘッダー X-Retract-Token に渡す。合わなければ 403。
+      端末のデータが消えると取り消せないことは受け入れる(混雑スタンプは時間で消える。OQ-4)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: OQ-12
+  - id: API-14
+    kind: バリデーション
+    content: >-
+      場所・種類・建物の項目の必須と文字数、検索語の上限、位置の形。
+      回答(項目): 場所に建物(landmarkId)と階(floor)を足す(案 C)。時間は説明(description)に書く → main の D-020 で、開催時間は Place.hours(開始と終了の組、複数可)として持つことに変わった。仕様に hours を足した(2026-11-23)。
+      建物の中の地図(building)で、建物と階ごとに企画を出すため。屋外の企画・駐車場は、どちらも null。
+      概念設計の変更が要る(Place に建物と階を持たせる。建物との結びつきを、概念の仕様に書くか同期に書くかはチームが決める)。
+      回答(細かい決まり、案 A): 場所の名前 1〜50 文字(重複は許す。実際には名前が違うはず、と利用者)、説明 500 文字以下、
+      種類の名前 1〜20 文字で重複を禁止(409 label_title_taken)、階は整数 -5〜20、位置は緯度経度(lat・lng)、検索語は 1〜50 文字。違反は 400
+      利用者の意見: 場所に建物と階を持たせる(概念設計の変更)。概念設計に入れるかはチームが決める(ゲート 2 の質問 6 の回答 C)。
+    state: 仮置き
+    placeholder: "場所に建物(landmarkId)と階(floor)を足すのは、利用者が API 設計の範囲として決めた(2026-11-23)。階は landmarkId が null のとき null(openapi.yaml に書いた)。文字数などの決まりは、仮置きの値のまま合意とし、実装まで進めてから、使ってみて合わなければ直す(出戻りを許す。2026-11-23、利用者)"
+    decided_by: ""
+    date: ""
+    related_oq: ""
+  - id: API-15
+    kind: エラー仕様
+    content: >-
+      エラーボディの形とコードの体系。
+      回答: {code, message} の形(案 A)。入力の誤り(400)のときだけ、悪い項目を示す field を足す(例 "field": "name")。application/problem+json で返す。
+      コード: 400 invalid_input・out_of_venue、401 unauthorized、403 not_stamp_owner、404 not_found・label_not_found、409 label_in_use・label_title_taken・landmark_in_use、
+      413 payload_too_large、429 too_many_requests、500 internal_error、502 footprint_unavailable(API-34)。
+      複数の項目が誤っていても、示すのは 1 項目だけ(まとめて出したい場面はあるが、今回は A で足りる。api/roadmap.md の 4)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""
+  - id: API-16
+    kind: 状態遷移
+    content: >-
+      スタンプの地点(Request.pressStamp の where「Position.at of u が p」)を、サーバーが確かめられない(現在地は端末内。API-5)。
+      回答: 足元かどうかは確かめない。会場の範囲(緯度経度の四角形。サーバーの設定値)の外の地点は 400 out_of_venue で断る(案 A)。
+      利用者の懸念: 会場の中なら好きな地点に押せる(ライバルの模擬店の前に混雑 5 を連打する、など)。連打の対策は API-18 で扱う
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: OQ-12
+  - id: API-17
+    kind: 一覧取得
+    content: >-
+      ページ分けと期限。場所の一覧・スタンプの一覧はページ分けせず全件を返す(場所は数百件以内、スタンプは混雑が期限で消える見込み)。
+      スタンプの種類と期限は OQ-4(チームが決める)。
+      回答(2026-11-22、sabo10p): 案 C。OQ-4 はチームが決めるので、仮置きのまま残す。
+      利用者の意見: 種類はいまの 8 つ、混雑は 30 分で消え、感想はその日の閉場で消える案(A)でよい気がする。チームで決めるときの案として残す
+    state: 仮置き
+    placeholder: "スタンプの種類と、混雑 30 分・感想は閉場までの期限(D-022)は、仮置きの値のまま合意とし、実装まで進めてから、使ってみて合わなければ直す(出戻りを許す。2026-11-23、利用者)"
+    decided_by: ""
+    date: ""
+    related_oq: OQ-4
+  - id: API-18
+    kind: 冪等性・競合
+    content: >-
+      スタンプの連打・押し直しと、場所の同時更新の扱い。
+      回答(連打): 同じ通信元(IP アドレス)から押せる数を制限する(案 A。1 分に 5 個まで)。超えたら 429 too_many_requests。
+      理由: 在学生以外の来場者は会場の Wi-Fi を使わず、通信元がばらばらになるはず(利用者)。
+      残る懸念: 在学生が学内の Wi-Fi から押すと、同じ通信元を共有して上限に当たりやすい。
+      回答(同時更新): 運営が 2 人で同じ場所を直したら、あとから送った方の内容が残る(版の照合はしない)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""
+  - id: API-19
+    kind: 個人情報・機密
+    content: >-
+      レスポンスとログに含めてよい項目。
+      回答: スタンプの応答に押した人(by)を含めない。運営の種類の応答に owner を含めない。
+      通信元(IP アドレス)は連打の制限(API-18)に要る間だけメモリーに置き、ログには地点も通信元も残さない(案 A)。
+      スタンプの地点と押した時刻(pressedAt)は公開する。人が少ない時間帯に「その時刻にそこにいた人」が推測できる点も含めて、公開でよい(ゲート 3 の回答)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: OQ-12
+  - id: API-20
+    kind: 互換性
+    content: >-
+      版(バージョン)を付けるか。破壊的変更の定義。
+      回答: 版は付けない(パスに /v1 を入れない)。当日のホットフィックスはあり得るので、当日の変更は壊さない変更だけに限る(案 A')。
+      してよい: 応答に項目を足す、新しい API を足す、任意の入力項目を足す、エラーの文言を直す。
+      してはいけない(破壊的変更): 項目を消す・名前を変える・型や意味を変える、必須の入力項目を足す、パスを変える。
+      どうしても破壊的変更が要るときは、/changes に appVersionChanged を流し、画面に再読み込みを促す(今から入れておく)。
+      画面は、知らない項目と知らない出来事を無視する
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""
+  - id: API-21
+    kind: 非機能
+    content: >-
+      レート制限、タイムアウト、最大リクエストサイズ。
+      回答(案 A): 来場者の読み取り(一覧・検索)は同じ通信元から 1 分に 60 回まで(超えたら 429)。運営の操作は制限なし。
+      応答の上限時間は 10 秒。本文は 1 MB まで(超えたら 413。画像を送る操作は D-018・API-29 の変更で無くなった)。リアルタイムの接続には 30 秒ごとに空の合図(コメント行)を送る。
+      スタンプの連打の制限は API-18(1 分に 5 個)。
+      来場者数: 前回は 2 日間で 10000 人程度(利用者、2026-11-22)。1 日 5000 人。
+      同時に使う人数の推定(AI の推論。確かめていない): 来場者の 3 割が使い、最も混む 1 時間に 1 日の 2 割が集まるとすると、1 時間に約 300 人。
+      リアルタイムの接続が同時に数百本なら、1 台のサーバーで足りる見込み。値は、使う割合が分かったら見直す
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: OQ-6
+  - id: API-22
+    kind: バリデーション
+    content: >-
+      建物の基準画像の送り方と形式。いまは multipart/form-data で画像を送り、GET /landmarks で imageUrl を配る。MindAR を使う場合は、配るものが .mind ファイルなどに変わる。
+      回答(2026-11-22、sabo10p): OQ-11 が決まるまで要確認のまま残す(案 C)
+      回答: main の D-018(利用者の決定、2026-11-22)で、建物の判定は映像でなく現在地・向き・建物の輪郭で行うことになり、基準画像は持たない。
+      Landmark.image は footprint(OpenStreetMap の輪郭)に変わった(D-019)。仕様から基準画像を外し、footprint に置き換えた(2026-11-23)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-23"
+    related_oq: "OQ-11"
+  - id: API-23
+    kind: 一覧取得
+    content: >-
+      その棟の企画(showBuildingEvents)で、建物の「近く」とみなす範囲(near)。
+      API-14 で場所に landmarkId を足したので、「近く」でなく「landmarkId がその建物の場所」で返す案もある(OQ-10 の near が要らなくなる)。
+      回答: 建物の id で出す(案 A)。landmarkId がその建物の場所を返す。
+      理由: 屋外の模擬店は、カメラで映している時点で既に見えている(利用者)。
+      概念設計の同期 show-building-events・show-no-events の where は、D-024 で「建物の一致」に変わり、この API と合った(2026-11-23)。OQ-10 のうち near の範囲は要らなくなり、残るのは「迷っている」の判定だけ
+      利用者の意見: その棟の企画は建物の id で出し、「近く」(OQ-10 の near)は要らない(ゲート 2 の質問 7 の回答 A)。
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者(D-024)
+    date: "2026-11-23"
+    related_oq: "OQ-10"
+  - id: API-24
+    kind: 状態遷移
+    content: >-
+      ロール分けが要らない共有のデータ(スタンプなど)を、開いている来場者の画面にリアルタイムで反映する(利用者の要望、2026-11-22)。
+      回答(届け方): Server-Sent Events(案 A)。GET /stamps/events(のちに /changes に変更。API-25)を開いておくと、押された・取り消されたが流れてくる。
+      「一旦 A」との回答なので、電波の弱さなどで見直す可能性がある。
+      ロール分けが要る実体のデータ(出展者の在庫状況など)のリアルタイム反映は今回やらない(api/roadmap.md)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""
+  - id: API-25
+    kind: 状態遷移
+    content: >-
+      リアルタイム反映(API-24)の対象と、流す出来事の形。
+      利用者の仮の回答(2026-11-22): スタンプと、場所の削除を流す(案 C)。理由: 途中で営業停止になる場所があるため。
+      出来事は stampPressed(Stamp。retractToken は含まない)・stampRetracted({id})・placeRemoved({id})。appVersionChanged({version})も流す(API-20)。
+      期限を過ぎた混雑スタンプは流さず、端末が pressedAt から消す(→ API-38 で expiresAt から消すに変更)。つなぎ直したら GET /stamps と GET /places で取り直す(この 2 点も利用者が「このままでよい」と回答)。
+      → つなぎ直したときの取り直しは、API-42 で、続きだけ受け取る形に変えた(2026-11-23)。
+      スタンプ以外も流すので、パスを /stamps/events から /changes に変えた(events は showBuildingEvents で「企画」の意味に使っているため避けた。AI の仮置き)。
+      運営が止める営業停止は、場所の削除で表す(API-26)
+    state: 仮置き
+    placeholder: スタンプと場所の削除を流す(利用者の仮の回答 C)。パスは /changes。営業停止は場所の削除として扱う
+    decided_by: ""
+    date: ""
+    related_oq: OQ-4
+  - id: API-26
+    kind: 状態遷移
+    content: >-
+      企画が途中で営業停止になったときの表し方。場所の削除(Place.remove)で表すか、場所に「営業中・停止中」の状態を持たせて、再開もできるようにするか。
+      後者は Place の状態とアクションの追加(概念設計の変更)と、更新の出来事(placeUpdated など)が要る。
+      回答: ここでの営業停止は、運営が止めるもの。今回は場所の削除で表す(placeRemoved を流す)。
+      「営業中・停止中」の状態を持たせて再開もできる形(案 B)が望ましいが、展望とする(api/roadmap.md の 3)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""
+  - id: API-27
+    kind: リソース設計
+    content: >-
+      場所が付いている建物を削除しようとしたときの扱い(API-14 で場所に landmarkId を足したため)。
+      回答: 断る(案 A)。409 Conflict(landmark_in_use)を返す。先に場所の建物を空にするか、付け替えてもらう。種類の削除(API-10)と同じ扱い。
+      建物の情報(名前・位置など)の直しは、削除でなく更新(PATCH /landmarks/{landmarkId})で行う。輪郭は OpenStreetMap から読み込み直す(D-018・D-019)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""
+  # --- Step 5(2026-11-22)の自己点検で見つかった、画面と API の食い違い ---
+  - id: API-28
+    kind: リソース設計
+    content: >-
+      マップに設備(案内所・トイレ・休憩所・ゴミ箱)の印を出す(screens.yaml の map、wireframe.md の ※)が、API に設備が無い。
+      回答(ゲート 3): 足す。ワイヤーフレームの案どおり、場所の種別(kind)に 案内所・トイレ・休憩所・ゴミ箱 を足し、運営が場所として登録する。
+      設備は検索・絞り込みの対象にするか: ワイヤーフレームの案は「設備とスタンプは絞らない」。絞り込みは端末で行う(API-8)ので、API は変わらない。
+      概念設計は、D-017 で Kind に設備 4 種を足し、D-027 で設備を検索に出さないと決めた(2026-11-23)
+      利用者の意見: 設備を Place.kind に足す(ゲート 3 の回答)。Place.kind と種類の線引きは OQ-3 で、API の形には影響しない。
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者(D-017・D-027)
+    date: "2026-11-23"
+    related_oq: OQ-3
+  - id: API-29
+    kind: リソース設計
+    content: >-
+      建物の中の地図(building)と運営の建物の画面(op_landmarks)が、階ごとの見取り図を見せる・登録するが、API に見取り図が無い。
+      回答(ゲート 3): 足す。建物ごと・階ごとの見取り図として、PUT・DELETE /landmarks/{landmarkId}/floors/{floor}/plan(運営)を足し、
+      建物の応答に floors(階と、見取り図の図形と bounds)を入れる(最初の案は画像の URL だったが、下の意見で SVG の図形に変えた)。
+      概念設計は、D-029(2026-11-23)で、見取り図を概念にしないと決まった。概念設計の変更は要らない(建物の付属データとして、API と画面だけで扱う)。
+      利用者の意見: 見取り図を足す(ゲート 3 の回答)。
+      利用者の意見(2026-11-23、PR #23 との照合): 見取り図は画像でなく SVG の図形(viewBox と path の d)で持つ。デザインシステムの BuildingFloorPlan の形に合わせる。
+      運営が図形を用意する必要がある(図面の写真のままでは使えない)。四隅の緯度経度(API-30)は残す
+      建物を削除したときは、その建物の階ごとの見取り図も一緒に消す(2026-11-23。D-029 が API 側の扱いとして残した点。見取り図は建物に付く付属データで、建物が無いのに残る意味がない)。場所が付いている建物の削除を断る規則(API-27)は、変えない
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者
+    date: "2026-11-23"
+    related_oq: ""
+  - id: API-30
+    kind: バリデーション
+    content: >-
+      見取り図の上に企画の位置を描く方法。場所の位置は緯度経度なので、見取り図の上のどこに当たるかを決める情報が要る。
+      案: 見取り図を登録するとき、図の四隅に当たる緯度経度(bounds。north・south・east・west)も送り、端末が位置を図の上に換算する。
+      別案: 場所ごとに、見取り図の上の座標(x・y)を持たせる(場所の項目が増える)
+      利用者の意見: 四隅の緯度経度の案(bounds)でよい(2026-11-22)。見取り図を足すこと(API-29)と合わせて確定(2026-11-23、利用者)。見取り図(図形と bounds)は建物と一緒に消える(API-29)。位置の換算は端末が行い、API は bounds を保存して返すだけ(換算を端末に置く前提は、API 設計の外の判断でもあるが、この形で確定)
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者
+    date: "2026-11-23"
+    related_oq: ""
+  # --- issue #17 の API の欄(2026-11-22) ---
+  - id: API-31
+    kind: 互換性
+    content: >-
+      場所の id は、会期中に変わらない(issue #17。端末のタグは場所の id で覚えるため)。
+      削除した場所の id は、再び使わない。
+      営業停止(API-26)は運営が止めるもので、再開の可能性はほぼ無い(利用者)。万一再開して登録し直すと別の id になり、来場者のタグは外れる。これは受け入れる。
+      端末は、一覧に無い id のタグや placeRemoved を受け取った id を、表示しない(タグのデータは端末が消すか残すかを決めてよい)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-22"
+    related_oq: ""
+  # --- main の PR #24(D-017〜D-022)を取り込んだあとの対応(2026-11-23) ---
+  - id: API-32
+    kind: 命名
+    content: >-
+      場所の建物の欄の名前。concepts.yaml は building(Landmark の id を指す。D-017)、仕様は landmarkId。
+      回答: 仕様は landmarkId のまま(D-020 で内部の名前は Landmark と確定。id であることも名前から分かる)。
+      デザインシステムとの合わせ方は API-39
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-23"
+    related_oq: ""
+  - id: API-33
+    kind: リソース設計
+    content: >-
+      建物の輪郭(footprint)を、GET /landmarks で配るか、端末に静的ファイルで同梱するか(OQ-16)。いまの仕様は API で配る形
+    state: 仮置き
+    placeholder: "GET /landmarks の応答に footprint を入れて配る。API 設計としては、この形で終了(2026-11-23、利用者)。キャッシュによる通信の最適化など、端末で行う処理の話は、次のステップに持ち越す"
+    decided_by: ""
+    date: ""
+    related_oq: OQ-16
+  - id: API-34
+    kind: エラー仕様
+    content: >-
+      輪郭の取り直し(Request.reloadFootprint)の形。パスは動詞を避けて POST /landmarks/{landmarkId}/footprint(本文なし)。
+      OpenStreetMap から輪郭が取れないときは、輪郭を変えずに 502 footprint_unavailable を返す。登録のときは断らず、輪郭なしで登録する(API-37)
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者
+    date: "2026-11-23"
+    related_oq: ""
+  - id: API-35
+    kind: バリデーション
+    content: >-
+      開催時間(hours。D-020)の時刻の形。いまは日付つきの日時(ISO 8601、+09:00)。学園祭は 2 日間なので、日付が要る。
+      回答(2026-11-23、利用者): 内部は日付つきの日時でよい(2 日間あるため)。表示用の文字列(「11:00〜15:00」)は、画面が日時から作る
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者
+    date: "2026-11-23"
+    related_oq: ""
+  # --- PR #23(デザインシステム)の部品の型との照合(2026-11-23) ---
+  - id: API-36
+    kind: 命名
+    content: >-
+      場所の種別とスタンプの種類の値を、日本語にするか、デザインシステムの英語のコードにそろえるか。
+      回答: 英語のコードにそろえ、1 つの値で持つ(案 A。2 段に分ける案 C は、概念設計の Place.kind と形がずれ、ありえない組み合わせを防ぐ検査も要るので選ばなかった)。
+      場所の種別: event(企画)・parking(駐車場)・info(案内所)・wc(トイレ)・rest(休憩所)・trash(ゴミ箱)。
+      スタンプ: congestion-1〜5(混雑 1〜5)・fun(面白い)・food(美味しい)・good(よさ)。画面に出す日本語は画面の側で当てる。
+      デザインシステムの PlaceCard.kind(event・parking・facility の 3 つ)へは、画面の側で info・wc・rest・trash を facility に変換する
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-23"
+    related_oq: ""
+  - id: API-37
+    kind: バリデーション
+    content: >-
+      輪郭(footprint)の無い建物を許すか。デザインシステムの BuildingShapePreview は「形なし」を許し、概念設計は footprint: Landmark -> one Polygon(必ず 1 つ)。
+      利用者の意見(2026-11-23): 許す(案 A)。OpenStreetMap に輪郭が無くても登録でき、footprint は null。
+      輪郭の無い建物はカメラの正面に選ばれないが、一覧・見取り図・その棟の企画には使える。あとで取り直せる。
+      概念設計は、D-023(2026-11-23)で footprint を lone(0 か 1)に変えた
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者(D-023)
+    date: "2026-11-23"
+    related_oq: ""
+  - id: API-38
+    kind: 状態遷移
+    content: >-
+      スタンプが消える時刻を API で返すか(デザインシステムの MyStampRow が expiresAt を受け取る)。
+      回答: スタンプの応答に expiresAt を足す(案 A)。サーバーが期限の長さから決める(混雑は押した時刻 + 期限、感想はその日の閉場)。
+      GET /stamps は expiresAt を過ぎたものを返さず、端末も expiresAt を過ぎたら消す。期限の長さを変えても画面を直さずに済む(API-20)。
+      端末の時計が少しずれても、スタンプなら困らない(利用者)。期限の長さそのものは OQ-4・API-17(仮置き)
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-23"
+    related_oq: OQ-4
+  - id: API-39
+    kind: 命名
+    content: >-
+      建物の id の名前が、概念設計 building、API landmarkId、デザインシステム(PR #23 の BuildingFlag)buildingId とずれている。
+      回答: デザインシステムの props を landmarkId に直す(案 A)。API の項目を名前を変えずに部品へ渡せる。D-020(内部は Landmark、画面の言葉だけ建物)に沿う。
+      直すのは PR #23(デザインシステム)の側。概念設計の building は概念の書き方なのでそのまま
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-23"
+    related_oq: ""
+  - id: API-40
+    kind: 命名
+    content: >-
+      取り消しの証の名前。概念設計(D-021)は proof、仕様は retractToken・ヘッダー X-Retract-Token だった。
+      回答: 仕様を概念設計の proof にそろえる(案 B)。押した応答の項目は proof、取り消しのヘッダーは X-Stamp-Proof。
+      API-13・API-19・API-25 などの retractToken は、proof と読み替える
+    state: 確定
+    placeholder: ""
+    decided_by: sabo10p
+    date: "2026-11-23"
+    related_oq: OQ-12
+  - id: API-41
+    kind: リソース設計
+    content: >-
+      場所に付けた運営の種類を外す操作(付け間違いの取り消し)。付ける操作(PUT /places/{placeId}/labels/{labelId})だけがあった。
+      回答(2026-11-23、利用者): 足す。DELETE /places/{placeId}/labels/{labelId}(運営)。付いていなくても 204。種類そのものは消えない。
+      概念設計には、運営の種類を外す要求が無い(Request.unmarkPlace は来場者の自分用タグ。端末内)。D-028(2026-11-23)で、Labeling.detach を呼ぶ同期 unassign-label が足された(Request.unassignLabel)
+    state: 確定
+    placeholder: ""
+    decided_by: 利用者(D-028)
+    date: "2026-11-23"
+    related_oq: ""
+  - id: API-42
+    kind: 状態遷移
+    content: >-
+      /changes(API-25)が切れたあとの取り込み。いまは、つなぎ直すたびに、一覧を全件取り直す(電波が弱いと通信量が問題になる、と利用者)。
+      回答(2026-11-23、利用者): 版の番号つきにする。一覧(GET /stamps・GET /places)に cursor を付け、/changes の各出来事に id を付ける。
+      つなぐときは since=<cursor>、つなぎ直しは Last-Event-ID で、その続きだけ受け取る。続きの履歴が無いときは resync を流し、端末が一覧を取り直す。
+      履歴を持つ範囲は「サーバーが持っている範囲」とし、時間や行数は仕様に書かない(実装が決める。行数で上限をつける案でよい)。
+      概念設計に影響しない配信の仕組み(概念の要求ではない。resync は x-non-request-events に入れた)。出来事は、同じものを何度当てても同じ結果になるようにする
+    state: 仮置き
+    placeholder: "cursor と出来事の id による、続きだけの取り込み。履歴の範囲はサーバーの実装。端末の処理(番号の保存・続きの取り込み)は、次のステップ"
+    decided_by: ""
+    date: ""
+    related_oq: ""
