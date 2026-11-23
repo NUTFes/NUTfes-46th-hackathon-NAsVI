@@ -41,6 +41,7 @@ function fakeGeolocation() {
 
 let geo: ReturnType<typeof fakeGeolocation>;
 const scopes: EffectScope[] = [];
+const disposers: (() => void)[] = [];
 const fetchMock = vi.fn<typeof fetch>(() => { throw new Error('Unexpected fetch'); });
 
 function createPosition() {
@@ -63,6 +64,7 @@ beforeEach(() => {
 
 afterEach(() => {
   scopes.splice(0).forEach((scope) => scope.stop());
+  disposers.splice(0).forEach((dispose) => dispose());
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -73,7 +75,7 @@ describe('usePosition', () => {
 
     expectTypeOf(service.position).toEqualTypeOf<Ref<Position | null>>();
     expectTypeOf(service.status).toEqualTypeOf<
-      Ref<'idle' | 'asking' | 'granted' | 'denied' | 'unavailable'>
+      Ref<'idle' | 'asking' | 'granted' | 'denied' | 'unavailable' | 'timeout'>
     >();
     expectTypeOf(service.report).returns.toEqualTypeOf<Position | null>();
     expect(isRef(service.position)).toBe(true);
@@ -93,7 +95,7 @@ describe('usePosition', () => {
     expect(service.report()).toBeNull();
     expect(geo.watchPosition).toHaveBeenCalledExactlyOnceWith(
       expect.any(Function), expect.any(Function),
-      { enableHighAccuracy: true, maximumAge: 0 },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
     );
 
     geo.succeed();
@@ -153,13 +155,18 @@ describe('usePosition', () => {
     expect(service.status.value).toBe('granted');
   });
 
-  it.each([2, 3] as const)('エラー %s は unavailable になり、次の位置取得で回復する', (code) => {
+  it.each([
+    [2, 'unavailable'],
+    [3, 'timeout'],
+  ] as const)('エラー %s は %s になり、同じ監視の次の位置取得で回復する', (code, expectedStatus) => {
     const service = createPosition();
     service.allow();
     geo.succeed();
     geo.fail(code);
-    expect(service.status.value).toBe('unavailable');
+    expect(service.status.value).toBe(expectedStatus);
     expect(service.report()).toBeNull();
+    expect(geo.clearWatch).not.toHaveBeenCalled();
+    expect(geo.active.has(0)).toBe(true);
 
     geo.succeed();
     expect(service.status.value).toBe('granted');
@@ -232,7 +239,7 @@ describe('usePosition', () => {
     const service = createPosition();
     service.allow();
     expect(geo.watchPosition.mock.calls[0][2]).toEqual({
-      enableHighAccuracy: false, maximumAge: 60_000,
+      enableHighAccuracy: false, maximumAge: 60_000, timeout: 15_000,
     });
   });
 
@@ -240,13 +247,150 @@ describe('usePosition', () => {
     const service = createPosition();
     service.allow();
     service.allow();
-    expect(geo.clearWatch).toHaveBeenCalledWith(0);
+    expect(geo.clearWatch).not.toHaveBeenCalled();
+    expect(geo.watchPosition).toHaveBeenCalledTimes(1);
     expect(geo.active.size).toBe(1);
     geo.succeed(0);
-    expect(service.status.value).toBe('asking');
-    expect(service.report()).toBeNull();
+    expect(service.status.value).toBe('granted');
+    expect(service.report()).not.toBeNull();
     setVisibility('hidden');
+    expect(geo.watchPosition).toHaveBeenCalledTimes(2);
+    expect(geo.active.size).toBe(1);
+  });
+
+  it('複数の利用者で Ref・監視・visibilitychange の購読を共有する', () => {
+    const addListener = vi.spyOn(document, 'addEventListener');
+    const first = createPosition();
+    const second = createPosition();
+    first.allow();
+    second.allow();
+    const third = createPosition();
+    third.allow();
+
+    expect(second.position).toBe(first.position);
+    expect(second.status).toBe(first.status);
+    expect(third.position).toBe(first.position);
+    expect(geo.watchPosition).toHaveBeenCalledTimes(1);
+    expect(addListener.mock.calls.filter(([event]) => event === 'visibilitychange')).toHaveLength(1);
+    geo.succeed();
+    expect(second.report()).toBe(first.report());
+    expect(third.status.value).toBe('granted');
+    second.allow();
+    expect(second.status.value).toBe('granted');
+    expect(geo.watchPosition).toHaveBeenCalledTimes(1);
+
+    setVisibility('hidden');
+    expect(geo.watchPosition).toHaveBeenCalledTimes(2);
+    expect(geo.active.size).toBe(1);
+  });
+
+  it('最後の利用者の scope が破棄されるまで監視と購読を維持する', () => {
+    const removeListener = vi.spyOn(document, 'removeEventListener');
+    const first = createPosition();
+    const second = createPosition();
+    first.allow();
+    geo.succeed();
+    scopes[0].stop();
+
+    expect(geo.clearWatch).not.toHaveBeenCalled();
+    expect(removeListener.mock.calls.filter(([event]) => event === 'visibilitychange')).toHaveLength(0);
+    expect(second.status.value).toBe('granted');
+    setVisibility('hidden');
+    expect(geo.watchPosition).toHaveBeenCalledTimes(2);
+    geo.succeed(1, 5);
+    expect(second.report()?.accuracy).toBe(5);
+
+    scopes[1].stop();
+    expect(geo.clearWatch.mock.calls).toEqual([[0], [1]]);
+    expect(removeListener.mock.calls.filter(([event]) => event === 'visibilitychange')).toHaveLength(1);
+    expect(geo.active.size).toBe(0);
+    expect(second.report()).toBeNull();
+    expect(second.status.value).toBe('idle');
+    geo.succeed(1);
+    setVisibility('visible');
+    expect(second.report()).toBeNull();
+    expect(geo.watchPosition).toHaveBeenCalledTimes(2);
+
+    const next = createPosition();
+    expect(next.status.value).toBe('idle');
+    next.allow();
     expect(geo.watchPosition).toHaveBeenCalledTimes(3);
+  });
+
+  it('同じ scope 内での複数回の利用も一度ずつ解放する', () => {
+    const scope = effectScope();
+    scopes.push(scope);
+    const [first, second] = scope.run(() => [usePosition(), usePosition()])!;
+    const remaining = createPosition();
+    first.allow();
+    first.dispose();
+    first.dispose();
+    scope.stop();
+    second.dispose();
+    expect(geo.active.size).toBe(1);
+    expect(geo.clearWatch).not.toHaveBeenCalled();
+
+    remaining.dispose();
+    expect(geo.clearWatch).toHaveBeenCalledExactlyOnceWith(0);
+  });
+
+  it('scope 外の利用者も dispose で解放でき、二重解放や解放後の操作を無視する', () => {
+    const service = usePosition();
+    disposers.push(service.dispose);
+    const scoped = createPosition();
+    service.allow();
+    scopes[0].stop();
+    expect(geo.active.size).toBe(1);
+
+    service.dispose();
+    service.dispose();
+    service.allow();
+    service.refuse();
+    service.setManually(37.426, 138.779);
+    expect(geo.clearWatch).toHaveBeenCalledExactlyOnceWith(0);
+    expect(geo.active.size).toBe(0);
+    expect(service.status.value).toBe('idle');
+    expect(scoped.report()).toBeNull();
+    setVisibility('hidden');
+    expect(geo.watchPosition).toHaveBeenCalledTimes(1);
+
+    const next = createPosition();
+    next.allow();
+    service.dispose();
+    expect(geo.active.size).toBe(1);
+  });
+
+  it('どの利用者の refuse・setManually・allow も共有状態全体に反映する', () => {
+    const first = createPosition();
+    const second = createPosition();
+    first.allow();
+    geo.succeed();
+    second.refuse();
+    expect(first.status.value).toBe('denied');
+    expect(first.report()).toBeNull();
+    expect(geo.active.size).toBe(0);
+    geo.succeed(0);
+    expect(first.report()).toBeNull();
+
+    first.allow();
+    geo.succeed();
+    second.setManually(37.426, 138.779, 25);
+    const manualPosition = first.report();
+    expect(manualPosition?.accuracy).toBe(25);
+    expect(first.status.value).toBe('granted');
+    expect(geo.active.size).toBe(0);
+    geo.succeed(1);
+    geo.fail(1, 1);
+    setVisibility('hidden');
+    expect(first.report()).toBe(manualPosition);
+    expect(geo.watchPosition).toHaveBeenCalledTimes(2);
+
+    second.allow();
+    expect(first.status.value).toBe('asking');
+    expect(first.report()).toBeNull();
+    geo.succeed();
+    expect(first.status.value).toBe('granted');
+    expect(first.report()).toBe(second.report());
     expect(geo.active.size).toBe(1);
   });
 
