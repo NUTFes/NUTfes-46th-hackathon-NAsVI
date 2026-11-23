@@ -31,6 +31,6 @@
 
 ## まだ決まっていないこと(部品の側では直さない)
 
-- 見取り図を新しい概念にするか(OQ-14)。BuildingFloorPlan の `plan`
+- 見取り図の API(API-29・30。チームの合意待ち)。見取り図は概念にしない(D-029、OQ-14 は閉じた)。BuildingFloorPlan の `plan`
 - 輪郭の配り方(OQ-16)。BuildingShapePreview・BuildingCameraOverlay の輪郭
 - スタンプの期限の最終値(OQ-4)
