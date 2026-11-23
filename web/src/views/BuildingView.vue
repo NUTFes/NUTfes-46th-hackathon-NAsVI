@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import FloorPlan, { buildingTokens } from '../components/FloorPlan.vue';
+import FloorPlan, { useBuildingTokens } from '../components/FloorPlan.vue';
 import { useLandmarksStore, usePlacesStore } from '../stores';
 
 const route = useRoute();
 const router = useRouter();
 const places = usePlacesStore();
 const landmarks = useLandmarksStore();
+const root = ref<Element>();
+const buildingTokens = useBuildingTokens(root);
 const buildingId = computed(() => String(route.params.id ?? ''));
 const building = computed(() => landmarks.items.find((item) => item.id === buildingId.value));
 const events = computed(() => places.items.filter((place) =>
@@ -47,7 +49,7 @@ function openPlace(id: string) {
 </script>
 
 <template>
-  <main class="building" :style="buildingTokens">
+  <main ref="root" class="building" :style="buildingTokens">
     <template v-if="building">
       <h1>{{ building.name }}</h1>
       <nav class="building__floors" aria-label="階">

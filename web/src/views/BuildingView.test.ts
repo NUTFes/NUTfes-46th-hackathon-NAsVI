@@ -31,6 +31,7 @@ const facilities: Place[] = (['info', 'wc', 'rest', 'trash'] as const).flatMap((
   { ...event(kind, 2), kind, name: `設備 ${kind}` },
   { ...event(`${kind}-only`, 5), kind, name: `設備のみ ${kind}` },
 ]);
+const hosts: HTMLElement[] = [];
 
 beforeEach(() => {
   setActivePinia(createPinia());
@@ -46,9 +47,10 @@ beforeEach(() => {
 afterEach(() => {
   expect(fetch).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
+  hosts.splice(0).forEach((host) => host.remove());
 });
 
-async function render(id = building.id) {
+async function render(id = building.id, attachTo?: HTMLElement) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -58,11 +60,30 @@ async function render(id = building.id) {
   });
   await router.push({ name: 'building', params: { id } });
   await router.isReady();
-  const wrapper = mount(BuildingView, { global: { plugins: [router] } });
+  const wrapper = mount(BuildingView, { attachTo, global: { plugins: [router] } });
   return { wrapper, router };
 }
 
 describe('BuildingView', () => {
+  it('建物画面と見取り図が共に祖先のテーマ切替に追従する', async () => {
+    const host = document.createElement('div');
+    host.dataset.theme = 'light';
+    document.body.append(host);
+    hosts.push(host);
+    const { wrapper } = await render(building.id, host);
+    await nextTick();
+    for (const element of [wrapper.get('main').element, wrapper.get('svg').element]) {
+      expect(element.style.getPropertyValue('--building-bg-page')).toBe('#f6f4fa');
+      expect(element.style.getPropertyValue('--building-text-primary')).toBe('#1e0b3a');
+    }
+    host.dataset.theme = 'dark';
+    await flushPromises();
+    for (const element of [wrapper.get('main').element, wrapper.get('svg').element]) {
+      expect(element.style.getPropertyValue('--building-bg-page')).toBe('#130a22');
+      expect(element.style.getPropertyValue('--building-text-primary')).toBe('#f4f0ff');
+    }
+  });
+
   it('建物名、見取り図と企画の階の和集合、件数を表示し、最初は1階を選ぶ', async () => {
     const { wrapper } = await render();
     expect(wrapper.get('h1').text()).toBe(building.name);

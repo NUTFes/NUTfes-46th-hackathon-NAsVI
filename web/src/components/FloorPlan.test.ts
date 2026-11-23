@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { enableAutoUnmount, mount } from '@vue/test-utils';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { floorplanXY } from '../domain/floorplan';
 import type { FloorPlan as FloorPlanData, Place } from '../types';
 import FloorPlan from './FloorPlan.vue';
@@ -16,6 +17,15 @@ const place: Place = {
   location: { lat: 37.5, lng: 138.5 }, description: '',
   landmarkId: 'building-1', floor: 2, hours: [], labelIds: [],
 };
+const hosts: HTMLElement[] = [];
+
+function themeHost(theme?: string) {
+  const host = document.createElement('div');
+  if (theme !== undefined) host.dataset.theme = theme;
+  document.body.append(host);
+  hosts.push(host);
+  return host;
+}
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('コンポーネントからの通信は禁止'); }));
@@ -23,9 +33,58 @@ beforeEach(() => {
 afterEach(() => {
   expect(fetch).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
+  hosts.splice(0).forEach((host) => host.remove());
 });
 
 describe('FloorPlan', () => {
+  it.each([
+    ['light', '#f6f4fa', '#ffffff', '#1e0b3a', '#5b5274', '#6d28d9', '#ffffff', 'rgba(30, 11, 58, 0.15)', '#0f766e'],
+    ['dark', '#130a22', '#1c1032', '#f4f0ff', '#b4a9cf', '#a78bfa', '#1e0b3a', 'rgba(167, 139, 250, 0.28)', '#5eead4'],
+    [undefined, '#130a22', '#1c1032', '#f4f0ff', '#b4a9cf', '#a78bfa', '#1e0b3a', 'rgba(167, 139, 250, 0.28)', '#5eead4'],
+    ['unknown', '#130a22', '#1c1032', '#f4f0ff', '#b4a9cf', '#a78bfa', '#1e0b3a', 'rgba(167, 139, 250, 0.28)', '#5eead4'],
+  ])('テーマ %s に対応するデザイントークンを使う', async (theme, bg, surface, text, secondary, action, onAction, border, event) => {
+    const wrapper = mount(FloorPlan, { attachTo: themeHost(theme), props: { plan, places: [place] } });
+    await nextTick();
+    const style = wrapper.get('svg').element.style;
+    const expected = {
+      'bg-page': bg, 'bg-surface': surface, 'text-primary': text, 'text-secondary': secondary,
+      'action-primary': action, 'action-on-primary': onAction, 'border-subtle': border,
+      event, 'map-ring': bg,
+    };
+    for (const [token, value] of Object.entries(expected)) {
+      expect(style.getPropertyValue(`--building-${token}`)).toBe(value);
+    }
+  });
+
+  it('最寄りのテーマを優先し、ライト・ダークの切替と属性の削除に追従する', async () => {
+    const outer = themeHost('light');
+    const inner = document.createElement('div');
+    inner.dataset.theme = 'dark';
+    outer.append(inner);
+    const wrapper = mount(FloorPlan, { attachTo: inner, props: { plan, places: [] } });
+    await nextTick();
+    const color = () => wrapper.get('svg').element.style.getPropertyValue('--building-event');
+    expect(color()).toBe('#5eead4');
+    inner.dataset.theme = 'light';
+    await flushPromises();
+    expect(color()).toBe('#0f766e');
+    inner.dataset.theme = 'dark';
+    await flushPromises();
+    expect(color()).toBe('#5eead4');
+    inner.removeAttribute('data-theme');
+    await flushPromises();
+    expect(color()).toBe('#0f766e');
+  });
+
+  it('後から見取り図が届いた場合も祖先のライト配色を使う', async () => {
+    const wrapper = mount(FloorPlan, {
+      attachTo: themeHost('light'), props: { plan: undefined, places: [place] },
+    });
+    await wrapper.setProps({ plan });
+    await nextTick();
+    expect(wrapper.get('svg').element.style.getPropertyValue('--building-event')).toBe('#0f766e');
+  });
+
   it('指定の形を描き、floorplanXY の位置に企画の円を重ねる', () => {
     const second = { ...place, id: 'event-2', location: { lat: 36.5, lng: 139.5 } };
     const wrapper = mount(FloorPlan, { props: { plan, places: [place, second] } });
