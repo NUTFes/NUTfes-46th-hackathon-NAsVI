@@ -24,7 +24,7 @@ import { vi } from 'vitest';
 import { appHarness, disposeHarness, event, networkGuards } from '../../app/testing';
 import { usePosition } from '../../services/position';
 
-it('地図で位置なしの距離を省き、解除後は保存先も空にしてフォーカスを戻す', async () => {
+it('地図で位置なしの距離を省き、解除後は保存先も空にして Eye へフォーカスを移さない', async () => {
   networkGuards();
   const position = usePosition();
   position.refuse();
@@ -43,7 +43,7 @@ it('地図で位置なしの距離を省き、解除後は保存先も空にし�
     await flushPromises();
     expect(await app.storage.destination.get()).toBeNull();
     expect(app.wrapper.find('.destination-bar').exists()).toBe(false);
-    expect(document.activeElement).toBe(app.wrapper.get('button[aria-haspopup="dialog"]').element);
+    expect(document.activeElement).not.toBe(app.wrapper.get('button[aria-haspopup="dialog"]').element);
   } finally {
     await disposeHarness(app);
     position.dispose();

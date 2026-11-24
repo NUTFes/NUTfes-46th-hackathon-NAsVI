@@ -320,3 +320,51 @@ describe('MapCanvas の DOM 操作', () => {
     expect(event.defaultPrevented).toBe(true);
   });
 });
+
+describe('MapCanvas の公開操作', () => {
+  it('zoomBy は画面中央を保って拡大・縮小し、上限・下限を通知する', async () => {
+    const wrapper = mount(MapCanvas, { props: { state: state() } });
+    tick();
+    expect(wrapper.emitted('zoomLimits')?.at(-1)).toEqual([{ zoomInDisabled: false, zoomOutDisabled: false }]);
+    wrapper.vm.zoomBy(1);
+    for (let i = 0; i < 120; i++) tick();
+    expect(lastView().k).toBeCloseTo(2 * 1.25);
+    expect(project(lastView(), 480, 640, 0, 0).slice(0, 2)).toEqual([240, 320]);
+    wrapper.vm.zoomBy(-1);
+    for (let i = 0; i < 120; i++) tick();
+    expect(lastView().k).toBeCloseTo(2);
+    wrapper.vm.zoomBy(100);
+    await wrapper.vm.$nextTick();
+    for (let i = 0; i < 120; i++) tick();
+    expect(lastView().k).toBeCloseTo(K_MAX);
+    expect(wrapper.emitted('zoomLimits')?.at(-1)).toEqual([{ zoomInDisabled: true, zoomOutDisabled: false }]);
+    wrapper.vm.zoomBy(-100);
+    await wrapper.vm.$nextTick();
+    for (let i = 0; i < 120; i++) tick();
+    expect(lastView().k).toBeCloseTo(K_MIN);
+    expect(wrapper.emitted('zoomLimits')?.at(-1)).toEqual([{ zoomInDisabled: false, zoomOutDisabled: true }]);
+    wrapper.vm.zoomBy(1);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('zoomLimits')?.at(-1)).toEqual([{ zoomInDisabled: false, zoomOutDisabled: false }]);
+  });
+
+  it('flyTo は最新の現在地へ移動し、位置がなければ移動しない', async () => {
+    const { fromXY } = await import('../domain/geo');
+    const wrapper = mount(MapCanvas, { props: { state: state() } });
+    tick();
+    wrapper.vm.flyTo(); tick();
+    expect([lastView().fx, lastView().fy]).toEqual([0, 0]);
+    for (const [x, y] of [[100, -50], [-40, 80]]) {
+      await wrapper.setProps({ state: { ...state(), position: { ...fromXY(x, y), accuracy: 8, takenAt: 0 } } });
+      wrapper.vm.flyTo();
+      for (let i = 0; i < 120; i++) tick();
+      expect(lastView().fx).toBeCloseTo(x);
+      expect(lastView().fy).toBeCloseTo(y);
+      expect(lastView().k).toBe(2);
+    }
+    await wrapper.setProps({ state: state() });
+    wrapper.vm.flyTo(); tick();
+    expect(lastView().fx).toBeCloseTo(-40);
+    expect(lastView().fy).toBeCloseTo(80);
+  });
+});

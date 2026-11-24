@@ -103,8 +103,6 @@ async function stopDestination() {
     const storage = await getStorage();
     await storage.destination.clear();
     destination.value = null;
-    await nextTick();
-    (eye.value?.$el as HTMLButtonElement | undefined)?.focus();
   } catch { error.value = '案内を終えられませんでした。もう一度お試しください。'; }
   finally { busy.value = false; }
 }
@@ -155,7 +153,7 @@ function select(selection: { kind: 'place' | 'building'; id: string }) {
     </div>
     <StampFab class="map-view__stamp" :disabled="!position" :label="position ? 'スタンプを押す' : 'スタンプを押す、現在地が使えません'" @press="router.push({ name: 'stamp' })" />
     <p class="map-view__credit">© OpenStreetMap contributors (ODbL)</p>
-    <dialog ref="marksDialog" class="map-view__dialog" tabindex="-1" aria-label="表示する印を選ぶ" @close="restoreEyeFocus" @click.self="closeMarks">
+    <dialog ref="marksDialog" class="map-view__dialog" tabindex="-1" aria-label="表示する印を選ぶ" @cancel.prevent="closeMarks" @close="restoreEyeFocus" @click.self="closeMarks">
       <Sheet title="表示する印を選ぶ" @close="closeMarks">
         <label v-for="option in markOptions" :key="option.key" class="map-view__check">
           <input v-model="shown[option.key]" type="checkbox">{{ option.label }}
