@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises } from '@vue/test-utils';
 import { useChangesStore, usePlacesStore } from '../stores';
+import ListView from '../views/ListView.vue';
+import PlaceRow from '../components/PlaceRow.vue';
 import GuideView from '../views/GuideView.vue';
 import PlaceCard from '../views/PlaceCard.vue';
 import TagsView from '../views/TagsView.vue';
 import BuildingView from '../views/BuildingView.vue';
-import { appHarness, deferred, disposeHarness, event, networkGuards, syncDouble, type Harness } from './testing';
+import { appHarness, deferred, disposeHarness, event, facilities, networkGuards, syncDouble, type Harness } from './testing';
 
 let app: Harness | undefined;
 let guards: ReturnType<typeof networkGuards>;
@@ -20,6 +22,27 @@ afterEach(async () => {
 });
 
 describe('S-08 同期と画面の結線', () => {
+  it.each(['/list', '/search?q=お化け'])('%s は共通一覧を使い設備を除外し最寄りテーマに追従する', async path => {
+    app = await appHarness(path, [event, ...facilities]);
+    app.finish();
+    await flushPromises();
+    const list = app.wrapper.getComponent(ListView);
+    expect(list.props('excludeFacilities')).toBe(true);
+    expect(list.findAllComponents(PlaceRow).map(row => row.props('placeId'))).toEqual([event.id]);
+    expect(list.get('.place-view__count').text()).toContain('1 件');
+    expect(list.findAll('h1')).toHaveLength(1);
+    const color = () => list.get<HTMLElement>('main').element.style.getPropertyValue('--app-bg-page');
+    app.host.dataset.theme = 'light';
+    await flushPromises();
+    expect(color()).toBe('#f6f4fa');
+    list.element.setAttribute('data-theme', 'dark');
+    await flushPromises();
+    expect(color()).toBe('#130a22');
+    list.element.removeAttribute('data-theme');
+    await flushPromises();
+    expect(color()).toBe('#f6f4fa');
+  });
+
   it.each([
     ['/guide', GuideView], ['/places/event-1', PlaceCard],
     ['/places/event-1/tags', TagsView], ['/buildings/building-1', BuildingView],

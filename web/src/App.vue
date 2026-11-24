@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import MapView from './views/MapView.vue';
-import VisitorList from './app/VisitorList.vue';
+import ListView from './views/ListView.vue';
 import { createAppSync } from './app/sync';
 import { useAppTokens } from './app/tokens';
 import { useChangesStore, usePlacesStore } from './stores';
@@ -81,7 +81,7 @@ onBeforeUnmount(() => sync.close());
           </div>
           <div v-if="route.name !== 'map'" :class="{ 'visitor-overlay': mapScene }">
             <RouterView v-slot="{ Component }">
-              <VisitorList v-if="route.name === 'list' || route.name === 'search'" :key="String(route.name)" :search-mode="route.name === 'search'" />
+              <ListView v-if="route.name === 'list' || route.name === 'search'" :key="String(route.name)" :search-mode="route.name === 'search'" exclude-facilities />
               <component :is="Component" v-else />
             </RouterView>
           </div>

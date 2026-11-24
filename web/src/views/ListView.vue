@@ -10,7 +10,7 @@ import { usePosition } from '../services/position';
 import { getStorage, type StorageRepositories, type TagLink } from '../storage';
 import { useLabelsStore, useLandmarksStore, usePlacesStore } from '../stores';
 import type { Destination, FilterState, MyTag, Place, PlaceKind } from '../types';
-import '../../../design-system/claude-design/tokens.css';
+import { useAppTokens } from '../app/tokens';
 
 type EmptyAction = { label: string; onClick?: () => unknown; to?: RouteLocationRaw; disabled?: boolean };
 // design-system/components/EmptyState.md の title・body・actions に合わせる。
@@ -33,7 +33,7 @@ const EmptyState = defineComponent({
 });
 
 // SearchView と一覧でデータ・絞り込み・表示用 props の組み立てを共用する。
-const props = withDefaults(defineProps<{ searchMode?: boolean }>(), { searchMode: false });
+const props = withDefaults(defineProps<{ searchMode?: boolean; excludeFacilities?: boolean }>(), { searchMode: false, excludeFacilities: false });
 const route = useRoute();
 const router = useRouter();
 const places = usePlacesStore();
@@ -59,15 +59,18 @@ let composing = false;
 let queryWrite: { value: string | undefined } | undefined;
 
 // design-system/claude-design/tokens.css。色・余白・文字はここで固定する。
-const TOKENS = {
-  '--view-page': 'var(--bg-page)', // color.{dark,light}.bg-page
-  '--view-surface': 'var(--bg-surface)', // color.{dark,light}.bg-surface
-  '--view-text': 'var(--text-primary)', // color.{dark,light}.text-primary
-  '--view-muted': 'var(--text-secondary)', // color.{dark,light}.text-secondary
-  '--view-border': 'var(--border-control)', // color.{dark,light}.border-control
-  '--view-action': 'var(--action-primary)', // color.{dark,light}.action-primary
-  '--view-danger': 'var(--danger-text)', // color.{dark,light}.danger-text
-  '--view-danger-bg': 'var(--danger-bg)', // color.{dark,light}.danger-bg
+const root = ref<HTMLElement>();
+const appTokens = useAppTokens(root);
+const TOKENS = computed(() => ({
+  ...appTokens.value,
+  '--view-page': 'var(--app-bg-page)', // color.{dark,light}.bg-page
+  '--view-surface': 'var(--app-bg-surface)', // color.{dark,light}.bg-surface
+  '--view-text': 'var(--app-text-primary)', // color.{dark,light}.text-primary
+  '--view-muted': 'var(--app-text-secondary)', // color.{dark,light}.text-secondary
+  '--view-border': 'var(--app-border-control)', // claude-design color.tokens.border-control
+  '--view-action': 'var(--app-action-primary)', // color.{dark,light}.action-primary
+  '--view-danger': 'var(--app-danger-text)', // color.{dark,light}.danger-text
+  '--view-danger-bg': 'var(--app-danger-bg)', // color.{dark,light}.danger-bg
   '--view-gap': 'var(--space-2)', // space.2
   '--view-padding': 'var(--space-4)', // space.4
   '--view-radius': 'var(--radius-xl)', // radius.xl
@@ -84,7 +87,7 @@ const TOKENS = {
   '--view-input-weight': '500', // typography.input / font.weight.medium
   '--view-action-size': '14px', // typography.action / font.size.md
   '--view-action-weight': '700', // typography.action / font.weight.bold
-} as const;
+}));
 
 function limitKeyword(value: string) {
   return [...value].slice(0, SEARCH_MAX_LENGTH).join('');
@@ -164,13 +167,17 @@ const activeLabels = computed(() => [
 ]);
 const word = computed(() => appliedKeyword.value.trim());
 const normalizedWord = computed(() => word.value.normalize('NFKC').toLowerCase());
+// App の一覧は D-030 に従い、絞り込みと件数の計算前に設備を除外する。
+const visiblePlaces = computed(() => props.excludeFacilities
+  ? places.items.filter(place => place.kind === 'event' || place.kind === 'parking')
+  : places.items);
 const results = computed(() => {
   if (!ready.value) return [];
-  // 設備は検索に出さない(D-027)。一覧では既存の applyFilter の規則を使う。
+  // 設備は検索に出さない(D-027)。一覧の対象は呼び出し側が指定する。
   const candidates = props.searchMode || word.value
-    ? places.items.filter(place => (place.kind === 'event' || place.kind === 'parking')
+    ? visiblePlaces.value.filter(place => (place.kind === 'event' || place.kind === 'parking')
       && place.name.normalize('NFKC').toLowerCase().includes(normalizedWord.value))
-    : places.items;
+    : visiblePlaces.value;
   if (props.searchMode && !word.value) return [];
   return applyFilter(candidates, filter.value, tagLinks.value);
 });
@@ -266,7 +273,7 @@ function clearKeyword() {
 </script>
 
 <template>
-  <main class="place-view" :style="TOKENS" :aria-busy="(!ready && !error) || busy">
+  <main ref="root" class="place-view" :style="TOKENS" :aria-busy="(!ready && !error) || busy">
     <h1>{{ searchMode ? '検索結果' : '一覧' }}</h1>
     <div class="place-view__search" role="search">
       <label class="place-view__search-label">
