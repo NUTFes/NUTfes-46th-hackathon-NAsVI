@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -29,6 +29,15 @@ const landmark: Landmark = {
 let pinia: ReturnType<typeof createPinia>;
 let storage: StorageRepositories;
 let position: ReturnType<typeof usePosition>;
+
+beforeAll(async () => {
+  // 全件並列実行時も、遅延ロード先の初回変換を遷移の待機時間に含めない。
+  await Promise.all([
+    import('./MapView.vue'),
+    import('./GuideView.vue'),
+    import('./TagsView.vue'),
+  ]);
+}, 30_000);
 
 beforeEach(async () => {
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('外部通信は禁止'); }));
