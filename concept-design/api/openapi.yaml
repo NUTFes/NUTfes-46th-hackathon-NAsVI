@@ -898,8 +898,13 @@ components:
       in: header
       name: Cf-Access-Jwt-Assertion
       description: >-
-        運営の操作だけに要る(API-12)。運営の画面と運営の操作の入口は Cloudflare Access で守る。
-        Access を通ると、リクエストに Cf-Access-Jwt-Assertion(署名つきの JWT)が付く。サーバーはこれを検証する。
+        運営の操作だけに要る(API-12、OQ-20、D-034)。Cloudflare Access は画面 /admin/* を守り、API の認可は requireOperator が JWT を検証して行う。
+        運営の更新系 API(POST/PATCH/PUT/DELETE)は来場者の読み取りと同じパスにあり、Access の保護をパスで分けない。
+        Cf-Access-Jwt-Assertion ヘッダーを優先し、ヘッダーの JWT が不正なときは Cookie にフォールバックしない。
+        ヘッダーがない場合は Cookie の CF_Authorization から JWT を読む。ただし CSRF 対策として Sec-Fetch-Site: same-origin のときだけ受け入れ、欠けている場合も拒否する。
+        どちらの経路でも署名・iss・aud・exp を同じ処理で検証し、認証できなければ 401 unauthorized を返す。
+        web と API は同一オリジンで配信する。別オリジンでは Cookie 経由の条件を満たせず、運営の書き込みは 401 になる。
+        この security scheme の type/in/name はヘッダー経路を表し、Cookie 経路の条件はこの説明に従う。
         ログインの操作はこの API に持たない(Access のログインを使う)。
         来場者の操作は認証なし。出展者のアカウントは今回やらない(api/roadmap.md)
 

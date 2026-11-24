@@ -37,6 +37,9 @@ export async function commitWithChange(
 
 ### 4. 認可・制限
 - `requireOperator`(`middleware/access.ts`): 運営の操作に付ける。通れば `c.get('actor')` に `{ email }` が入る。通れなければ 401 `unauthorized`。`ACCESS_BYPASS=true` のときだけ検証を迂回する(開発・テスト。本番に設定しない)。基盤は空の実装、本実装は A-12。
+  - Cloudflare Access の保護は画面 `/admin/*` に掛け、API の認可は `requireOperator` が JWT を検証して行う(OQ-20、D-034、PR #212)。運営の更新系 API は来場者の読み取りと同じパスにあるため、パスで Access を分けない。
+  - `Cf-Access-Jwt-Assertion` ヘッダーを優先し、その JWT が不正な場合は Cookie にフォールバックしない。ヘッダーがない場合は Cookie の `CF_Authorization` を読む。Cookie 経由は CSRF 対策として `Sec-Fetch-Site: same-origin` のときだけ受け入れ、欠けている場合も拒否する。
+  - ヘッダー・Cookie のどちらも、署名・iss・aud・exp を同じ処理で検証する。web と API は同一オリジン配信を前提とする。別オリジンでは Cookie 経由の条件を満たせず、運営の書き込みは 401 になる。
 - `rateLimit({ key, limit, windowSec })`(`middleware/ratelimit.ts`): 基盤は何もしない実装、本実装は A-13。値は API-18・API-21(読み取りは 1 分に 60 回、スタンプは 1 分に 5 個、本文は 1 MB)。
 - 来場者の操作は認証なし。押した人・通信元・地点をログに残さない(API-19)。
 
