@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises } from '@vue/test-utils';
 import screens from '../../../concept-design/screens.yaml?raw';
 import { usePosition } from '../services/position';
@@ -20,6 +20,22 @@ let app: Harness | undefined;
 let guards: ReturnType<typeof networkGuards>;
 let position: ReturnType<typeof usePosition>;
 let trace: string[];
+beforeAll(async () => {
+  // 実ルーターはそのまま使い、初回変換をテスト本体や遷移待機の制限に含めない。
+  // MapView はこのファイルで静的に import 済み。
+  await Promise.all([
+    import('../views/SearchView.vue'),
+    import('../views/PlaceCard.vue'),
+    import('../views/TagsView.vue'),
+    import('../views/GuideView.vue'),
+    import('../views/StampView.vue'),
+    import('../views/NoLocationView.vue'),
+    import('../views/BuildingView.vue'),
+    import('../views/ListView.vue'),
+    import('../views/CameraView.vue'),
+  ]);
+}, 30_000);
+
 beforeEach(() => {
   guards = networkGuards();
   position = usePosition();
@@ -62,6 +78,7 @@ async function searchAndOpen() {
 }
 
 describe('S-08 screens.yaml の来場者ジャーニー', () => {
+  // 初回のアプリ描画・検索・カード遷移は、事前変換後も並列負荷で5秒を超える。
   it('F1: マップで検索し、検索結果から場所のカードを開く', async () => {
     await open();
     await searchAndOpen();
@@ -69,7 +86,7 @@ describe('S-08 screens.yaml の来場者ジャーニー', () => {
     expect(await app!.storage.destination.get()).toBeNull();
     checkJourney('F1');
     expect(guards.fetch).not.toHaveBeenCalled();
-  });
+  }, 15_000);
 
   it('F2: 明示的に行き先を選び、到着後に案内を終える（画面内の終了操作は0遷移）', async () => {
     await open();
