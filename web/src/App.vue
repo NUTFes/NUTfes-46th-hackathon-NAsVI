@@ -1,16 +1,30 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
+import { computed, defineComponent, h, onBeforeUnmount, ref, watch } from 'vue';
+import { RouterView, useRoute, useRouter } from 'vue-router';
 import MapView from './views/MapView.vue';
 import VisitorList from './app/VisitorList.vue';
 import { createAppSync } from './app/sync';
 import { useAppTokens } from './app/tokens';
 import { useChangesStore, usePlacesStore } from './stores';
 import { usePosition } from './services/position';
+import { useThemeAttribute } from './app/useThemeAttribute';
+import TabBar from './components/ui/TabBar.vue';
 import './app/app.css';
 
-const root = ref<HTMLElement>();
-const tokens = useAppTokens(root);
+// 来場者ルートの寿命にテーマ監視を合わせ、運営画面には属性を残さない。
+const VisitorRoot = defineComponent({
+  setup(_, { slots }) {
+    const root = ref<HTMLElement>();
+    useThemeAttribute(root);
+    const tokens = useAppTokens(root);
+    // MapCanvas は表示中の draw ごとに次の RAF を予約するため、属性変更は
+    // 次フレームの layers.draw に反映される。トークンは MutationObserver で追従する。
+    return () => h('div', { ref: root, class: 'visitor-app', style: tokens.value }, slots.default?.());
+  },
+});
+const tabItems = [
+  { name: 'list', label: '一覧' }, { name: 'map', label: 'マップ' }, { name: 'camera', label: 'カメラ' },
+] as const;
 const route = useRoute();
 const router = useRouter();
 const places = usePlacesStore();
@@ -55,44 +69,37 @@ onBeforeUnmount(() => sync.close());
 </script>
 
 <template>
-  <div ref="root" :style="tokens" :class="{ 'visitor-app': !admin }">
-    <RouterView v-if="admin" />
-    <template v-else>
-      <section v-if="changes.versionChanged" class="app-banner" role="alert" aria-label="アプリの更新">
-        <p>新しいバージョンがあります。画面を再読み込みしてください。</p>
+  <div v-if="admin"><RouterView /></div>
+  <VisitorRoot v-else>
+    <section v-if="changes.versionChanged" class="app-banner" role="alert" aria-label="アプリの更新">
+      <p>新しいバージョンがあります。画面を再読み込みしてください。</p>
+      <button type="button" class="app-action" @click="reload">再読み込み</button>
+      <button type="button" class="app-action" @click="changes.acknowledgeVersionChange">あとで</button>
+    </section>
+    <section v-if="started && (placesFailed || retrying)" class="app-banner" role="alert" aria-label="場所の取得失敗">
+      <p>{{ places.items.length ? '場所を更新できませんでした。保存済みの情報を表示しています。' : '場所を読み込めませんでした。' }}</p>
+      <template v-if="!sync.hasSnapshot.value && !sync.state.failedKeys.length">
+        <p>画面を再読み込みして、もう一度お試しください。</p>
         <button type="button" class="app-action" @click="reload">再読み込み</button>
-        <button type="button" class="app-action" @click="changes.acknowledgeVersionChange">あとで</button>
-      </section>
-      <section v-if="started && (placesFailed || retrying)" class="app-banner" role="alert" aria-label="場所の取得失敗">
-        <p>{{ places.items.length ? '場所を更新できませんでした。保存済みの情報を表示しています。' : '場所を読み込めませんでした。' }}</p>
-        <template v-if="!sync.hasSnapshot.value && !sync.state.failedKeys.length">
-          <p>画面を再読み込みして、もう一度お試しください。</p>
-          <button type="button" class="app-action" @click="reload">再読み込み</button>
-        </template>
-        <button v-else type="button" class="app-action" :disabled="retrying || sync.state.syncing" @click="retry">
-          {{ retrying || sync.state.syncing ? '再試行中…' : 'もう一度読み込む' }}
-        </button>
-      </section>
-      <div class="visitor-stage">
-        <p v-if="blocked && availability === 'loading'" class="app-loading" role="status">場所を読み込んでいます</p>
-        <template v-if="!blocked">
-          <div v-if="mapScene" class="visitor-map" :inert="route.name !== 'map'">
-            <MapView />
-          </div>
-          <div v-if="route.name !== 'map'" :class="{ 'visitor-overlay': mapScene }">
-            <RouterView v-slot="{ Component }">
-              <VisitorList v-if="route.name === 'list' || route.name === 'search'" :key="String(route.name)" :search-mode="route.name === 'search'" />
-              <component :is="Component" v-else />
-            </RouterView>
-          </div>
-        </template>
-      </div>
-      <nav class="visitor-tabs" aria-label="表示を切り替える">
-        <RouterLink v-for="item in [{ name: 'list', label: '一覧' }, { name: 'map', label: 'マップ' }, { name: 'camera', label: 'カメラ' }]"
-          :key="item.name" :to="{ name: item.name }" :aria-current="tab === item.name ? 'page' : undefined">
-          {{ item.label }}
-        </RouterLink>
-      </nav>
-    </template>
-  </div>
+      </template>
+      <button v-else type="button" class="app-action" :disabled="retrying || sync.state.syncing" @click="retry">
+        {{ retrying || sync.state.syncing ? '再試行中…' : 'もう一度読み込む' }}
+      </button>
+    </section>
+    <div class="visitor-stage">
+      <p v-if="blocked && availability === 'loading'" class="app-loading" role="status">場所を読み込んでいます</p>
+      <template v-if="!blocked">
+        <div v-if="mapScene" class="visitor-map" :inert="route.name !== 'map'">
+          <MapView />
+        </div>
+        <div v-if="route.name !== 'map'" :class="{ 'visitor-overlay': mapScene }">
+          <RouterView v-slot="{ Component }">
+            <VisitorList v-if="route.name === 'list' || route.name === 'search'" :key="String(route.name)" :search-mode="route.name === 'search'" />
+            <component :is="Component" v-else />
+          </RouterView>
+        </div>
+      </template>
+    </div>
+    <TabBar :items="tabItems" :current="tab" />
+  </VisitorRoot>
 </template>
