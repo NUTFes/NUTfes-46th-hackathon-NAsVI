@@ -557,6 +557,12 @@ describe('R-02 最寄りテーマと映像上のコントラスト', () => {
       expect(computed('.nv-cam-overlay__status').backgroundColor).toBe(theme === 'dark' ? '#1c1032' : '#ffffff');
       // Figma: 建物の奥の札は facility 色で不透明度 0.6。
       expect(computed('.ar-label--far').opacity).toBe('0.6');
+      // 2 枚目以降も原点基準(draw() の translate 前提)で絶対配置される。
+      for (const label of wrapper.findAll('.ar-label')) {
+        expect(window.getComputedStyle(label.element).position).toBe('absolute');
+        expect(window.getComputedStyle(label.element).left).toBe('0px');
+        expect(window.getComputedStyle(label.element).top).toBe('0px');
+      }
       expect(computed('.ar-label--far').backgroundColor).toBe(theme === 'dark' ? '#f4f0ff' : '#1e0b3a');
     } finally {
       wrapper.unmount();

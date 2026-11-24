@@ -35,8 +35,8 @@ withDefaults(defineProps<{
 .nv-cam-overlay > * { position: absolute; }
 .nv-cam-overlay__status {
   top: calc(env(safe-area-inset-top) + 14px);
-  left: 16px;
-  max-width: calc(100% - 32px);
+  left: calc(env(safe-area-inset-left) + 16px);
+  max-width: calc(100% - 32px - env(safe-area-inset-left) - env(safe-area-inset-right));
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -109,7 +109,7 @@ withDefaults(defineProps<{
 .nv-cam-overlay__chevron--right { right: 0; }
 .nv-cam-overlay__minimap {
   top: calc(env(safe-area-inset-top) + 122px);
-  right: 16px;
+  right: calc(env(safe-area-inset-right) + 16px);
   width: 76px;
   height: 76px;
   box-sizing: border-box;

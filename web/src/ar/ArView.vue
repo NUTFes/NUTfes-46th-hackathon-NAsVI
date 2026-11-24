@@ -476,7 +476,9 @@ onBeforeUnmount(() => {
 .ar-view video, .ar-labels { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ar-view video { object-fit: cover; }
 .ar-labels { overflow: hidden; touch-action: none; }
-.ar-top { position: absolute; top: calc(env(safe-area-inset-top) + 46px); left: 0; right: 35%; max-height: 50%; overflow: auto; padding: var(--ar-space-2) var(--ar-space-3); }
+/* 札の位置は draw() の translate(原点 0,0 前提)で決めるため、必ず絶対配置にする。CameraLabel の relative より強くする。 */
+.ar-view .ar-labels .ar-label { position: absolute; left: 0; top: 0; max-width: 60%; }
+.ar-top { position: absolute; top: calc(env(safe-area-inset-top) + 46px); left: env(safe-area-inset-left); right: 35%; max-height: 50%; overflow: auto; padding: var(--ar-space-2) var(--ar-space-3); }
 .ar-top p { margin: 0 0 var(--ar-space-2); padding: var(--ar-space-2); background: var(--ar-surface); border-radius: var(--ar-radius); }
 .ar-top .ar-warning { border: 1px solid var(--ar-danger); background: var(--ar-danger-bg); color: var(--ar-danger-text); }
 .ar-orientation section { padding: var(--ar-space-2); border: 1px solid var(--ar-danger); border-radius: var(--ar-radius); background: var(--ar-danger-bg); color: var(--ar-danger-text); }
