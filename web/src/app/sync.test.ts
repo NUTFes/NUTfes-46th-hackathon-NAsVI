@@ -51,6 +51,25 @@ describe('S-08 W-09 アダプター（実 orchestrator + モック fetch）', ()
     expect(connect).toHaveBeenCalled();
   });
 
+  it('failedKeys が空のとき refresh は何も取得しない', async () => {
+    const pinia = createPinia();
+    failPlaces = false;
+    sync = createAppSync({ pinia, storage, dependencies: {
+      connectChanges: vi.fn(() => ({ close: vi.fn() })),
+    } });
+    await sync.start();
+    expect(sync.state.failedKeys).toEqual([]);
+    fetchMock.mockClear();
+
+    await sync.refresh(sync.state.failedKeys);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sync.hasSnapshot.value).toBe(true);
+    expect(sync.state.failedKeys).toEqual([]);
+    expect(sync.state.error).toBeNull();
+    expect(usePlacesStore(pinia).items).toEqual([event]);
+  });
+
   it('snapshot 後の throw から resync() で全一覧を再取得する', async () => {
     const pinia = createPinia();
     const connect = vi.fn(() => ({ close: vi.fn() }));

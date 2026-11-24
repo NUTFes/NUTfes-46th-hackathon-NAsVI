@@ -5,7 +5,7 @@ import { ref } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { IDBFactory } from 'fake-indexeddb';
 import { CLOSING_TIME, configureConfig } from '../../../api/src/config';
-import tokenCss from '../../../design-system/claude-design/tokens.css?raw';
+import { appColors } from '../app/tokens';
 import { createStorage, getStorage, type StorageRepositories } from '../storage';
 import { useStampsStore } from '../stores/stamps';
 import type { Position, Stamp, StampKind } from '../types';
@@ -32,6 +32,7 @@ const kinds = [
 let repo: StorageRepositories;
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 let pinia: ReturnType<typeof createPinia>;
+let router: ReturnType<typeof createRouter>;
 const wrappers: VueWrapper[] = [];
 const themeElements: HTMLElement[] = [];
 
@@ -53,7 +54,7 @@ function problem(code: string, message: string, status: number, headers: Record<
 }
 
 async function render(attachTo?: HTMLElement, attrs?: Record<string, string>) {
-  const router = createRouter({
+  router = createRouter({
     history: createMemoryHistory(),
     routes: ['/', '/stamp', '/noloc'].map(path => ({ path, component: { template: '<div />' } })),
   });
@@ -98,64 +99,37 @@ afterEach(async () => {
 });
 
 describe('StampView', () => {
-  it.each([
-    ['dark', '#130a22', '#f4f0ff', '#a78bfa', '#f9a8d4'],
-    ['light', '#f6f4fa', '#1e0b3a', '#6d28d9', '#f472b6'],
-  ])('%s は実際の tokens.css の色を解決し、混雑ボタンにも適用する', async (theme, page, text, action, feeling) => {
-    const style = document.createElement('style');
-    style.textContent = tokenCss;
-    document.head.append(style);
+  it.each(['dark', 'light'] as const)('%s は I-0 の --app-* を解決し、混雑ボタンにも適用する', async theme => {
     const host = document.createElement('div');
     host.setAttribute('data-theme', theme);
     document.body.append(host);
-    themeElements.push(style, host);
-    // happy-dom は継承したカスタムプロパティを getPropertyValue で返さないため、
-    // 実際の CSS と上書き値を対象要素に適用して解決を確かめる。
-    const wrapper = await render(host, { 'data-theme': theme, style: '--bg-surface: #123456' });
-    const element = wrapper.get('main').element as HTMLElement;
-    expect(element.style.getPropertyValue('--stamp-page')).toBe(page);
-    expect(element.style.getPropertyValue('--stamp-text')).toBe(text);
-    expect(element.style.getPropertyValue('--stamp-action')).toBe(action);
-    expect(element.style.getPropertyValue('--stamp-feeling')).toBe(feeling);
-    expect(element.style.getPropertyValue('--stamp-surface')).toBe('#123456');
-    for (const button of wrapper.findAll('.congestion-button')) {
-      expect((button.element as HTMLElement).style.backgroundColor).not.toBe('');
-      expect((button.element as HTMLElement).style.color).not.toBe('');
-    }
-    expect((wrapper.get('button[aria-label="混雑3"]').element as HTMLElement).style.backgroundColor).toBe('#f97316');
+    themeElements.push(host);
+    const wrapper = await render(host);
+    const style = (wrapper.get('main').element as HTMLElement).style;
+    expect(style.getPropertyValue('--app-bg-page')).toBe(appColors(theme)['--app-bg-page']);
+    expect(style.getPropertyValue('--app-feeling')).toBe(appColors(theme)['--app-feeling']);
+    expect(style.getPropertyValue('--app-congestion-3')).toBe('#f97316');
+    expect(wrapper.get('button[aria-label="混雑3"]').attributes('style'))
+      .toContain('var(--app-congestion-3)');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('ライトの CSS 変数や基礎色が欠けても、最寄りテーマの既定値を使い、切り替えに追従する', async () => {
-    const outer = document.createElement('div');
-    outer.setAttribute('data-theme', 'dark');
-    const inner = document.createElement('div');
-    inner.setAttribute('data-theme', 'light');
-    outer.append(inner);
-    document.body.append(outer);
-    themeElements.push(outer);
-    const wrapper = await render(inner, { style: '--bg-page: var(--S-04-missing)' });
-    const element = wrapper.get('main').element as HTMLElement;
-    expect(element.style.getPropertyValue('--stamp-page')).toBe('#f6f4fa');
-    expect(element.style.getPropertyValue('--stamp-text')).toBe('#1e0b3a');
-    expect(element.style.getPropertyValue('--stamp-danger')).toBe('#b91c1c');
-    expect(element.style.getPropertyValue('--stamp-border')).toBe('#1e0b3a26');
-    inner.setAttribute('data-theme', 'dark');
+  it('シートの見出しを h1 にし、閉じるで地図へ戻る。位置は緯度・経度を出さず、公開を説明する', async () => {
+    const wrapper = await render();
+    expect(wrapper.findAll('h1').map(h => h.text())).toEqual(['混雑を足元に押す']);
+    expect(wrapper.text()).toContain('いまいる場所の混み具合を、みんなに知らせます。');
+    expect(wrapper.text()).not.toMatch(/緯度|経度|37\.4252/);
+    expect(wrapper.findAll('[role="status"]').filter(el => el.element.querySelector('[role="status"]'))).toEqual([]);
+    expect(wrapper.find('[aria-label]:not(button):not(section):not(svg)').exists()).toBe(false);
+    await wrapper.get('button[aria-label="閉じる"]').trigger('click');
     await flushPromises();
-    expect(element.style.getPropertyValue('--stamp-page')).toBe('#130a22');
-    expect(element.style.getPropertyValue('--stamp-text')).toBe('#f4f0ff');
-    inner.removeAttribute('data-theme');
-    outer.setAttribute('data-theme', 'light');
-    await flushPromises();
-    expect(element.style.getPropertyValue('--stamp-page')).toBe('#f6f4fa');
-    expect(element.style.getPropertyValue('--stamp-text')).toBe('#1e0b3a');
+    expect(router.currentRoute.value.path).toBe('/');
   });
 
   it('8種類を表示し、押す地点・精度・取得からの経過時間と公開を説明する', async () => {
     const wrapper = await render();
     expect(wrapper.findAll('.choices button')).toHaveLength(8);
     for (const [, label] of kinds) expect(wrapper.get(`button[aria-label="${label}"]`).attributes('disabled')).toBeUndefined();
-    expect(wrapper.text()).toContain('緯度 37.425200・経度 138.778800');
     expect(wrapper.text()).toContain('精度 ±8 m・10 秒前に取得');
     expect(wrapper.text()).toContain('この地点が公開されます');
     expect(location.allow).not.toHaveBeenCalled();
@@ -184,6 +158,19 @@ describe('StampView', () => {
     expect(wrapper.html()).not.toContain('s-04-secret');
   });
 
+  it('Toast は Figma の文言で floating、混雑の両端の文言は DS 仕様のまま、感想の札は Icon 付き', async () => {
+    fetchMock.mockResolvedValueOnce(json({ ...stamp(), proof: 'p' }));
+    fetchMock.mockResolvedValueOnce(json({ ...stamp('s-04-fun', 'fun'), proof: 'p2' }));
+    const wrapper = await render();
+    expect(wrapper.get('.scale').text()).toBe('空いているとても混んでいる');
+    await pick(wrapper);
+    expect(wrapper.get('.toast').text()).toBe('混雑3 を足元に押しました取り消す');
+    expect(wrapper.get('.toast').classes()).toContain('nv-toast--floating');
+    await pick(wrapper, '面白い');
+    expect(wrapper.get('.toast').text()).toContain('面白いを足元に押しました');
+    expect(wrapper.findAll('.my-stamp .badge svg')).toHaveLength(1);
+  });
+
   it.each(['idle', 'asking', 'denied', 'unavailable', 'timeout'])('位置がない (%s) ときは送信を止め、許可と位置設定へ案内する', async status => {
     location.position.value = null;
     location.status.value = status;
@@ -203,7 +190,6 @@ describe('StampView', () => {
     const wrapper = await render();
     location.position.value = { lat: 37.4253, lng: 138.7789, accuracy: 12.1, takenAt: NOW };
     await flushPromises();
-    expect(wrapper.text()).toContain('緯度 37.425300・経度 138.778900');
     expect(wrapper.text()).toContain('精度 ±13 m');
     fetchMock.mockResolvedValueOnce(json({ ...stamp(), proof: 'proof' }));
     await pick(wrapper);

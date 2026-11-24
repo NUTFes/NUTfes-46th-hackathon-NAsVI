@@ -68,6 +68,14 @@ async function editFirst(wrapper: VueWrapper) {
 }
 
 describe('建物の一覧・登録・更新', () => {
+  it('「編集」を押すと、ボタンが「編集中」に替わってもフォーカスはフォーム先頭の入力へ移る', async () => {
+    const { wrapper } = await render([building()]);
+    await editFirst(wrapper);
+    await flushPromises();
+    expect(wrapper.get('tbody tr').text()).toContain('編集中');
+    expect(document.activeElement).toBe(wrapper.get('#landmark-name').element);
+  });
+
   it('AdminLayout の中で一覧、輪郭の有無、階の状態を表示する', async () => {
     const { wrapper } = await render([
       building({ floors: [floor] }), building({ id: 'lm-b', name: 'B棟', footprint: null }),
@@ -103,7 +111,7 @@ describe('建物の一覧・登録・更新', () => {
 
   it('空の一覧には未登録の案内と登録欄を出す', async () => {
     const { wrapper } = await render([]);
-    expect(wrapper.text()).toContain('建物はまだ登録されていません。');
+    expect(wrapper.text()).toContain('まだ登録されていません');
     expect(wrapper.get('fieldset').attributes('disabled')).toBeUndefined();
     expect(button(wrapper, '登録する').exists()).toBe(true);
   });
@@ -111,7 +119,7 @@ describe('建物の一覧・登録・更新', () => {
   it('読み込み失敗を共通バナーに出し、空の一覧と区別して再取得する', async () => {
     const { wrapper } = await render([], Promise.resolve(json({ code: 'internal_error', message: '取得できません' }, 500)));
     expect(wrapper.get('[role="alert"]').text()).toContain('取得できません');
-    expect(wrapper.text()).not.toContain('建物はまだ登録されていません。');
+    expect(wrapper.text()).not.toContain('まだ登録されていません');
     expect(wrapper.get('fieldset').attributes('disabled')).toBeDefined();
     fetchMock.mockResolvedValueOnce(json({ items: [building()] }));
     fetchMock.mockResolvedValueOnce(json({ items: [] }));
@@ -298,10 +306,11 @@ describe('建物の削除', () => {
     const { wrapper } = await render();
     await editFirst(wrapper);
     await button(wrapper, '建物を削除').trigger('click');
-    await button(wrapper, 'やめる').trigger('keydown', { key: 'Tab', shiftKey: true });
-    expect(document.activeElement).toBe(button(wrapper, '削除する').element);
-    await button(wrapper, '削除する').trigger('keydown', { key: 'Tab' });
+    // 並びは「削除する」「やめる」（Figma の DeleteConfirm）。先頭で Shift+Tab すると末尾へ、末尾で Tab すると先頭へ戻る。
+    await button(wrapper, '削除する').trigger('keydown', { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(button(wrapper, 'やめる').element);
+    await button(wrapper, 'やめる').trigger('keydown', { key: 'Tab' });
+    expect(document.activeElement).toBe(button(wrapper, '削除する').element);
     await wrapper.get('dialog').trigger('cancel');
     expect(wrapper.find('dialog').exists()).toBe(false);
     expect(document.activeElement).toBe(button(wrapper, '建物を削除').element);
@@ -428,7 +437,7 @@ describe('建物の形の確認と読み込み直し', () => {
   it('輪郭を北が上の確認用画像にし、出典を表示する', async () => {
     const { wrapper } = await render();
     await editFirst(wrapper);
-    const image = wrapper.get('main svg[role="img"]');
+    const image = wrapper.get('.building-shape-preview svg[role="img"]');
     expect(image.attributes('aria-label')).toBe('A棟の建物の形（北が上）');
     expect(image.get('path').attributes('d')).toMatch(/^M .+ L .+ L .+ Z$/);
     const vertices = image.get('path').attributes('d')!.slice(2, -2).split(' L ').map((point) => point.split(' ').map(Number));
@@ -444,7 +453,7 @@ describe('建物の形の確認と読み込み直し', () => {
   it.each([[], footprint.slice(0, 1), footprint.slice(0, 2)].map((points) => [points]))('頂点不足の輪郭（%j）を描画せず、形なしとして取り直せる', async (points) => {
     const { wrapper } = await render([building({ footprint: points })]);
     await editFirst(wrapper);
-    expect(wrapper.find('main svg').exists()).toBe(false);
+    expect(wrapper.find('.building-shape-preview svg').exists()).toBe(false);
     expect(wrapper.get('tbody').text()).toContain('形なし');
     expect(wrapper.text()).not.toMatch(/Infinity|NaN/);
     expect(wrapper.text()).toContain('輪郭なしでも一覧・見取り図・建物の企画に使えます');
@@ -453,7 +462,7 @@ describe('建物の形の確認と読み込み直し', () => {
     await button(wrapper, '形を読み込み直す').trigger('click');
     await flushPromises();
     expect(wrapper.get('tbody').text()).toContain('形あり');
-    expect(wrapper.get('main svg').attributes('viewBox')).not.toMatch(/Infinity|NaN/);
+    expect(wrapper.get('.building-shape-preview svg').attributes('viewBox')).not.toMatch(/Infinity|NaN/);
   });
 
   it('輪郭のない建物でも取り直せ、本文なしの専用 POST の結果を反映する', async () => {
@@ -461,7 +470,7 @@ describe('建物の形の確認と読み込み直し', () => {
     const updated = { ...original, footprint };
     const { wrapper, store } = await render([original]);
     await editFirst(wrapper);
-    expect(wrapper.find('main svg').exists()).toBe(false);
+    expect(wrapper.find('.building-shape-preview svg').exists()).toBe(false);
     expect(wrapper.text()).toContain('形なし（カメラの正面に出ない）');
     fetchMock.mockResolvedValueOnce(json(updated));
     await button(wrapper, '形を読み込み直す').trigger('click');
@@ -472,7 +481,7 @@ describe('建物の形の確認と読み込み直し', () => {
     expect(store.items).toEqual([updated]);
     expect(wrapper.get('tbody').text()).toContain('形あり');
     expect(wrapper.get('tbody').text()).toContain('1階');
-    expect(wrapper.find('main svg[role="img"]').exists()).toBe(true);
+    expect(wrapper.find('.building-shape-preview svg[role="img"]').exists()).toBe(true);
     expect(wrapper.get('main [role="status"]').text()).toBe('建物の形を読み込み直しました。');
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
@@ -481,14 +490,14 @@ describe('建物の形の確認と読み込み直し', () => {
     const original = building({ footprint: hasShape ? footprint : null, floors: [floor] });
     const { wrapper, store } = await render([original]);
     await editFirst(wrapper);
-    const previousPath = hasShape ? wrapper.get('main svg path').attributes('d') : undefined;
+    const previousPath = hasShape ? wrapper.get('.building-shape-preview svg path').attributes('d') : undefined;
     fetchMock.mockResolvedValueOnce(json({ code: 'footprint_unavailable', message: 'この位置の建物の輪郭が地図データに見つかりません' }, 502));
     await button(wrapper, '形を読み込み直す').trigger('click');
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toContain('footprint_unavailable');
     expect(store.items).toEqual([original]);
-    expect(wrapper.find('main svg[role="img"]').exists()).toBe(hasShape);
-    if (hasShape) expect(wrapper.get('main svg path').attributes('d')).toBe(previousPath);
+    expect(wrapper.find('.building-shape-preview svg[role="img"]').exists()).toBe(hasShape);
+    if (hasShape) expect(wrapper.get('.building-shape-preview svg path').attributes('d')).toBe(previousPath);
     expect(wrapper.find('main [role="status"]').exists()).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
@@ -528,3 +537,52 @@ describe('建物の形の確認と読み込み直し', () => {
     expect(button(wrapper, '形を読み込み直す').attributes('disabled')).toBeUndefined();
   });
 });
+
+
+describe('地図による位置の入力', () => {
+  it('地図と緯度経度を双方向に同期し、APIには緯度経度を送る', async () => {
+    const { wrapper } = await render();
+    const lat = wrapper.get('#landmark-lat');
+    const lng = wrapper.get('#landmark-lng');
+    await wrapper.get('.location-picker button').trigger('keydown', { key: 'Enter' });
+    const latitude = Number((lat.element as HTMLInputElement).value);
+    const longitude = Number((lng.element as HTMLInputElement).value);
+    expect(latitude).toBeGreaterThan(37);
+    expect(longitude).toBeGreaterThan(138);
+    expect(wrapper.get('.location-picker p').text()).toContain('横 50.00%、縦 50.00%');
+    await wrapper.get('.location-picker button').trigger('keydown', { key: 'ArrowUp' });
+    expect(Number((lat.element as HTMLInputElement).value)).toBeGreaterThan(latitude);
+    await lat.setValue(String(latitude));
+    await lng.setValue(String(longitude));
+    expect(wrapper.get('.location-picker p').text()).toContain('横 50.00%、縦 50.00%');
+    await wrapper.get('#landmark-name').setValue('地図から登録');
+    fetchMock.mockResolvedValueOnce(json(building()));
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+    const request = fetchMock.mock.calls.find(([url, options]) => url === '/api/landmarks' && options?.method === 'POST');
+    expect(request).toBeDefined();
+    expect(JSON.parse(String(request![1]!.body)).location).toEqual({ lat: latitude, lng: longitude });
+    await lat.setValue('');
+    expect(wrapper.get('.location-picker p').text()).toContain('まだ置いていません');
+  });
+});
+
+ it.each(['Enter', ' '])('範囲外の座標は矢印で変更せず、%sで中央に置き直す', async (key) => {
+    const { wrapper } = await render();
+    const lat = wrapper.get('#landmark-lat');
+    const lng = wrapper.get('#landmark-lng');
+    await lat.setValue('35');
+    await lng.setValue('139');
+    const picker = wrapper.get('.location-picker');
+    expect(picker.get('p[aria-live="polite"]').text()).toContain('入力した座標は地図の範囲外です');
+    expect(picker.text()).not.toContain('まだ置いていません');
+    expect(picker.find('[data-icon="flag"]').exists()).toBe(false);
+    for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+      await picker.get('button').trigger('keydown', { key, shiftKey: true });
+    }
+    expect((lat.element as HTMLInputElement).value).toBe('35');
+    expect((lng.element as HTMLInputElement).value).toBe('139');
+    await picker.get('button').trigger('keydown', { key });
+    expect(picker.get('p').text()).toContain('横 50.00%、縦 50.00%');
+    expect(picker.find('[data-icon="flag"]').exists()).toBe(true);
+  });

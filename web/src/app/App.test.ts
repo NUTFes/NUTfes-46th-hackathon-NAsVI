@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises } from '@vue/test-utils';
 import { useChangesStore, usePlacesStore } from '../stores';
+import ListView from '../views/ListView.vue';
+import PlaceRow from '../components/PlaceRow.vue';
 import GuideView from '../views/GuideView.vue';
 import PlaceCard from '../views/PlaceCard.vue';
 import TagsView from '../views/TagsView.vue';
 import BuildingView from '../views/BuildingView.vue';
-import { appHarness, deferred, disposeHarness, event, networkGuards, syncDouble, type Harness } from './testing';
+import { appHarness, deferred, disposeHarness, event, facilities, networkGuards, syncDouble, type Harness } from './testing';
+
+// 運営側のデータ取得は対象外。実ルーターとレイアウトでテーマ境界を検証する。
+vi.mock('../views/admin/PlacesAdmin.vue', () => ({ default: { template: '<div>運営の場所一覧</div>' } }));
 
 let app: Harness | undefined;
 let guards: ReturnType<typeof networkGuards>;
@@ -20,6 +25,27 @@ afterEach(async () => {
 });
 
 describe('S-08 同期と画面の結線', () => {
+  it.each(['/list', '/search?q=お化け'])('%s は共通一覧を使い設備を除外し最寄りテーマに追従する', async path => {
+    app = await appHarness(path, [event, ...facilities]);
+    app.finish();
+    await flushPromises();
+    const list = app.wrapper.getComponent(ListView);
+    expect(list.props('excludeFacilities')).toBe(true);
+    expect(list.findAllComponents(PlaceRow).map(row => row.props('placeId'))).toEqual([event.id]);
+    expect(list.get('.place-view__count').text()).toContain('1 件');
+    expect(list.findAll('h1')).toHaveLength(1);
+    const color = () => list.get<HTMLElement>('main').element.style.getPropertyValue('--app-bg-page');
+    app.host.dataset.theme = 'light';
+    await flushPromises();
+    expect(color()).toBe('#f6f4fa');
+    list.element.setAttribute('data-theme', 'dark');
+    await flushPromises();
+    expect(color()).toBe('#130a22');
+    list.element.removeAttribute('data-theme');
+    await flushPromises();
+    expect(color()).toBe('#f6f4fa');
+  });
+
   it.each([
     ['/guide', GuideView], ['/places/event-1', PlaceCard],
     ['/places/event-1/tags', TagsView], ['/buildings/building-1', BuildingView],
@@ -193,6 +219,7 @@ describe('S-08 同期と画面の結線', () => {
 
   it('最寄りテーマの追加・切替・削除に App と地図が追従する', async () => {
     app = await appHarness('/');
+    app.wrapper.element.removeAttribute('data-theme');
     app.host.dataset.theme = 'light';
     await flushPromises();
     const color = () => app!.wrapper.get<HTMLElement>('.map-view').element.style.getPropertyValue('--app-bg-page');
@@ -221,5 +248,74 @@ describe('S-08 同期と画面の結線', () => {
     await disposeHarness(app);
     app = undefined;
     expect(close).toHaveBeenCalledOnce();
+  });
+});
+
+
+describe('来場者のテーマとタブ', () => {
+  function media() {
+    const query = new EventTarget();
+    const state = Object.assign(query, { matches: false });
+    vi.stubGlobal('matchMedia', vi.fn((value: string) => {
+      expect(value).toBe('(prefers-color-scheme: light)');
+      return state;
+    }));
+    return (light: boolean) => {
+      state.matches = light;
+      state.dispatchEvent(new Event('change'));
+    };
+  }
+
+  it('OS の change で dark → light → dark に変わり、地図のトークンも追従する', async () => {
+    const change = media();
+    app = await appHarness('/');
+    const theme = () => app!.wrapper.attributes('data-theme');
+    const color = () => app!.wrapper.get<HTMLElement>('.map-view').element.style.getPropertyValue('--app-bg-page');
+    expect(theme()).toBe('dark');
+    expect(color()).toBe('#130a22');
+    change(true);
+    await flushPromises();
+    expect(theme()).toBe('light');
+    expect(color()).toBe('#f6f4fa');
+    change(false);
+    await flushPromises();
+    expect(theme()).toBe('dark');
+    expect(color()).toBe('#130a22');
+  });
+
+  it('ライトのとき、地図の層が読む closest(\'[data-theme]\') が light を返す', async () => {
+    const change = media();
+    app = await appHarness('/');
+    const map = app.wrapper.get<HTMLElement>('.map-view').element;
+    expect(map.closest('[data-theme]')?.getAttribute('data-theme')).toBe('dark');
+    change(true);
+    await flushPromises();
+    expect(map.closest('[data-theme]')?.getAttribute('data-theme')).toBe('light');
+  });
+
+  it('admin には属性を書かず、来場者との往復でも現在の OS 設定を使う', async () => {
+    const change = media();
+    app = await appHarness('/admin');
+    expect(app.wrapper.find('[data-theme]').exists()).toBe(false);
+    expect(app.wrapper.attributes('data-theme')).toBeUndefined();
+    change(true);
+    await app.router.push('/list');
+    await flushPromises();
+    expect(app.wrapper.attributes('data-theme')).toBe('light');
+    await app.router.push('/admin');
+    await flushPromises();
+    change(false);
+    await flushPromises();
+    expect(app.wrapper.attributes('data-theme')).toBeUndefined();
+    expect(app.wrapper.find('[data-theme]').exists()).toBe(false);
+    await app.router.push('/list');
+    await flushPromises();
+    expect(app.wrapper.attributes('data-theme')).toBe('dark');
+  });
+
+  it('カメラでもタブを表示し、カメラだけを選択する', async () => {
+    app = await appHarness('/camera');
+    expect(app.wrapper.find('nav[aria-label="表示を切り替える"]').exists()).toBe(true);
+    expect(app.wrapper.findAll('.visitor-tabs [aria-current="page"]').map(link => link.text())).toEqual(['カメラ']);
   });
 });

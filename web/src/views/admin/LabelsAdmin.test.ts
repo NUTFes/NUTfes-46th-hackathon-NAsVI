@@ -198,11 +198,11 @@ describe('種類の管理', () => {
     expect(dialog.text()).toContain('使用中のため削除できません');
     expect(dialog.text()).toContain('先にすべての場所から外してください');
     expect(dialog.text()).toContain('場所そのものは削除されません');
-    expect(document.activeElement).toBe(dialog.get('button').element);
+    expect(document.activeElement).toBe(dialog.findAll('button')[1].element);
     expect(wrapper.get('fieldset').attributes('disabled')).toBeDefined();
     window.dispatchEvent(new Event('focus'));
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    if (cancel === 'button') await dialog.get('button').trigger('click');
+    if (cancel === 'button') await dialog.findAll('button')[1].trigger('click');
     else await dialog.trigger('keydown', { key: 'Escape' });
     await flushPromises();
     expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
@@ -217,7 +217,7 @@ describe('種類の管理', () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await wrapper.get('[aria-label="ステージを削除"]').trigger('click');
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    await wrapper.get('[role="alertdialog"] button:last-child').trigger('click');
+    await wrapper.get('[role="alertdialog"] button:first-child').trigger('click');
     await flushPromises();
     lastRequest('DELETE', '/api/labels/lb_stage');
     expect(labels.items).toEqual([initialLabels[0]]);
@@ -231,7 +231,7 @@ describe('種類の管理', () => {
     await flushPromises();
     fetchMock.mockResolvedValueOnce(problem(409, 'label_in_use', '種類 lb_food は 1 件の場所に付いています'));
     await wrapper.get('[aria-label="飲食を削除"]').trigger('click');
-    await wrapper.get('[role="alertdialog"] button:last-child').trigger('click');
+    await wrapper.get('[role="alertdialog"] button:first-child').trigger('click');
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toContain('label_in_use');
     expect(wrapper.text()).toContain('付いているすべての場所から外してから削除');
@@ -254,7 +254,7 @@ describe('種類の管理', () => {
 
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await wrapper.get('[aria-label="飲食を削除"]').trigger('click');
-    await wrapper.get('[role="alertdialog"] button:last-child').trigger('click');
+    await wrapper.get('[role="alertdialog"] button:first-child').trigger('click');
     await flushPromises();
     lastRequest('DELETE', '/api/labels/lb_food');
     expect(labels.items).toEqual([initialLabels[1]]);
@@ -322,7 +322,7 @@ describe('種類の管理', () => {
       .mockResolvedValueOnce(json({ items: [initialLabels[0]] }))
       .mockResolvedValueOnce(json({ items: updatedPlaces, cursor: '2' }));
     await wrapper.get('[aria-label="ステージを削除"]').trigger('click');
-    await wrapper.get('[role="alertdialog"] button:last-child').trigger('click');
+    await wrapper.get('[role="alertdialog"] button:first-child').trigger('click');
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toContain(code);
     expect(labels.items).toEqual([initialLabels[0]]);
@@ -469,7 +469,7 @@ describe('種類の管理', () => {
     await flushPromises();
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     await wrapper.get('[aria-label="ステージを削除"]').trigger('click');
-    await wrapper.get('[role="alertdialog"] button:last-child').trigger('click');
+    await wrapper.get('[role="alertdialog"] button:first-child').trigger('click');
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toContain('通信に失敗しました');
     expect(labels.items).toEqual(initialLabels);

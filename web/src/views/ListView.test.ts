@@ -57,14 +57,32 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-async function render() {
-  const wrapper = mount(ListView, { global: { plugins: [pinia, router] } });
+async function render(props = {}) {
+  const wrapper = mount(ListView, { props, global: { plugins: [pinia, router] } });
   await flushPromises();
   return wrapper;
 }
 
 // S-01: 一覧の表示、状態、絞り込み・部品 props、通信なしをコンポーネントから検証する。
 describe('一覧', () => {
+  it('設備除外時は全4種類を一覧・絞り込み・件数から除き、設定変更にも追従する(D-030)', async () => {
+    usePlacesStore(pinia).setAll([
+      ...fixtures.filter(item => item.kind !== 'wc'),
+      ...(['info', 'wc', 'rest', 'trash'] as const).map(kind => place(kind, `設備-${kind}`, { kind })),
+    ]);
+    const wrapper = await render({ excludeFacilities: true });
+    expect(wrapper.findAllComponents(PlaceRow)).toHaveLength(3);
+    expect(wrapper.get('.place-view__count').text()).toBe('3 件');
+    await wrapper.getComponent({ name: 'FilterChips' }).findAll('button')[0].trigger('click');
+    await flushPromises();
+    expect(wrapper.findAllComponents(PlaceRow).map(row => row.props('placeId'))).toEqual(['cards']);
+    expect(wrapper.getComponent(FilterBand).props('count')).toBe(1);
+    await wrapper.setProps({ excludeFacilities: false });
+    expect(wrapper.findAllComponents(PlaceRow)).toHaveLength(5);
+    await wrapper.setProps({ excludeFacilities: true });
+    expect(wrapper.get('.place-view__count').text()).toBe('1 件');
+  });
+
   it('現在地なしでは日本語の名前順、現在地ありでは未丸めの距離順・同距離なら名前順にする', async () => {
     const items = [
       place('far', 'あの企画', { location: fromXY(0, 200) }),

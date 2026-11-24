@@ -2,6 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { adminGet, adminSend, ApiError } from '../../admin/client';
 import { useAdminFeedback } from '../../admin/feedback';
+import DataTable, { type DataTableColumn } from '../../components/admin/DataTable.vue';
+import DeleteConfirm from '../../components/admin/DeleteConfirm.vue';
+import FieldBox from '../../components/admin/FormField.vue';
+import Button from '../../components/ui/Button.vue';
 import { useLandmarksStore } from '../../stores/landmarks';
 import type { FloorPlan } from '../../types';
 
@@ -15,8 +19,11 @@ const loadFailed = ref(false);
 const message = ref('');
 const serverError = ref<ApiError | null>(null);
 const confirmingDelete = ref(false);
-const cancelDeleteButton = ref<HTMLButtonElement | null>(null);
-const deleteTrigger = ref<HTMLButtonElement | null>(null);
+const deleteConfirm = ref<InstanceType<typeof DeleteConfirm> | null>(null);
+const deleteTrigger = ref<{ $el: HTMLButtonElement } | null>(null);
+const floorColumns: DataTableColumn[] = [
+  { key: 'floor', label: '階' }, { key: 'state', label: '見取り図の状態' }, { key: 'actions', label: '操作', align: 'end' },
+];
 const controller = new AbortController();
 const form = reactive({ viewBox: '', d: '', north: '', south: '', east: '', west: '' });
 const boundsFields = [
@@ -29,6 +36,7 @@ const floorError = computed(() => String(floor.value).trim() === '' || !Number.i
   || floorNumber.value < -5 || floorNumber.value > 20 ? '階は -5〜20 の整数で指定してください。' : '');
 const existing = computed(() => floorError.value ? undefined
   : selected.value?.floors.find((item) => item.floor === floorNumber.value));
+const floorRows = computed(() => (selected.value?.floors ?? []).map((entry) => ({ id: String(entry.floor), floor: entry.floor })));
 const busy = computed(() => loading.value || saving.value);
 type FormField = 'floor' | keyof typeof form;
 const payloadFields = ['viewBox', 'd', 'north', 'south', 'east', 'west'] as const;
@@ -175,14 +183,14 @@ async function requestDelete() {
   if (busy.value || !selected.value || !existing.value || floorError.value) return;
   confirmingDelete.value = true;
   await nextTick();
-  cancelDeleteButton.value?.focus();
+  deleteConfirm.value?.focusCancel();
 }
 
 async function cancelDelete() {
   if (busy.value) return;
   confirmingDelete.value = false;
   await nextTick();
-  deleteTrigger.value?.focus();
+  deleteTrigger.value?.$el.focus();
 }
 
 async function deletePlan() {
@@ -218,84 +226,75 @@ onBeforeUnmount(() => controller.abort());
 <template>
   <main class="floorplans-admin" :aria-busy="busy">
     <h1>見取り図の登録・管理(運営)</h1>
-    <button type="button" :disabled="busy || confirmingDelete" @click="loadLandmarks">建物一覧を読み込み直す</button>
+    <Button variant="secondary" label="建物一覧を読み込み直す" :disabled="busy || confirmingDelete" @press="loadLandmarks" />
     <p v-if="loading" role="status">建物一覧を読み込んでいます。</p>
     <p v-else-if="loadFailed">建物一覧を読み込めませんでした。もう一度読み込んでください。</p>
     <p v-else-if="!landmarks.items.length">建物がありません。建物の管理画面で登録してください。</p>
-    <label for="floorplan-building">建物</label>
-    <select id="floorplan-building" v-model="selectedId" :disabled="busy || confirmingDelete">
-      <option value="">建物を選んでください</option>
-      <option v-for="item in landmarks.items" :key="item.id" :value="item.id">{{ item.name }}</option>
-    </select>
+    <FieldBox label="建物" control-id="floorplan-building">
+      <select id="floorplan-building" v-model="selectedId" :disabled="busy || confirmingDelete">
+        <option value="">建物を選んでください</option>
+        <option v-for="item in landmarks.items" :key="item.id" :value="item.id">{{ item.name }}</option>
+      </select>
+    </FieldBox>
 
-    <div v-if="selected" class="floor-table">
-      <table>
-        <caption>{{ selected.name }} の登録済みの階</caption>
-        <thead><tr><th scope="col">階</th><th scope="col">見取り図の状態</th><th scope="col">操作</th></tr></thead>
-        <tbody>
-          <tr v-for="entry in selected.floors" :key="entry.floor" :aria-current="entry.floor === floorNumber ? 'true' : undefined">
-            <th scope="row">{{ entry.floor }} 階</th>
-            <td>{{ entry.floor === floorNumber ? '登録済み・編集中' : '登録済み' }}</td>
-            <td><button type="button" :disabled="busy || confirmingDelete" :aria-label="`${entry.floor} 階を編集`"
-              @click="floor = String(entry.floor)">編集</button></td>
-          </tr>
-          <tr v-if="!selected.floors.length"><td colspan="3">まだ登録されていません。下のフォームから登録してください。</td></tr>
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      v-if="selected" :columns="floorColumns" :rows="floorRows" :selected-id="existing ? String(floorNumber) : undefined"
+      :caption="`${selected.name} の登録済みの階`" empty-text="まだ登録されていません。下のフォームから登録してください。"
+    >
+      <template #cell-floor="{ row }">{{ row.floor }} 階</template>
+      <template #cell-state="{ row }">{{ row.floor === floorNumber ? '登録済み・編集中' : '登録済み' }}</template>
+      <template #cell-actions="{ row }">
+        <Button variant="secondary" size="sm" label="編集" :disabled="busy || confirmingDelete" :aria-label="`${row.floor} 階を編集`" @press="floor = String(row.floor)" />
+      </template>
+    </DataTable>
 
     <form v-if="selected" novalidate @submit.prevent="savePlan">
       <fieldset :disabled="busy || confirmingDelete">
         <legend>{{ selected.name }} の見取り図</legend>
-        <div class="form-field">
-          <label for="floorplan-floor">階</label>
+        <FieldBox
+          label="階" control-id="floorplan-floor" help="-5〜20 の整数で指定します。地下は負の数です。" help-id="floorplan-floor-help"
+          :error="fieldError('floor')" error-id="floorplan-floor-error"
+        >
           <input id="floorplan-floor" v-model="floor" type="number" min="-5" max="20" step="1"
             list="floorplan-registered-floors" :aria-describedby="fieldDescription('floor')" :aria-invalid="!!fieldError('floor')" />
           <datalist id="floorplan-registered-floors">
             <option v-for="entry in selected.floors" :key="entry.floor" :value="entry.floor">登録済み</option>
           </datalist>
-          <p id="floorplan-floor-help" class="help">-5〜20 の整数で指定します。地下は負の数です。</p>
-          <p v-if="fieldError('floor')" id="floorplan-floor-error" class="field-error">{{ fieldError('floor') }}</p>
-        </div>
+        </FieldBox>
         <p>{{ existing ? 'この階の見取り図は登録済みです。保存すると差し替えます。' : 'この階の見取り図は未登録です。' }}</p>
-        <div class="form-field">
-          <label for="floorplan-viewbox">SVG viewBox</label>
+        <FieldBox
+          label="SVG viewBox" control-id="floorplan-viewbox" help="左端・上端・幅・高さの4つの数値です。幅と高さは正の数にしてください。" help-id="floorplan-viewBox-help"
+          :error="fieldError('viewBox')" error-id="floorplan-viewBox-error"
+        >
           <input id="floorplan-viewbox" v-model="form.viewBox" type="text" placeholder="0 0 400 240"
             :aria-describedby="fieldDescription('viewBox')" :aria-invalid="!!fieldError('viewBox')" />
-          <p id="floorplan-viewBox-help" class="help">左端・上端・幅・高さの4つの数値です。幅と高さは正の数にしてください。</p>
-          <p v-if="fieldError('viewBox')" id="floorplan-viewBox-error" class="field-error">{{ fieldError('viewBox') }}</p>
-        </div>
-        <div class="form-field">
-          <label for="floorplan-d">path の d</label>
+        </FieldBox>
+        <FieldBox
+          label="path の d" control-id="floorplan-d" help="SVG の path データを 200000 文字以下で入力してください。本文全体は 1 MB 以下です。" help-id="floorplan-d-help"
+          :error="fieldError('d')" error-id="floorplan-d-error"
+        >
           <textarea id="floorplan-d" v-model="form.d" :aria-describedby="fieldDescription('d')" :aria-invalid="!!fieldError('d')" />
-          <p id="floorplan-d-help" class="help">SVG の path データを 200000 文字以下で入力してください。本文全体は 1 MB 以下です。</p>
-          <p v-if="fieldError('d')" id="floorplan-d-error" class="field-error">{{ fieldError('d') }}</p>
-        </div>
-        <div v-for="field in boundsFields" :key="field.key" class="form-field">
-          <label :for="`floorplan-${field.key}`">{{ field.label }}</label>
+        </FieldBox>
+        <FieldBox
+          v-for="field in boundsFields" :key="field.key" :label="field.label" :control-id="`floorplan-${field.key}`"
+          :help="field.key === 'north' || field.key === 'south' ? '緯度は -90〜90 です。north > south にしてください。' : '経度は -180〜180 です。east > west にしてください。'"
+          :help-id="`floorplan-${field.key}-help`" :error="fieldError(field.key)" :error-id="`floorplan-${field.key}-error`"
+        >
           <input :id="`floorplan-${field.key}`" v-model="form[field.key]" type="text" inputmode="decimal"
             :aria-describedby="fieldDescription(field.key)" :aria-invalid="!!fieldError(field.key)" />
-          <p :id="`floorplan-${field.key}-help`" class="help">
-            {{ field.key === 'north' || field.key === 'south' ? '緯度は -90〜90 です。north > south にしてください。'
-              : '経度は -180〜180 です。east > west にしてください。' }}
-          </p>
-          <p v-if="fieldError(field.key)" :id="`floorplan-${field.key}-error`" class="field-error">{{ fieldError(field.key) }}</p>
-        </div>
+        </FieldBox>
         <p v-if="payloadError" id="floorplan-payload-error" class="field-error" aria-live="polite">{{ payloadError }}</p>
         <div class="actions">
-          <button type="submit" :disabled="!!validationErrors.length">{{ existing ? '差し替えて保存' : '登録する' }}</button>
-          <button ref="deleteTrigger" type="button" class="delete" :disabled="!existing || !!floorError" @click="requestDelete">見取り図を削除</button>
+          <Button type="submit" :label="existing ? '差し替えて保存' : '登録する'" :disabled="!!validationErrors.length" />
+          <Button ref="deleteTrigger" class="delete" variant="danger" label="見取り図を削除" :disabled="!existing || !!floorError" @press="requestDelete" />
         </div>
       </fieldset>
-      <section v-if="confirmingDelete" class="delete-confirm" role="alertdialog" aria-labelledby="floorplan-delete-title"
-        aria-describedby="floorplan-delete-effects" @keydown.esc.prevent.stop="cancelDelete">
-        <h2 id="floorplan-delete-title">{{ selected.name }} の {{ floorNumber }} 階の見取り図を削除しますか？</h2>
-        <p id="floorplan-delete-effects">この階の見取り図が来場者の画面から消えます。この操作は元に戻せません。</p>
-        <div class="actions">
-          <button type="button" class="delete" :disabled="busy" @click="deletePlan">削除する</button>
-          <button ref="cancelDeleteButton" type="button" :disabled="busy" @click="cancelDelete">やめる</button>
-        </div>
-      </section>
+      <DeleteConfirm
+        v-if="confirmingDelete" ref="deleteConfirm" :level="2" title-id="floorplan-delete-title" effects-id="floorplan-delete-effects"
+        :title="`${selected.name} の ${floorNumber} 階の見取り図を削除しますか？`" :busy="busy"
+        effects="この階の見取り図が来場者の画面から消えます。この操作は元に戻せません。"
+        @keydown.esc.prevent.stop="cancelDelete" @confirm="deletePlan" @cancel="cancelDelete"
+      />
       <section aria-labelledby="floorplan-preview-title">
         <h2 id="floorplan-preview-title">プレビュー</h2>
         <div id="floorplan-validation" aria-live="polite">
@@ -314,7 +313,6 @@ onBeforeUnmount(() => controller.abort());
 
 <style scoped>
 .floorplans-admin, form, fieldset, section { display: grid; gap: var(--admin-space-md); }
-.form-field { display: grid; gap: var(--admin-space-sm); }
 h1, h2, p { margin: 0; }
 h1 { font-size: var(--admin-title-size); font-weight: var(--admin-bold); }
 h2, legend { font-size: var(--admin-banner-title-size); font-weight: var(--admin-bold); }
@@ -325,35 +323,10 @@ fieldset, section {
   border-radius: var(--admin-radius);
   background: var(--admin-surface);
 }
-input, textarea, select, button {
-  box-sizing: border-box;
-  min-width: 0;
-  min-height: var(--admin-touch-target);
-  padding: var(--admin-space-sm) var(--admin-space-md);
-  border: thin solid var(--admin-border);
-  border-radius: var(--admin-radius);
-  background: var(--admin-surface);
-  color: var(--admin-text);
-  font: inherit;
-}
-textarea { resize: vertical; }
-button { cursor: pointer; color: var(--admin-action); font-weight: var(--admin-bold); }
-button:disabled { cursor: default; color: var(--admin-muted); }
-.delete { color: var(--admin-danger-text); background: var(--admin-danger-bg); }
-.delete-confirm { border-color: var(--admin-danger); background: var(--admin-danger-bg); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--admin-space-sm); }
-.help { color: var(--admin-muted); }
-.field-error { color: var(--admin-danger-text); }
-[aria-invalid="true"] { border-color: var(--admin-danger); }
-.floor-table { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; background: var(--admin-surface); }
-caption, th { text-align: start; font-weight: var(--admin-bold); }
-caption { padding-block: var(--admin-space-sm); }
-th, td { padding: var(--admin-space-sm); border-bottom: thin solid var(--admin-border); }
-tr[aria-current="true"] { background: var(--admin-selected); }
+.field-error { color: var(--admin-danger-text); font-weight: var(--admin-bold); }
 #floorplan-validation { color: var(--admin-danger-text); }
 ul { margin: 0; padding-inline-start: var(--admin-space-xl); }
 svg { display: block; width: 100%; height: auto; max-height: calc(var(--admin-touch-target) * 8); }
 path { fill: none; stroke: var(--admin-action); }
-:is(input, textarea, select, button):focus-visible { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
 </style>

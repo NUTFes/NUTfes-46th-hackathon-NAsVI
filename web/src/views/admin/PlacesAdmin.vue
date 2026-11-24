@@ -3,6 +3,13 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import { adminGet, adminSend, ApiError } from '../../admin/client';
 import { useAdminFeedback } from '../../admin/feedback';
 import { adminTokens } from '../../admin/tokens';
+import LocationPicker from '../../components/admin/LocationPicker.vue';
+import { getPickerBounds, inputToPoint, isPointInBounds, outlinePath, pointToLocation, type PickerPoint } from '../../components/admin/locationPickerGeometry';
+import Button from '../../components/ui/Button.vue';
+import Badge from '../../components/ui/Badge.vue';
+import DataTable, { type DataTableColumn } from '../../components/admin/DataTable.vue';
+import DeleteConfirm from '../../components/admin/DeleteConfirm.vue';
+import FormField from '../../components/admin/FormField.vue';
 import type { components } from '../../api/generated/schema';
 import { usePlacesStore } from '../../stores/places';
 import type { Label, Landmark, Place, PlaceKind } from '../../types';
@@ -11,6 +18,11 @@ type PlaceInput = components['schemas']['PlaceInput'];
 const kinds: Record<PlaceKind, string> = {
   event: '企画', parking: '駐車場', info: '案内所', wc: 'トイレ', rest: '休憩所', trash: 'ゴミ箱',
 };
+const columns: DataTableColumn[] = [
+  { key: 'name', label: '名前' }, { key: 'kind', label: '種別' }, { key: 'labels', label: '種類' },
+  { key: 'position', label: '位置 (緯度・経度)' }, { key: 'floor', label: '階' }, { key: 'hours', label: '開催時間 (日本時間)' },
+  { key: 'actions', label: '操作', align: 'end' },
+];
 const places = usePlacesStore();
 const { reportError, clearError } = useAdminFeedback();
 const busy = ref(false);
@@ -237,6 +249,22 @@ function confirmDelete() {
     message.value = '場所を削除しました。';
   }, true);
 }
+
+// 入力中の座標は範囲に含めず、配置操作で地図が動かないようにする。
+const pickerBounds = computed(() => {
+  const points = landmarks.value.flatMap(item => [item.location, ...(item.footprint ?? [])]);
+  points.push(...places.items.map(item => item.location));
+  return getPickerBounds(points);
+});
+const pickerPoint = computed(() => inputToPoint(String(form.lat), String(form.lng), pickerBounds.value));
+const pickerOutOfRange = computed(() => pickerPoint.value !== null && !isPointInBounds(pickerPoint.value));
+const pickerValue = computed(() => pickerOutOfRange.value ? null : pickerPoint.value);
+const pickerOutlines = computed(() => landmarks.value.map(item => outlinePath(item.footprint ?? [], pickerBounds.value)).filter(Boolean));
+function pickLocation(point: PickerPoint) {
+  const location = pointToLocation(point, pickerBounds.value);
+  form.lat = String(location.lat);
+  form.lng = String(location.lng);
+}
 </script>
 
 <template>
@@ -246,36 +274,41 @@ function confirmDelete() {
     <section aria-labelledby="places-title">
       <div class="actions">
         <h3 id="places-title">場所の一覧</h3>
-        <button type="button" :disabled="busy || deleting !== null" @click="loadPlaces">一覧を再読み込み</button>
+        <Button variant="secondary" label="一覧を再読み込み" :disabled="busy || deleting !== null" @press="loadPlaces" />
       </div>
       <p v-if="!loaded && !busy">一覧を取得できませんでした。再読み込みしてください。</p>
-      <div v-if="loaded" class="table-scroll" role="region" aria-label="場所の表" tabindex="0">
-        <table>
-          <caption>登録済みの場所</caption>
-          <thead><tr><th scope="col">名前</th><th scope="col">種別</th><th scope="col">種類</th><th scope="col">位置の状態</th><th scope="col">階</th><th scope="col">開催時間 (日本時間)</th><th scope="col">操作</th></tr></thead>
-          <tbody>
-            <tr v-for="place in places.items" :key="place.id">
-              <th scope="row">{{ place.name }}</th>
-              <td>{{ kinds[place.kind] }}</td>
-              <td>{{ place.labelIds.map(labelTitle).join('、') || 'なし' }}</td>
-              <td>
-                <div>緯度 {{ place.location.lat }} / 経度 {{ place.location.lng }}</div>
-                <div>{{ place.landmarkId ? `建物 ${buildingName(place.landmarkId)}` : '屋外' }}</div>
-              </td>
-              <td>{{ place.floor === null ? '階の指定なし' : `${place.floor}階` }}</td>
-              <td>
-                <div v-for="(period, index) in place.hours" :key="index">{{ displayTime(period.start) }} 〜 {{ displayTime(period.end) }}</div>
-                <span v-if="!place.hours.length">指定なし</span>
-              </td>
-              <td><div class="actions">
-                <button type="button" :disabled="locked" :aria-label="`${place.name}を編集`" @click="editPlace(place)">編集</button>
-                <button type="button" class="danger" :disabled="locked" :aria-label="`${place.name}を削除`" @click="requestDelete(place)">削除</button>
-              </div></td>
-            </tr>
-            <tr v-if="!places.items.length"><td colspan="7">場所はまだ登録されていません。</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        v-if="loaded" :columns="columns" :rows="places.items" :selected-id="editing?.id"
+        caption="登録済みの場所" region-label="場所の表" empty-text="まだ登録されていません"
+      >
+        <template #cell-name="{ row }">
+          <div>{{ row.name }}</div>
+          <div class="sub">{{ row.landmarkId ? buildingName(row.landmarkId) : '屋外' }}</div>
+        </template>
+        <template #cell-kind="{ row }">
+          <Badge v-if="row.kind === 'parking'" tone="parking" :label="kinds[row.kind]" />
+          <template v-else>{{ kinds[row.kind] }}</template>
+        </template>
+        <template #cell-labels="{ row }">
+          <template v-if="row.labelIds.length"><Badge v-for="id in row.labelIds" :key="id" :label="labelTitle(id)" /></template>
+          <span v-else class="sub">なし</span>
+        </template>
+        <template #cell-position="{ row }">
+          <span class="sub">緯度 {{ row.location.lat }} / 経度 {{ row.location.lng }}</span>
+        </template>
+        <template #cell-floor="{ row }">{{ row.floor === null ? '階の指定なし' : `${row.floor}階` }}</template>
+        <template #cell-hours="{ row }">
+          <div v-for="(period, index) in row.hours" :key="index">{{ displayTime(period.start) }} 〜 {{ displayTime(period.end) }}</div>
+          <span v-if="!row.hours.length">指定なし</span>
+        </template>
+        <template #cell-actions="{ row }">
+          <div class="actions actions--end">
+            <span v-if="row.id === editing?.id" class="sub">編集中</span>
+            <Button v-else variant="secondary" size="sm" label="編集" :disabled="locked" :aria-label="`${row.name}を編集`" @press="editPlace(row)" />
+            <Button variant="danger" size="sm" label="削除" :disabled="locked" :aria-label="`${row.name}を削除`" @press="requestDelete(row)" />
+          </div>
+        </template>
+      </DataTable>
     </section>
 
     <section aria-labelledby="place-form-title">
@@ -284,109 +317,93 @@ function confirmDelete() {
       <form aria-labelledby="place-form-title" novalidate @submit.prevent="savePlace">
         <fieldset :disabled="locked">
           <legend>場所の情報</legend>
-          <label for="place-name">名前 (必須)</label>
-          <input id="place-name" ref="nameInput" v-model="form.name" v-bind="errorAttrs('name')" required maxlength="50">
-          <p v-if="fieldErrors.name" id="place-name-error" class="field-error">{{ fieldErrors.name }}</p>
-          <label for="place-kind">種別 (必須)</label>
-          <select id="place-kind" v-model="form.kind" v-bind="errorAttrs('kind', 'kind-help')" :disabled="editing !== null">
-            <option v-for="(title, kind) in kinds" :key="kind" :value="kind">{{ title }}</option>
-          </select>
-          <p id="kind-help">種別を変える場合は、削除して新しく登録し直してください。</p>
-          <p v-if="fieldErrors.kind" id="place-kind-error" class="field-error">{{ fieldErrors.kind }}</p>
-          <label for="place-lat">緯度 (必須)</label>
-          <input id="place-lat" v-model="form.lat" v-bind="errorAttrs('location')" type="text" inputmode="decimal" required>
-          <label for="place-lng">経度 (必須)</label>
-          <input id="place-lng" v-model="form.lng" v-bind="errorAttrs('location')" type="text" inputmode="decimal" required>
-          <p v-if="fieldErrors.location" id="place-location-error" class="field-error">{{ fieldErrors.location }}</p>
-          <label for="place-description">説明</label>
-          <textarea id="place-description" v-model="form.description" v-bind="errorAttrs('description')" maxlength="500" />
-          <p v-if="fieldErrors.description" id="place-description-error" class="field-error">{{ fieldErrors.description }}</p>
-          <label for="place-landmark">建物 (屋外は「建物なし」)</label>
-          <select id="place-landmark" :value="form.landmarkId" v-bind="errorAttrs('landmarkId')" @change="changeLandmark">
-            <option value="">建物なし</option>
-            <option v-if="form.landmarkId && !landmarks.some(building => building.id === form.landmarkId)" :value="form.landmarkId" disabled>未取得の建物 ({{ form.landmarkId }})</option>
-            <option v-for="building in landmarks" :key="building.id" :value="building.id">{{ building.name }}</option>
-          </select>
-          <p v-if="fieldErrors.landmarkId" id="place-landmarkId-error" class="field-error">{{ fieldErrors.landmarkId }}</p>
-          <label for="place-floor">階 (任意・地下は負の数)</label>
-          <input id="place-floor" v-model="form.floor" v-bind="errorAttrs('floor', 'floor-help')" type="text" inputmode="numeric" :disabled="!form.landmarkId">
-          <p id="floor-help">建物を外す場合は、先に階を空欄にしてください。</p>
-          <p v-if="fieldErrors.floor" id="place-floor-error" class="field-error">{{ fieldErrors.floor }}</p>
+          <FormField label="名前 (必須)" control-id="place-name" :error="fieldErrors.name" error-id="place-name-error">
+            <input id="place-name" ref="nameInput" v-model="form.name" v-bind="errorAttrs('name')" required maxlength="50">
+          </FormField>
+          <FormField
+            label="種別 (必須)" control-id="place-kind" help="種別を変える場合は、削除して新しく登録し直してください。" help-id="kind-help"
+            :error="fieldErrors.kind" error-id="place-kind-error"
+          >
+            <select id="place-kind" v-model="form.kind" v-bind="errorAttrs('kind', 'kind-help')" :disabled="editing !== null">
+              <option v-for="(title, kind) in kinds" :key="kind" :value="kind">{{ title }}</option>
+            </select>
+          </FormField>
+          <LocationPicker :value="pickerValue" :out-of-range="pickerOutOfRange" :outlines="pickerOutlines" :disabled="locked" @change="pickLocation" />
+          <FormField label="緯度 (必須)" control-id="place-lat">
+            <input id="place-lat" v-model="form.lat" v-bind="errorAttrs('location')" type="text" inputmode="decimal" required>
+          </FormField>
+          <FormField label="経度 (必須)" control-id="place-lng" :error="fieldErrors.location" error-id="place-location-error">
+            <input id="place-lng" v-model="form.lng" v-bind="errorAttrs('location')" type="text" inputmode="decimal" required>
+          </FormField>
+          <FormField label="説明" control-id="place-description" :error="fieldErrors.description" error-id="place-description-error">
+            <textarea id="place-description" v-model="form.description" v-bind="errorAttrs('description')" maxlength="500" />
+          </FormField>
+          <FormField label="建物 (屋外は「建物なし」)" control-id="place-landmark" :error="fieldErrors.landmarkId" error-id="place-landmarkId-error">
+            <select id="place-landmark" :value="form.landmarkId" v-bind="errorAttrs('landmarkId')" @change="changeLandmark">
+              <option value="">建物なし</option>
+              <option v-if="form.landmarkId && !landmarks.some(building => building.id === form.landmarkId)" :value="form.landmarkId" disabled>未取得の建物 ({{ form.landmarkId }})</option>
+              <option v-for="building in landmarks" :key="building.id" :value="building.id">{{ building.name }}</option>
+            </select>
+          </FormField>
+          <FormField
+            label="階 (任意・地下は負の数)" control-id="place-floor" help="建物を外す場合は、先に階を空欄にしてください。" help-id="floor-help"
+            :error="fieldErrors.floor" error-id="place-floor-error"
+          >
+            <input id="place-floor" v-model="form.floor" v-bind="errorAttrs('floor', 'floor-help')" type="text" inputmode="numeric" :disabled="!form.landmarkId">
+          </FormField>
           <fieldset v-bind="errorAttrs('hours')">
             <legend>開催時間 (任意・複数可)</legend>
             <p>日本時間 (Asia/Tokyo) で入力してください。開催時間がない場合は空のままにしてください。</p>
             <p v-if="fieldErrors.hours" id="place-hours-error" class="field-error">{{ fieldErrors.hours }}</p>
             <div v-for="(period, index) in form.hours" :key="index" class="period">
-              <label :for="`period-start-${index}`">開始 {{ index + 1 }}</label>
-              <input :id="`period-start-${index}`" v-model="period.start" v-bind="errorAttrs('hours')" type="datetime-local" step="any" required>
-              <label :for="`period-end-${index}`">終了 {{ index + 1 }}</label>
-              <input :id="`period-end-${index}`" v-model="period.end" v-bind="errorAttrs('hours')" type="datetime-local" step="any" required>
-              <button type="button" :aria-label="`開催時間${index + 1}を外す`" @click="form.hours.splice(index, 1)">この時間帯を外す</button>
+              <FormField :label="`開始 ${index + 1}`" :control-id="`period-start-${index}`">
+                <input :id="`period-start-${index}`" v-model="period.start" v-bind="errorAttrs('hours')" type="datetime-local" step="any" required>
+              </FormField>
+              <FormField :label="`終了 ${index + 1}`" :control-id="`period-end-${index}`">
+                <input :id="`period-end-${index}`" v-model="period.end" v-bind="errorAttrs('hours')" type="datetime-local" step="any" required>
+              </FormField>
+              <Button variant="secondary" label="この時間帯を外す" :aria-label="`開催時間${index + 1}を外す`" @press="form.hours.splice(index, 1)" />
             </div>
-            <button type="button" @click="form.hours.push({ start: '', end: '' })">時間帯を追加</button>
+            <Button variant="secondary" label="時間帯を追加" @press="form.hours.push({ start: '', end: '' })" />
           </fieldset>
           <div class="actions">
-            <button type="submit">{{ editing ? '更新する' : '登録する' }}</button>
-            <button v-if="editing" type="button" @click="resetForm">編集をキャンセル</button>
+            <Button type="submit" :label="editing ? '更新する' : '登録する'" />
+            <Button v-if="editing" variant="secondary" label="編集をキャンセル" @press="resetForm" />
           </div>
         </fieldset>
       </form>
     </section>
 
-    <dialog ref="deleteDialog" aria-labelledby="delete-title" aria-describedby="delete-effects" @cancel="cancelDelete">
-      <template v-if="deleting">
-        <h3 id="delete-title">「{{ deleting.name }}」を削除しますか？</h3>
-        <div id="delete-effects">
-          <p>削除すると、次のことが連動して起きます。</p>
-          <ul>
-            <li>この場所が検索・一覧から消えます。</li>
-            <li>この場所に付いていた運営の種類が外れます。</li>
-            <li>この場所を行き先にしていた来場者の案内が終わります。</li>
-          </ul>
-          <p>スタンプは地点に付くため、場所の削除には連動しません。</p>
-          <p>削除は取り消せません。削除した ID は再利用されません。</p>
-        </div>
-        <div class="actions">
-          <button type="button" autofocus :disabled="busy" @click="cancelDelete()">キャンセル</button>
-          <button type="button" class="danger" :disabled="busy" @click="confirmDelete">了承して削除する</button>
-        </div>
-      </template>
+    <dialog ref="deleteDialog" role="alertdialog" aria-labelledby="delete-title" aria-describedby="delete-effects" @cancel="cancelDelete">
+      <DeleteConfirm
+        v-if="deleting" role="none" :title="`「${deleting.name}」を削除しますか？`" :busy="busy"
+        @confirm="confirmDelete" @cancel="cancelDelete()"
+      >
+        <p>削除すると、次のことが連動して起きます。</p>
+        <ul>
+          <li>この場所が検索・一覧から消えます。</li>
+          <li>この場所に付いていた運営の種類が外れます。</li>
+          <li>この場所を行き先にしていた来場者の案内が終わります。</li>
+        </ul>
+        <p>スタンプは地点に付くため、場所の削除には連動しません。</p>
+        <p>削除は取り消せません。削除した ID は再利用されません。</p>
+      </DeleteConfirm>
     </dialog>
   </main>
 </template>
 
 <style scoped>
-/* 使用トークンは adminTokens と同じ参照元で固定する。
- * --admin-bg: color.{light,dark}.bg-page; --admin-surface: color.{light,dark}.bg-surface
- * --admin-text: color.{light,dark}.text-primary; --admin-action: color.{light,dark}.action-primary
- * --admin-border: color.{light,dark}.border-subtle; --admin-danger: color.{light,dark}.danger
- * --admin-danger-bg: color.{light,dark}.danger-bg; --admin-danger-text: color.{light,dark}.danger-text
- * --admin-space-xs: space.1; --admin-space-sm: space.2; --admin-space-md: space.3
- * --admin-space-lg: space.4; --admin-space-xl: space.6; --admin-radius: radius.sm
- * --admin-touch-target: size.touch-target; --admin-font: font.family.base
- * --admin-body-size: font.size.md; --admin-title-size: font.size.3xl
- * --admin-banner-title-size: font.size.xl; --admin-weight: font.weight.regular; --admin-bold: font.weight.bold
- */
 .places-admin { display: grid; gap: var(--admin-space-xl); min-width: 0; background: var(--admin-bg); color: var(--admin-text); font-family: var(--admin-font); font-size: var(--admin-body-size); font-weight: var(--admin-weight); }
 h2, h3, p { margin: unset; }
 h2 { font-size: var(--admin-title-size); font-weight: var(--admin-bold); }
 h3 { font-size: var(--admin-banner-title-size); font-weight: var(--admin-bold); }
 section, form, fieldset, .period { display: grid; gap: var(--admin-space-md); min-width: 0; }
 fieldset { margin: unset; padding: var(--admin-space-lg); border: thin solid var(--admin-border); border-radius: var(--admin-radius); }
+legend { font-weight: var(--admin-bold); }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--admin-space-sm); }
-.table-scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; background: var(--admin-surface); }
-caption { padding: var(--admin-space-sm); text-align: start; }
-th, td { padding: var(--admin-space-md); text-align: start; border-bottom: thin solid var(--admin-border); overflow-wrap: anywhere; }
-th, legend { font-weight: var(--admin-bold); }
-input, select, textarea, button { box-sizing: border-box; min-height: var(--admin-touch-target); min-width: var(--admin-touch-target); padding: var(--admin-space-sm) var(--admin-space-md); border: thin solid var(--admin-border); border-radius: var(--admin-radius); background: var(--admin-surface); color: var(--admin-text); font: inherit; }
-input, select, textarea { width: 100%; }
-button { cursor: pointer; font-weight: var(--admin-bold); }
-button:disabled { cursor: default; }
-.danger { border-color: var(--admin-danger); background: var(--admin-danger-bg); color: var(--admin-danger-text); }
-.field-error { color: var(--admin-danger-text); }
-:is(button, input, select, textarea, .table-scroll):focus-visible { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
-dialog { padding: var(--admin-space-xl); border: thin solid var(--admin-border); border-radius: var(--admin-radius); background: var(--admin-surface); color: var(--admin-text); font: inherit; }
-dialog h3, dialog p, dialog ul { margin-block: var(--admin-space-md); }
-dialog ul { padding-inline-start: var(--admin-space-xl); }
+.actions--end { justify-content: flex-end; }
+.sub { color: var(--admin-muted); font-size: var(--admin-label-size); font-weight: var(--admin-weight); }
+.field-error { color: var(--admin-danger-text); font-weight: var(--admin-bold); }
+dialog { box-sizing: border-box; width: min(100%, 32rem); padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
+dialog::backdrop { background: var(--admin-selected); }
 </style>
