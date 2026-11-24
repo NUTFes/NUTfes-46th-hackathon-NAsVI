@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { project, stepView, type View } from './core';
-import { createInteraction, resetNorth, TH0, type PointerInput } from './interaction';
+import { createInteraction, resetNorth, zoomAt, K_MIN, K_MAX, TH0, type PointerInput } from './interaction';
+import { toXY } from '../domain/geo';
 import { layers } from './layers';
 import type { Layer, MapState } from './layers/types';
 
 const props = defineProps<{ state: MapState }>();
 const emit = defineEmits<{
+  zoomLimits: [limits: { zoomInDisabled: boolean; zoomOutDisabled: boolean }];
   tap: [x: number, y: number];
   select: [selection: NonNullable<ReturnType<NonNullable<Layer['hitTest']>>>];
 }>();
@@ -14,7 +16,22 @@ const canvas = ref<HTMLCanvasElement | null>(null);
 const needle = ref<SVGSVGElement | null>(null);
 // 地図単体では画面中央を使う。画面固有のヘッダー・カードの寸法には依存しない。
 const view: View = { fx: 0, fy: 0, k: 1, th: TH0, cy: 0 };
-const goal = { ...view };
+const goal = reactive({ ...view });
+const zoomInDisabled = computed(() => goal.k >= K_MAX);
+const zoomOutDisabled = computed(() => goal.k <= K_MIN);
+watch([zoomInDisabled, zoomOutDisabled], ([zoomInDisabled, zoomOutDisabled]) => {
+  emit('zoomLimits', { zoomInDisabled, zoomOutDisabled });
+}, { immediate: true });
+function zoomBy(direction: number) {
+  zoomAt(goal, W / 2, H / 2, W, H, 1.25 ** direction);
+}
+function flyTo() {
+  if (!props.state.position) return;
+  const [x, y] = toXY(props.state.position.lat, props.state.position.lng);
+  goal.fx = x;
+  goal.fy = y;
+}
+defineExpose({ zoomBy, flyTo, zoomInDisabled, zoomOutDisabled });
 let W = 0;
 let H = 0;
 let dispose = () => {};
@@ -74,7 +91,7 @@ onMounted(() => {
     if (cv.height !== pixelHeight) cv.height = pixelHeight;
     if (W > 0 && H > 0) {
       if (!initialized) {
-        view.k = goal.k = W / 240;
+        view.k = goal.k = Math.max(K_MIN, Math.min(K_MAX, W / 240));
         view.cy = goal.cy = H / 2;
         initialized = true;
       } else goal.cy = H / 2;
@@ -187,9 +204,9 @@ onBeforeUnmount(() => dispose());
 .map-canvas { position: relative; width: 100%; height: 100%; overflow: hidden; }
 canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .compass {
-  position: absolute; right: 16px; bottom: 16px; display: grid; place-items: center;
+  position: absolute; left: 12px; bottom: calc(var(--map-bottom-clearance, 0px) + 32px); display: grid; place-items: center;
   width: 44px; height: 44px; padding: 0; border: 1px solid currentColor; border-radius: 12px;
-  color: inherit; background: var(--panel-solid, #fff); cursor: pointer;
+  color: var(--app-text-primary); background: var(--app-bg-surface); cursor: pointer;
 }
 .compass svg { transform-origin: center; }
 </style>
