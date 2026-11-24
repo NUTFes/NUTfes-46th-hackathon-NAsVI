@@ -18,7 +18,7 @@
 
 Wrangler の D1・DO binding・vars は環境ごとに明示する。両環境の `migrations` に `v1` / `new_sqlite_classes: ["Hub"]` を置き、無料プラン用の SQLite DO として作成する。Worker 名が違うので Hub の名前空間も別になり、D1 と接続先を共有しない。`script_name` で他環境を参照しない。これは DO の作成履歴であり、`api/migrations/` の D1 SQL とは別。公開後は適用済みの DO タグを変更せず、変更時に新しいタグを追加する。
 
-公開環境では `ENABLE_DEV_EMIT=false`、`ACCESS_BYPASS` は設定しない。Access を経由しない入口を作らないよう `workers_dev=false` / `preview_urls=false` としている。これは Worker 自身のプレビュー URL の設定で、Pages の PR プレビューとは別。
+公開環境では `ENABLE_DEV_EMIT=false`、`ACCESS_BYPASS` は設定しない。公開ホスト以外の入口を作らないよう `workers_dev=false` / `preview_urls=false` としている。これは Worker 自身のプレビュー URL の設定で、Pages の PR プレビューとは別。
 
 ## 必要な変数の一覧
 
@@ -43,7 +43,7 @@ production・preview それぞれの `vars` に次を設定する。リポジト
   ```
 
 - [ ] 作成結果の ID とアカウント ID は秘密管理先に保存し、コミットしない。リモート操作時だけ、配布する設定のコピーに対象環境の ID を注入する。コピーは既存の ignore 対象である `api/.wrangler/deploy/wrangler.jsonc` に置き、`main` を `../../src/index.ts`、`migrations_dir` を各環境とも `../../migrations` にする（パスは設定ファイルからの相対）。実値入りコピーは終了後に削除する。
-- [ ] 自動化する場合の資格情報は対象アカウント・必要なリソースに限定し、`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` を CI の secrets に登録する。設定・ログ・ドキュメントに実値を書かない。この変更にはリモート操作の workflow は含めていない。
+- [ ] 自動化の資格情報は対象アカウント・必要なリソースに限定し、下記の Environment secret / 変数に登録する。設定・ログ・ドキュメントに実値を書かない。
 
 ## D1 マイグレーション（人が実施）
 
@@ -58,7 +58,7 @@ production・preview それぞれの `vars` に次を設定する。リポジト
   corepack pnpm exec wrangler d1 migrations list DB --env preview --remote --config ./.wrangler/deploy/wrangler.jsonc
   ```
 
-- [ ] プレビューの動作確認後、人が本番への適用を承認し、本番について同じ順序で実行する。
+- [ ] プレビューの動作確認後、人が本番への適用を承認する。適用直前に `date -u` で UTC の復旧時刻を記録する（[D1 のロールバック](#d1-のロールバック人が実施d1-time-travel-前提)参照）。本番について同じ順序で実行する。
 
   ```sh
   corepack pnpm exec wrangler d1 migrations list DB --env production --remote --config ./.wrangler/deploy/wrangler.jsonc
@@ -95,21 +95,22 @@ corepack pnpm exec wrangler d1 time-travel restore DB --env production --timesta
 - [ ] Node `22.22.1` / pnpm `10.32.1`、ビルドルートをリポジトリ直下、ビルドを `corepack pnpm install --frozen-lockfile && corepack pnpm --filter web build`、出力を `web/dist` にする。
 - [ ] SPA の深い URL（`/admin/` を含む）を直接開いても表示できること、HTTPS で配信されることを確認する。
 - [ ] 本番とプレビューの Worker に環境ごとの D1 / Hub / Access 値と `OSM_CONTACT` を設定する。Workers の公開コマンドには必ず対応する `--env` と実値を注入した `--config` を指定する。両環境への D1 適用を別途行う。
-- [ ] Pages の `/api/*` を対応する Worker に接続する経路・ドメインを決め、実装して検証する。現在の Web は同一オリジンの `/api` を使い、Vite の proxy は開発時だけ有効。本番用の経路は未設定。`VITE_API_BASE` を別オリジンに変えるだけでは、CORS と Access 認証の問題は解決しない。
+- [ ] #165 の決定に従い、Web と API は同一オリジンで配信する。workflow は `SITE_HOST/api/*` の Worker route を一時設定に組み立てる。`SITE_HOST` と `ZONE_NAME` は環境ごとに異なり実値をリポジトリに置かないため、`api/wrangler.jsonc` に route を固定しない。DNS / Pages カスタムドメインと route の実際の疎通は人が検証する。Vite の proxy は開発時だけ有効。
 - [ ] PR ごとの Pages URL と API の対応・データ分離を決める。現在の `preview` は単一の Worker / D1 / Hub であり、PR ごとの独立環境は自動生成しない。本番 DB をプレビューにつながない。
-- [ ] API の `main` push / PR デプロイの連携を人が別途用意する。今回追加する workflow は設定検査だけで、`wrangler deploy` の実行は必ず `--dry-run` 付き。
+- [ ] 下記 workflow の手動デプロイと、Pages の Git 連携が二重に公開しないよう、運用開始前に人が確認する。
 
 ## Access（D-03、人が実施）
 
-- [ ] 「未決事項」の保護範囲を D-03 の前に決定してから、本番・プレビューの双方で Access アプリケーションを作り、実行委員のメールだけを許可する。`/admin` 自体や Pages の別名 URL / プレビュー URL から保護を迂回できないことも確認する。
+- [ ] 決定済みの選択肢 D に従い、`/admin/*` だけを保護する。本番・プレビューの双方で Access アプリケーションを作り、実行委員のメールだけを許可する。`/admin` 自体や Pages の別名 URL / プレビュー URL から保護を迂回できないことも確認する。
 - [ ] チームドメイン（`https://` やパスを含まないホスト名）と API が受け入れる AUD を環境ごとに設定する。Web と API へのログイン・JWT の受け渡しを確認する。`ACCESS_BYPASS` は公開環境に設定しない。
 - [ ] 決定した保護範囲で実際の運営操作に JWT が届き、公開の GET / SSE は来場者が認証なしで利用できることを確認する。
 - [ ] 未ログイン・許可外の人の管理操作が拒否され、許可された実行委員の操作だけが成功することを両環境で確認する。直通 URL・Pages の別名からも同じ結果になることを確認する。
 
-## 未決事項
+## #165 の決定と未決事項
 
-- **Access の保護範囲:** 更新系 API は `/api/places`・`/api/labels`・`/api/landmarks` で、`/api/admin/*` 配下ではない。`/admin/*` と `/api/admin/*` にだけ Access を掛けると更新系 API に JWT が届かず、運営操作が 401 になる。保護範囲は D-03 の前に決定が必要。ここでは決定・実装しない。
-- **web 配信と `/api` の同一オリジン経路:** 現在の Wrangler 設定には `routes`・`assets` がなく、`workers_dev=false` のためデプロイしても API の公開 URL がない。Pages Functions を使うか Worker の route を使うかは未定。Access が 302 を返す構成との整合も、経路決定後に確認が必要。ここでは決定・実装しない。
+選択肢 D を採用する。Access の保護対象は `/admin/*` のみで、API の認可は API 内の JWT 検証で行う。Web と API は同一オリジンとし、Cookie 経由の JWT は `Sec-Fetch-Site: same-origin` の場合だけ受け入れる。未認証の `GET /api/places` は 200、`POST /api/places` は 401、`GET /admin/` は Access の 302 を期待する。workflow の curl はリダイレクトを追わず、期待値から外れた場合は停止する。
+
+未決: PR ごとの Pages URL と API の対応・データ分離、および `/admin` 自体や Pages 別名 URL の迂回防止の具体的な設定と検証。単一 preview を PR ごとの独立環境とは扱わない。
 
 ## 認証なしの検証
 
@@ -150,7 +151,7 @@ env -i PATH="$PATH" COREPACK_ENABLE_NETWORK=0 WRANGLER_SEND_METRICS=false CI=tru
 
 | 種類 | 名前 | 置く場所 | 内容 |
 | --- | --- | --- | --- |
-| Secret | `CLOUDFLARE_API_TOKEN` | リポジトリ | アカウントの API トークン(Workers・D1・Pages の編集、対象ゾーンの Workers Routes の編集) |
+| Secret | `CLOUDFLARE_API_TOKEN` | Environment ごと（別トークン必須） | アカウントの API トークン(Workers・D1・Pages の編集、対象ゾーンの Workers Routes の編集) |
 | 変数 | `CLOUDFLARE_ACCOUNT_ID` | リポジトリ | Cloudflare のアカウント ID |
 | 変数 | `AUTO_DEPLOY_PREVIEW` | リポジトリ | `true` で、`impl/main` への push の自動デプロイが有効になる |
 | 変数 | `D1_DATABASE_ID` | Environment(`preview`・`production` ごと) | その環境の D1 の ID |
@@ -161,8 +162,27 @@ env -i PATH="$PATH" COREPACK_ENABLE_NETWORK=0 WRANGLER_SEND_METRICS=false CI=tru
 | 変数 | `ZONE_NAME` | Environment ごと | ホスト名が属する Cloudflare のゾーン名 |
 | 変数 | `PAGES_PROJECT` | Environment ごと | Pages のプロジェクト名 |
 
-- 値が 1 つでも欠けていると、設定の組み立ての段階で止まる(Cloudflare には何も送られない)。
-- 本番(`production`)は、GitHub の Environments で、承認者を必須にすることを勧める。
+- 設定値の欠落は組み立て時、トークン・アカウント ID の欠落は最初の Wrangler ステップで止まる(Cloudflare には何も送られない)。
+- Environment `preview` / `production` の Deployment branches は **`impl/main` だけに限定することが必須**。本番 `production` の **Required reviewers も必須**。手動実行でもこのブランチ制限と承認を通す。
 - トークンを持つ workflow は、アカウントの Workers・D1・Pages を操作できる。`.github/workflows/` の変更は、必ず PR のレビューを通す。
 - フォークからの PR には、Secrets は渡されない(GitHub の仕様)。
 - 初回は、`preview` を手動で実行して、権限のエラーが出ないかを確かめる。足りない権限は、その時点で分かる。
+
+### 環境分離とトークン移行（人が必ず実施）
+
+1. GitHub Settings の Environments で `preview` / `production` を用意し、上記の Deployment branches と Required reviewers を設定する。
+2. Cloudflare で環境ごとに別の最小権限トークンを用意し、それぞれの Environment secret `CLOUDFLARE_API_TOKEN` に登録する。Repository secret への保存は不可。既存 secret の値は取得・表示せず、新しいトークンで移行する。
+3. 非秘密の比較台帳として Repository variables に、接頭辞 `PREVIEW_` / `PRODUCTION_` を付けた `PAGES_PROJECT`・`SITE_HOST`・`D1_DATABASE_ID` の計6個を登録する。対応する Environment variables と一致させる。環境間では3項目すべて別の値が必須。Environment に比較台帳の同名変数を作らない。
+4. 両 Environment の secret と変数を確認後、旧 Repository secret `CLOUDFLARE_API_TOKEN` を削除し、旧共用トークンを失効させる。Repository secret が残ると Environment secret の欠落時にフォールバックするため、削除は必須。preview の手動検証後、本番は Required reviewers の承認を経て実行する。
+
+workflow は台帳の空値・環境間重複・選択先 Environment との不一致で停止し、値は表示しない。Pages は両環境とも `--branch main` で配信するため、同じプロジェクトを指定すると本番を上書きし得る。トークンとアカウント ID は Wrangler の3ステップだけに渡し、install・型検査・テスト・ビルドには渡さない。
+
+本番 D1 の適用直前に UTC の復旧時刻を `date -u` でログに記録する。障害時は [D1 のロールバック](#d1-のロールバック人が実施d1-time-travel-前提) を参照する。この時刻の記録はバックアップ作成や復元可能期間の保証ではない。
+
+D-02 指示書は「人が行う」「main push で本番」「PR にプレビュー URL」を目的としているが、この workflow は手動実行を提供し、本番は手動のみ、`impl/main` push は preview のみで既定停止。PR URL の投稿・PR ごとの環境作成は実装していない。D-02 の完了条件を満たしたとは扱わず、運用差分として管理する。
+
+### Wrangler ログの検証結果
+
+Wrangler 4.124.0 で、資格情報を渡さず、workflow の Python でダミー値の一時設定を組み立て、`wrangler deploy --dry-run --env preview --config` で検証した。binding 一覧に `ACCESS_AUD` と `OSM_CONTACT` の値が表示された。D1 は DB 名が表示され、ID は今回の通常出力には出なかったが、他のコマンドやエラー出力も考慮し、D1 ID も含めた3値を設定組み立て時に `::add-mask::` 登録する。登録は D1 操作・Worker deploy より前に行う。実デプロイ時の出力は未検証。
+
+既存プレースホルダ設定の production / preview の dry-run は両方成功した。ローカルで空の HOME を使う場合、Corepack の pnpm キャッシュも切り替わるため、必要なら `COREPACK_HOME` に既存のパッケージマネージャー専用キャッシュを指定する（認証情報の HOME / 設定ディレクトリは空のまま）。

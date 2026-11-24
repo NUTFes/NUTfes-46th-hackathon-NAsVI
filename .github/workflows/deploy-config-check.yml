@@ -6,6 +6,7 @@ on:
       - api/**
       - doc/deploy.md
       - .github/workflows/deploy-config-check.yml
+      - .github/workflows/deploy.yml
       - package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
