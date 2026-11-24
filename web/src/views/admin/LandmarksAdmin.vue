@@ -7,8 +7,10 @@ import { adminTokens } from '../../admin/tokens';
 import DataTable, { type DataTableColumn } from '../../components/admin/DataTable.vue';
 import DeleteConfirm from '../../components/admin/DeleteConfirm.vue';
 import FormField from '../../components/admin/FormField.vue';
+import BuildingShapePreview from '../../components/admin/BuildingShapePreview.vue';
+import LocationPicker from '../../components/admin/LocationPicker.vue';
+import { ORIGIN, fromXY, toXY } from '../../domain/geo';
 import Button from '../../components/ui/Button.vue';
-import { toXY } from '../../domain/geo';
 import { useLandmarksStore } from '../../stores/landmarks';
 import type { Landmark, Place } from '../../types';
 
@@ -293,6 +295,42 @@ function remove() {
 
 onMounted(load);
 onBeforeUnmount(() => controller?.abort());
+
+// 北が上の平面図。取得済みデータを囲み、最低400m×200mと周囲10%を確保する。
+// 入力中の座標は範囲に含めず、配置操作で地図が動かないようにする。
+const pickerBounds = computed(() => {
+  const points = store.items.flatMap(item => [item.location, ...(item.footprint ?? [])]);
+  points.push(...places.value.map(item => item.location));
+  const xy = (points.length ? points : [ORIGIN]).map(point => toXY(point.lat, point.lng));
+  const xs = xy.map(point => point[0]);
+  const ys = xy.map(point => point[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const width = Math.max(400, (Math.max(...xs) - Math.min(...xs)) * 1.2, (Math.max(...ys) - Math.min(...ys)) * 2.4);
+  return { west: cx - width / 2, north: cy + width / 4, width, height: width / 2 };
+});
+function pickerPoint(lat: number, lng: number) {
+  const [x, y] = toXY(lat, lng);
+  const b = pickerBounds.value;
+  return { x: (x - b.west) / b.width * 100, y: (b.north - y) / b.height * 100 };
+}
+const pickerValue = computed(() => {
+  if (!String(draft.lat).trim() || !String(draft.lng).trim()) return null;
+  const lat = Number(draft.lat), lng = Number(draft.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  const point = pickerPoint(lat, lng);
+  return point.x >= 0 && point.x <= 100 && point.y >= 0 && point.y <= 100 ? point : null;
+});
+const pickerOutlines = computed(() => store.items.filter(item => item.footprint && item.footprint.length >= 3).map(item =>
+  `M ${item.footprint!.map(point => { const p = pickerPoint(point.lat, point.lng); return `${p.x} ${p.y}`; }).join(' L ')} Z`));
+function pickLocation(point: { x: number; y: number }) {
+  const b = pickerBounds.value;
+  const location = fromXY(b.west + point.x / 100 * b.width, b.north - point.y / 100 * b.height);
+  draft.lat = String(location.lat);
+  draft.lng = String(location.lng);
+  clearFieldError('lat');
+  clearFieldError('lng');
+}
 </script>
 
 <template>
@@ -344,6 +382,7 @@ onBeforeUnmount(() => controller?.abort());
             <input id="landmark-name" v-model="draft.name" name="name" required
               :aria-invalid="fieldErrors.name ? 'true' : undefined" :aria-describedby="fieldErrors.name ? 'landmark-name-error' : undefined" @input="clearFieldError('name')" />
           </FormField>
+          <LocationPicker :value="pickerValue" :outlines="pickerOutlines" :disabled="locked || !loaded" @change="pickLocation" />
           <FormField label="緯度" control-id="landmark-lat" :error="fieldErrors.lat" error-id="landmark-lat-error" alert>
             <input id="landmark-lat" v-model="draft.lat" name="lat" type="number" step="any" min="-90" max="90" required
               :aria-invalid="fieldErrors.lat || fieldErrors.location ? 'true' : undefined"
@@ -362,15 +401,11 @@ onBeforeUnmount(() => controller?.abort());
         <h3 id="landmark-shape-title">建物の形（確認用）</h3>
         <p>建物の形は OpenStreetMap から取得します。輪郭は編集できません。</p>
         <template v-if="selected">
-          <svg v-if="shape" class="shape-preview" :viewBox="shape.viewBox" role="img" :aria-label="`${selected.name}の建物の形（北が上）`">
-            <path :d="shape.d" />
-          </svg>
-          <p v-else class="missing">形なし（カメラの正面に出ない）。輪郭なしでも一覧・見取り図・建物の企画に使えます。必要なときに形を読み込み直せます。</p>
+          <BuildingShapePreview :shape="shape" :label="`${selected.name}の建物の形（北が上）`" :disabled="locked" @reload="reloadFootprint" />
+          <p v-if="!shape">輪郭なしでも一覧・見取り図・建物の企画に使えます。必要なときに形を読み込み直せます。</p>
           <p>保存済みの位置で形を取得します。位置を変えたら先に更新してください。</p>
-          <Button variant="secondary" label="形を読み込み直す" :disabled="locked" @press="reloadFootprint" />
         </template>
         <p v-else>建物の登録後に形を確認できます。</p>
-        <p class="attribution">© OpenStreetMap contributors（ODbL）</p>
       </section>
       <Button v-if="selected" ref="deleteButton" variant="danger" label="建物を削除" :disabled="locked" @press="askDelete" />
       <dialog v-if="confirmingDelete && selected" ref="deleteDialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-effects" tabindex="-1" class="delete-dialog" @keydown="handleDeleteKeydown" @cancel.prevent="cancelDelete">
@@ -399,9 +434,6 @@ a { color: var(--admin-action); }
 a:focus-visible, h3[tabindex]:focus { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
 .field-error { color: var(--admin-danger-text); font-weight: var(--admin-bold); }
 .missing { color: var(--admin-muted); }
-.shape-preview { box-sizing: border-box; width: 100%; aspect-ratio: 2; padding: var(--admin-space-lg); border: thin solid var(--admin-border); border-radius: var(--admin-radius); background: var(--admin-surface); }
-.shape-preview path { fill: var(--admin-selected); stroke: var(--admin-action); vector-effect: non-scaling-stroke; }
-.attribution { color: var(--admin-muted); }
 .delete-dialog { box-sizing: border-box; width: min(100%, 32rem); padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
 .delete-dialog[open] { display: block; }
 .delete-dialog::backdrop { background: var(--admin-selected); }
