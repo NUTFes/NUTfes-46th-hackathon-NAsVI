@@ -268,7 +268,8 @@ export function createSyncOrchestrator(options: OrchestratorOptions = {}) {
     return refresh();
   }
 
-  function refresh(failedKeys?: CacheKey[]): Promise<void> {
+  // 指定した一覧だけ再取得する。省略時は全件、空配列なら取得しない。
+  function refresh(failedKeys?: readonly CacheKey[]): Promise<void> {
     if (stopped) return Promise.resolve();
     if (!snapshot) return start();
     if (refreshPromise) return refreshPromise;
@@ -306,5 +307,5 @@ export function createSyncOrchestrator(options: OrchestratorOptions = {}) {
     // 保存先はアプリ共有なので close しない。
   }
 
-  return { state: readonly(state), start, resync, close, flush: () => pending };
+  return { state: readonly(state), start, refresh, resync, close, flush: () => pending };
 }
