@@ -142,7 +142,7 @@ describe('S-08 screens.yaml の来場者ジャーニー', () => {
     await vi.waitFor(() => expect(app!.router.currentRoute.value.name).toBe('tags'));
     await flushPromises();
     await app!.wrapper.get('.tags-sheet input').setValue('あとで行く');
-    await app!.click('タグを作って付ける');
+    await app!.click('作る', '.tags-sheet .create-row button');
     await app!.click('マップ', '.visitor-tabs a');
     await app!.click('あとで行く', '.filter-chips button');
     expect((await app!.storage.filter.get()).tagIds).toHaveLength(1);
