@@ -204,7 +204,7 @@ onBeforeUnmount(() => dispose());
 .map-canvas { position: relative; width: 100%; height: 100%; overflow: hidden; }
 canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .compass {
-  position: absolute; left: 12px; bottom: calc(var(--map-bottom-clearance, 0px) + 32px); display: grid; place-items: center;
+  position: absolute; left: max(12px, env(safe-area-inset-left, 0px)); bottom: calc(var(--map-bottom-clearance, 0px) + 32px); display: grid; place-items: center;
   width: 44px; height: 44px; padding: 0; border: 1px solid currentColor; border-radius: 12px;
   color: var(--app-text-primary); background: var(--app-bg-surface); cursor: pointer;
 }

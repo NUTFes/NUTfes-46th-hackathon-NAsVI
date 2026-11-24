@@ -164,18 +164,24 @@ function select(selection: { kind: 'place' | 'building'; id: string }) {
 </template>
 
 <style scoped>
-.map-view { --map-bottom-clearance: var(--map-tab-reserve, 0px); position: relative; display: block; height: 100%; min-height: 360px; isolation: isolate; }
+.map-view { --map-bottom-clearance: calc(var(--map-tab-reserve, 0px) + env(safe-area-inset-bottom, 0px)); position: relative; display: block; height: 100%; min-height: 280px; isolation: isolate; }
 /* TabBar が stage の外にある現在は 0。地図に重ねる場合は --map-tab-reserve を調整する。 */
 .map-view__canvas { position: absolute; inset: 0; min-height: 0; }
-.map-view__controls { position: absolute; top: 0; left: 0; right: 0; display: grid; gap: 8px; padding: 12px; pointer-events: none; }
+.map-view__controls { position: absolute; top: 0; left: 0; right: 0; display: grid; gap: 8px; padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) 12px max(12px, env(safe-area-inset-left, 0px)); pointer-events: none; }
 .map-view__controls > * { pointer-events: auto; }
 .map-view__controls form { margin: 0; }
 .map-view__controls :deep(.nv-search) { width: 100%; }
 .map-view__controls fieldset { display: grid; gap: 8px; }
 .map-view__controls p[role='alert'] { margin: 0; padding: 8px; background: var(--app-bg-surface); }
-.map-view__tools { position: absolute; right: 12px; bottom: calc(var(--map-bottom-clearance) + 108px); display: grid; gap: 8px; }
-.map-view__stamp { position: absolute; right: 12px; bottom: calc(var(--map-bottom-clearance) + 32px); }
-.map-view__credit { position: absolute; right: 4px; bottom: var(--map-bottom-clearance); padding: 2px 4px; border-radius: 4px; background: var(--app-bg-surface); font-size: 10px; }
+.map-view__tools { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(var(--map-bottom-clearance) + 108px); display: grid; gap: 8px; }
+.map-view__stamp { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(var(--map-bottom-clearance) + 32px); }
+.map-view__credit { position: absolute; right: max(4px, env(safe-area-inset-right, 0px)); left: max(4px, env(safe-area-inset-left, 0px)); width: fit-content; max-width: calc(100% - 8px); margin: 0 0 0 auto; overflow-wrap: anywhere; bottom: var(--map-bottom-clearance); padding: 2px 4px; border-radius: 4px; background: var(--app-bg-surface); font-size: 10px; }
+@media (max-height: 600px) {
+  .map-view__tools { display: flex; align-items: flex-end; }
+  .map-view__tools :deep(.zoom) { display: flex; width: 88px; }
+  .map-view__tools :deep(.zoom button) { border: 1px solid var(--app-border-subtle); border-radius: 14px 0 0 14px; }
+  .map-view__tools :deep(.zoom button + button) { border-left: 0; border-radius: 0 14px 14px 0; }
+}
 .map-view__dialog { position: fixed; inset: auto 0 0; width: min(100%, 600px); max-height: 80dvh; padding: 0; border: 0; background: transparent; color: var(--app-text-primary); overflow: auto; }
 .map-view__dialog::backdrop { background: rgb(0 0 0 / 0.4); }
 .map-view__check { display: flex; align-items: center; gap: 12px; min-height: 48px; border-bottom: 1px solid var(--app-border-subtle); }
