@@ -129,7 +129,7 @@ describe('S-08 screens.yaml の来場者ジャーニー', () => {
     await vi.waitFor(() => expect(app!.router.currentRoute.value.name).toBe('building'));
     await flushPromises();
     await app!.wrapper.get('[role="tab"][aria-label="2階、企画 1 件"]').trigger('click');
-    await app!.click('お化け屋敷企画 · 研究棟 · 2階', '.building__row');
+    await app!.click('お化け屋敷企画研究棟2階', '.place-row__open');
     await vi.waitFor(() => expect(app!.router.currentRoute.value.name).toBe('card'));
     expect(app!.router.currentRoute.value.params.id).toBe(event.id);
     checkJourney('F1-building');
