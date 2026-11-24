@@ -140,7 +140,7 @@ describe('GuideView', () => {
     const view = await renderGuide();
     expect(view.text()).toContain('お化け屋敷');
     expect(view.get('.eyebrow').text()).toBe('案内中・総合研究棟 2階');
-    expect(view.get('.distance').attributes('aria-label')).toBe('直線距離 約 150 m、方角 東（北を基準）');
+    expect(view.get('.distance .sr-only').text()).toBe('直線距離 約 150 m、方角 東（北を基準）');
     expect(view.get('.distance-value').text()).toBe('150m');
     expect(view.get('.direction').text()).toBe('東');
     expect(view.get('[data-icon="navigation"]').attributes('style')).toContain('rotate(90deg)');
@@ -155,14 +155,14 @@ describe('GuideView', () => {
   ])('追加決定に従い距離 $distance を「約」付きの整数 m で表示する', async ({ distance, text }) => {
     usePlacesStore().upsert({ ...place, location: fromXY(distance, 0) });
     const view = await renderGuide();
-    expect(view.get('.distance').attributes('aria-label')).toBe(text);
+    expect(view.get('.distance .sr-only').text()).toBe(text);
   });
 
   it('現在地の更新に追従し、距離・方角・時刻・精度を再計算する', async () => {
     const view = await renderGuide();
     setPosition(150, -60, 12);
     await nextTick();
-    expect(view.get('.distance').attributes('aria-label')).toBe('直線距離 約 60 m、方角 北（北を基準）');
+    expect(view.get('.distance .sr-only').text()).toBe('直線距離 約 60 m、方角 北（北を基準）');
     expect(view.text()).toContain('0 秒前に更新・精度 ±12 m');
   });
 
@@ -173,7 +173,7 @@ describe('GuideView', () => {
     await nextTick();
     expect(view.text()).toContain('新しい企画名');
     expect(view.get('.eyebrow').text()).toBe('案内中・新しい建物名 0階');
-    expect(view.get('.distance').attributes('aria-label')).toBe('直線距離 約 141 m、方角 南西（北を基準）');
+    expect(view.get('.distance .sr-only').text()).toBe('直線距離 約 141 m、方角 南西（北を基準）');
   });
 
   it.each([
@@ -196,6 +196,7 @@ describe('GuideView', () => {
     await nextTick();
     expect(view.text()).toContain('行き先に着きました');
     expect(view.find('[data-icon="check"]').exists()).toBe(true);
+    expect(view.get('.eyebrow').text()).toContain('会場は 2 階です。');
     expect(view.get('.note').text()).toBe('会場は 2 階です。建物の中の地図で、階と場所を確かめられます。');
     expect(view.find('.distance').exists()).toBe(false);
     expect(view.get('button').attributes('data-variant')).toBe('destination');

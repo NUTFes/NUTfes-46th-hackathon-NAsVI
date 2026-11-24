@@ -129,7 +129,7 @@ async function clearDestination() {
         </span>
         <div class="place-heading">
           <p class="eyebrow" role="status">
-            <span v-if="arrived" class="sr-only">行き先に着きました。</span>案内中<template v-if="where">・{{ where }}</template>
+            <span v-if="arrived" class="sr-only">行き先に着きました。{{ arrivedNote }}</span>案内中<template v-if="where">・{{ where }}</template>
           </p>
           <h2>{{ place.name }}</h2>
           <p v-if="guide" class="caption" :class="{ stale }">
@@ -137,17 +137,14 @@ async function clearDestination() {
           </p>
         </div>
         <!-- 距離は北基準の直線距離。「約」は読み上げにだけ残す（追加決定）。到着したら出さない。 -->
-        <p
-          v-if="guide && !arrived"
-          class="distance"
-          :aria-label="`直線距離 約 ${Math.round(guide.distance)} m、方角 ${direction}（北を基準）`"
-        >
+        <p v-if="guide && !arrived" class="distance">
+          <span class="sr-only">直線距離 約 {{ Math.round(guide.distance) }} m、方角 {{ direction }}（北を基準）</span>
           <span class="distance-value" aria-hidden="true">{{ Math.round(guide.distance) }}<small>m</small></span>
           <span class="direction" aria-hidden="true">{{ direction }}</span>
         </p>
       </div>
 
-      <p v-if="arrived && arrivedNote" class="note">{{ arrivedNote }}</p>
+      <p v-if="arrived && arrivedNote" class="note" aria-hidden="true">{{ arrivedNote }}</p>
       <div v-if="!guide" class="position-banner" role="status">
         <p>{{ status === 'asking' ? '現在地を確認しています' : '現在地が使えません' }}</p>
         <p class="caption">方角と直線距離を表示できません。</p>
