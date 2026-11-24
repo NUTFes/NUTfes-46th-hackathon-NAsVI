@@ -3,6 +3,7 @@ import { CONGESTION_RADIUS_M, congestionByPlace, isExpired } from '../../domain/
 import { distanceM, toXY } from '../../domain/geo';
 import type { Stamp } from '../../types';
 import { project, TILT } from '../core';
+import { canvasSize } from './buildings';
 import type { Layer, MapState } from './types';
 
 type CongestionLevel = 1 | 2 | 3 | 4 | 5;
@@ -19,6 +20,7 @@ export const STAMP_TOKENS = {
   congestionBorder: { dark: dark['--app-congestion-border'], light: light['--app-congestion-border'] },
   feeling: { dark: dark['--app-feeling'], light: light['--app-feeling'] },
   feelingOn: dark['--app-feeling-on'],
+  textPrimary: { dark: dark['--app-text-primary'], light: light['--app-text-primary'] },
   mapRing: { dark: dark['--app-map-ring'], light: light['--app-map-ring'] },
 } as const;
 
@@ -69,13 +71,6 @@ export function congestionStyle(level: CongestionLevel) {
 function theme(ctx: CanvasRenderingContext2D): Theme {
   return ctx.canvas.closest?.('[data-theme]')?.getAttribute('data-theme') === 'light'
     ? 'light' : 'dark';
-}
-
-/** 投影は CSS px で行う。setTransform(dpr…) が掛かっているので、内部サイズを DPR で割る。 */
-function canvasSize(ctx: CanvasRenderingContext2D): { width: number; height: number } {
-  const t = ctx.getTransform?.();
-  const dpr = (t && Math.hypot(t.a, t.b)) || 1;
-  return { width: ctx.canvas.width / dpr, height: ctx.canvas.height / dpr };
 }
 
 let congestionCache: {
@@ -240,7 +235,7 @@ function drawMore(ctx: CanvasRenderingContext2D, text: string, x: number, y: num
   ctx.lineWidth = 3;
   ctx.strokeStyle = STAMP_TOKENS.mapRing[th];
   ctx.strokeText(text, x, y);
-  ctx.fillStyle = th === 'light' ? STAMP_TOKENS.feelingOn : '#ffffff';
+  ctx.fillStyle = STAMP_TOKENS.textPrimary[th];
   ctx.fillText(text, x, y);
 }
 
