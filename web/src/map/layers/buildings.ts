@@ -39,6 +39,7 @@ export const mapColors = {
 const palette = tokens.color.palette;
 export const planColors = {
   fill: { dark: palette.ink['700'].$value.hex, light: lightColors['--app-bg-surface'].slice(0, 7) },
+  // 暫定: ライトの violet-400 は白に対し約 2.7:1。Figma から確定値が取れるまでの仮置き。
   edge: { dark: palette.violet['400'].$value.hex, light: palette.violet['400'].$value.hex },
 };
 
