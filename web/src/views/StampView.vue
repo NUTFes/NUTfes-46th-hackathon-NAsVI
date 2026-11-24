@@ -1,78 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { RouterLink } from 'vue-router';
+import { RouterLink, useRouter } from 'vue-router';
 import { CLOSING_TIME } from '../../../api/src/config';
 import { ApiError } from '../api/client';
+import { useAppTokens } from '../app/tokens';
 import type { components } from '../api/generated/schema';
+import Button from '../components/ui/Button.vue';
+import Banner from '../components/ui/Banner.vue';
+import Icon from '../components/ui/Icon.vue';
+import Sheet from '../components/ui/Sheet.vue';
+import Toast from '../components/ui/Toast.vue';
 import { usePosition } from '../services/position';
 import { getStorage, type StampProof, type StorageRepositories } from '../storage';
 import { useStampsStore } from '../stores/stamps';
 import type { PressedStamp, Stamp, StampKind } from '../types';
 
-// map/layers の resolveColors と同じ最寄りテーマ・解決済み値を使う。
-// 出典: design-system/claude-design/tokens.css。CSS 変数があればその値を優先する。
-const COLOR_TOKENS = {
-  page: ['bg-page', '#130a22', '#f6f4fa'], // color.dark/light.bg-page
-  surface: ['bg-surface', '#1c1032', '#ffffff'], // color.dark/light.bg-surface
-  text: ['text-primary', '#f4f0ff', '#1e0b3a'], // color.dark/light.text-primary
-  secondary: ['text-secondary', '#b4a9cf', '#5b5274'], // color.dark/light.text-secondary
-  action: ['action-primary', '#a78bfa', '#6d28d9'], // color.dark/light.action-primary
-  border: ['border-subtle', '#a78bfa47', '#1e0b3a26'], // color.dark/light.border-subtle
-  danger: ['danger-text', '#fecaca', '#b91c1c'], // color.dark/light.danger-text
-  'danger-bg': ['danger-bg', '#2d1520', '#fef2f2'], // color.dark/light.danger-bg
-  stale: ['stale', '#fdba74', '#c2410c'], // color.dark/light.stale
-  pressed: ['state-pressed', '#ffffff1f', '#1e0b3a14'], // color.dark/light.state-pressed
-  feeling: ['feeling', '#f9a8d4', '#f472b6'], // color.dark/light.feeling
-  'feeling-on': ['feeling-on', '#1e0b3a', '#1e0b3a'], // color.dark/light.feeling-on
-  'congestion-border': ['congestion-border', '#fdba74', '#c2410c'], // color.dark/light.congestion-border
-  'congestion-1': ['congestion-1', '#ffedd5', '#ffedd5'], // color.dark/light.congestion-1
-  'congestion-2': ['congestion-2', '#fdba74', '#fdba74'], // color.dark/light.congestion-2
-  'congestion-3': ['congestion-3', '#f97316', '#f97316'], // color.dark/light.congestion-3
-  'congestion-4': ['congestion-4', '#c2410c', '#c2410c'], // color.dark/light.congestion-4
-  'congestion-5': ['congestion-5', '#7c2d12', '#7c2d12'], // color.dark/light.congestion-5
-  'congestion-1-on': ['congestion-1-on', '#1e0b3a', '#1e0b3a'], // color.dark/light.congestion-1-on
-  'congestion-2-on': ['congestion-2-on', '#1e0b3a', '#1e0b3a'], // color.dark/light.congestion-2-on
-  'congestion-3-on': ['congestion-3-on', '#1e0b3a', '#1e0b3a'], // color.dark/light.congestion-3-on
-  'congestion-4-on': ['congestion-4-on', '#ffffff', '#ffffff'], // color.dark/light.congestion-4-on
-  'congestion-5-on': ['congestion-5-on', '#ffffff', '#ffffff'], // color.dark/light.congestion-5-on
-} as const;
-
-function resolveColors(element: HTMLElement | null): Record<string, string> {
-  const theme = element?.closest('[data-theme]')?.getAttribute('data-theme') === 'light' ? 2 : 1;
-  const style = element ? getComputedStyle(element) : null;
-  // 未解決の var()（基礎色が欠けた場合や DOM テスト）も循環を避けて解決する。
-  function resolveVariable(name: string, seen = new Set<string>()): string {
-    if (!style || seen.has(name)) return '';
-    seen.add(name);
-    const value = style.getPropertyValue(name).trim();
-    const variable = /^var\((--[\w-]+)\)$/.exec(value);
-    return variable ? resolveVariable(variable[1], seen) : value.includes('var(') ? '' : value;
-  }
-  return Object.fromEntries(Object.entries(COLOR_TOKENS).map(([key, values]) => [
-    `--stamp-${key}`, resolveVariable(`--${values[0]}`) || values[theme],
-  ]));
-}
-
-const TOKENS = {
-  '--stamp-space-1': 'var(--space-1, 4px)', // space.1
-  '--stamp-space-2': 'var(--space-2, 8px)', // space.2
-  '--stamp-space-3': 'var(--space-3, 12px)', // space.3
-  '--stamp-space-4': 'var(--space-4, 16px)', // space.4
-  '--stamp-radius': 'var(--radius-lg, 12px)', // radius.lg
-  '--stamp-target': 'var(--touch-target, 44px)', // size.touch-target
-  '--stamp-disabled': 'var(--opacity-disabled, 0.45)', // opacity.disabled
-  '--stamp-font': 'var(--font-base, "Noto Sans JP", sans-serif)', // font.family.base
-  '--stamp-body-size': '13px', // font.size.sm / typography.body
-  '--stamp-body-weight': '400', // font.weight.regular / typography.body
-  '--stamp-body-leading': '1.5', // tokens.css .body
-  '--stamp-title-size': '20px', // font.size.2xl / typography.title
-  '--stamp-heading-size': '16px', // font.size.xl / typography.heading
-  '--stamp-heading-weight': '800', // font.weight.extra-bold
-  '--stamp-heading-leading': '1.35', // tokens.css .title / .heading
-  '--stamp-action-size': '14px', // font.size.md / typography.action
-  '--stamp-action-weight': '700', // font.weight.bold / typography.action
-  '--stamp-action-leading': '1.4', // tokens.css .action
-};
 const CONGESTION = [
   { kind: 'congestion-1', label: '混雑1 空いている', number: 1 },
   { kind: 'congestion-2', label: '混雑2', number: 2 },
@@ -80,19 +22,20 @@ const CONGESTION = [
   { kind: 'congestion-4', label: '混雑4', number: 4 },
   { kind: 'congestion-5', label: '混雑5 とても混んでいる', number: 5 },
 ] as const;
-// 地図の stamps 層と同じ感想のマーク。
+// 地図の stamps 層と同じ感想のマーク(Icon の fun / food / good)。
 const FEELINGS = [
-  { kind: 'fun', label: '面白い', mark: '楽' },
-  { kind: 'food', label: '美味しい', mark: '食' },
-  { kind: 'good', label: 'よさ', mark: '良' },
+  { kind: 'fun', label: '面白い', icon: 'fun' },
+  { kind: 'food', label: '美味しい', icon: 'food' },
+  { kind: 'good', label: 'よさ', icon: 'good' },
 ] as const;
 const VISIBLE_COUNT = 3; // MyStampRow: 新しい順に3件まで
-const TOAST_MS = 6000; // Toast.durationMs
 
 const { position, status, allow } = usePosition();
 const stamps = useStampsStore();
-const root = ref<HTMLElement | null>(null);
-const colors = ref(resolveColors(null));
+// 色・余白・文字は I-0 の --app-*(app/tokens.ts)。ライト・ダークの切替も useAppTokens が追従する。
+const root = ref<HTMLElement>();
+const tokens = useAppTokens(root);
+const router = useRouter();
 const proofs = ref<StampProof[]>([]);
 const ready = ref(false);
 const busy = ref(false);
@@ -104,9 +47,7 @@ const toast = ref<Stamp | null>(null);
 let storage: StorageRepositories | undefined;
 let unsubscribe: (() => void) | undefined;
 let timer: ReturnType<typeof setInterval> | undefined;
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let disposed = false;
-let themeObserver: MutationObserver | undefined;
 
 const point = computed(() => {
   const value = position.value;
@@ -132,9 +73,23 @@ function title(kind: StampKind): string {
 }
 
 function badgeStyle(kind: StampKind) {
-  const congestion = CONGESTION.find(item => item.kind === kind);
-  const key = congestion?.kind ?? 'feeling';
-  return { background: colors.value[`--stamp-${key}`], color: colors.value[`--stamp-${key}-on`] };
+  const key = CONGESTION.some(item => item.kind === kind) ? kind : 'feeling';
+  return { background: `var(--app-${key})`, color: `var(--app-${key}-on)` };
+}
+
+// 札の枠。感想は黒(feeling-on)、混雑は congestion-border。
+function pillStyle(kind: StampKind) {
+  const border = CONGESTION.some(item => item.kind === kind) ? 'congestion-border' : 'feeling-on';
+  return { ...badgeStyle(kind), boxShadow: `inset 0 0 0 1px var(--app-${border})` };
+}
+
+function feelingIcon(kind: StampKind) {
+  return FEELINGS.find(item => item.kind === kind)?.icon;
+}
+
+// Figma の Toast「混雑3 を足元に押しました」。感想は名前にそのまま続ける。
+function toastMessage(kind: StampKind): string {
+  return `${title(kind)}${kind.startsWith('congestion') ? ' ' : ''}を足元に押しました`;
 }
 
 function age(takenAt: number): string {
@@ -229,11 +184,7 @@ async function press(kind: StampKind) {
       storageWarning.value = '取り消しの証を端末に保存できませんでした。この画面を閉じる前に取り消せます。';
     }
     now.value = Date.now();
-    if (!disposed) {
-      toast.value = stamp;
-      clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => { toast.value = null; }, TOAST_MS);
-    }
+    if (!disposed) toast.value = stamp; // 6 秒後の消去は Toast の dismiss
   } catch (cause) {
     error.value = cause instanceof ApiError && cause.status === 400 && cause.code === 'out_of_venue'
       ? '会場の外にいるため、スタンプを押せません。会場内で現在地を確認してからお試しください。'
@@ -277,159 +228,152 @@ async function retract(stamp: Stamp) {
 }
 
 onMounted(() => {
-  const updateColors = () => { colors.value = resolveColors(root.value); };
-  updateColors();
-  themeObserver = new MutationObserver(updateColors);
-  for (let element = root.value; element; element = element.parentElement) {
-    themeObserver.observe(element, { attributes: true, attributeFilter: ['data-theme'] });
-  }
   timer = setInterval(() => { now.value = Date.now(); }, 1000);
   void loadProofs();
 });
 onUnmounted(() => {
   disposed = true;
   clearInterval(timer);
-  clearTimeout(toastTimer);
-  themeObserver?.disconnect();
   unsubscribe?.();
 });
 </script>
-
 <template>
-  <main ref="root" class="stamp-view" :style="{ ...TOKENS, ...colors }">
-    <header>
-      <h1>スタンプを押す</h1>
-      <RouterLink to="/">マップへ戻る</RouterLink>
-    </header>
-    <section class="panel" aria-labelledby="stamp-point-title">
-      <h2 id="stamp-point-title">押す地点</h2>
-      <template v-if="point">
-        <p>現在地：緯度 {{ point.lat.toFixed(6) }}・経度 {{ point.lng.toFixed(6) }}</p>
-        <p class="secondary">{{ accuracy }}・{{ age(point.takenAt) }}に取得</p>
-        <p class="secondary">スタンプを選ぶと、この地点が公開されます。</p>
-      </template>
-      <template v-else>
-        <p>{{ status === 'asking' ? '現在地を確認中です。' : '現在地がないため、スタンプを押せません。' }}</p>
-        <button type="button" :disabled="status === 'asking'" @click="allow">位置の利用を許可する</button>
-        <RouterLink to="/noloc">位置の設定・地図で指定する</RouterLink>
-      </template>
-    </section>
-
-    <p v-if="storageWarning" class="warning" role="status">{{ storageWarning }}</p>
-    <div v-if="error" class="error" role="alert">
-      <p>{{ error }}</p>
-      <button v-if="!ready" type="button" @click="loadProofs">もう一度読み込む</button>
-    </div>
-    <p v-if="!ready && !error" role="status">端末の保存を読み込んでいます。</p>
-    <p v-if="busy" role="status">通信中です…</p>
-
-    <section class="panel" aria-labelledby="stamp-congestion-title" :aria-busy="busy">
-      <h2 id="stamp-congestion-title">混雑</h2>
-      <div class="congestion choices">
-        <button v-for="item in CONGESTION" :key="item.kind" type="button"
-          class="congestion-button" :aria-label="item.label" :disabled="!canPress"
-          :style="badgeStyle(item.kind)" @click="press(item.kind)">{{ item.number }}</button>
-      </div>
-      <p class="scale secondary"><span>空いている</span><span>とても混んでいる</span></p>
-    </section>
-
-    <section class="panel" aria-labelledby="stamp-feeling-title" :aria-busy="busy">
-      <h2 id="stamp-feeling-title">感想</h2>
-      <!-- D-022 / API-17。時刻は既存設定を参照し、押した後の残り時間は expiresAt から表示する。 -->
-      <p class="secondary">感想のスタンプは、その日の閉場（{{ CLOSING_TIME }}）まで有効です。</p>
-      <div class="feelings choices">
-        <button v-for="item in FEELINGS" :key="item.kind" type="button" class="feeling-button"
-          :aria-label="item.label" :disabled="!canPress" @click="press(item.kind)">
-          <span class="feeling-mark" aria-hidden="true">{{ item.mark }}</span>{{ item.label }}
-        </button>
-      </div>
-    </section>
-
-    <div v-if="activeToast" class="panel toast" role="status">
-      <p>{{ title(activeToast.kind) }}を足元に押しました</p>
-      <button type="button" :disabled="busy" @click="retract(activeToast!)">取り消す</button>
-    </div>
-
-    <section v-if="owned.length" class="panel" aria-labelledby="my-stamps-title">
-      <h2 id="my-stamps-title">自分が押したスタンプ</h2>
-      <ul>
-        <li v-for="stamp in visible" :key="stamp.id" class="my-stamp">
-          <span class="badge" :style="badgeStyle(stamp.kind)">{{ title(stamp.kind) }}</span>
-          <div class="stamp-time secondary">
-            <time :datetime="stamp.pressedAt">{{ age(Date.parse(stamp.pressedAt)) }}</time>
-            <p>{{ remaining(stamp) }}</p>
+  <main ref="root" class="stamp-view" :style="tokens">
+    <Sheet :level="1" title="混雑を足元に押す" subtitle="いまいる場所の混み具合を、みんなに知らせます。"
+      @close="router.push('/')">
+      <section class="block" aria-labelledby="stamp-point-title">
+        <h2 id="stamp-point-title" class="sr-only">押す地点</h2>
+        <template v-if="point">
+          <p class="secondary">{{ accuracy }}・{{ age(point.takenAt) }}に取得</p>
+          <p class="secondary">スタンプを選ぶと、この地点が公開されます。</p>
+        </template>
+        <template v-else>
+          <p>{{ status === 'asking' ? '現在地を確認中です。' : '現在地がないため、スタンプを押せません。' }}</p>
+          <div class="actions">
+            <Button label="位置の利用を許可する" :disabled="status === 'asking'" @press="allow" />
+            <RouterLink class="link" to="/noloc">位置の設定・地図で指定する</RouterLink>
           </div>
-          <button type="button" :disabled="busy" :aria-label="`${title(stamp.kind)}を取り消す`"
-            @click="retract(stamp)">取り消す</button>
-        </li>
-      </ul>
-      <button v-if="!expanded && owned.length > VISIBLE_COUNT" type="button" @click="expanded = true">
-        ほか {{ owned.length - VISIBLE_COUNT }} 件を見る
-      </button>
-      <p class="secondary">この端末のデータが消えると、取り消せなくなります。</p>
-    </section>
+        </template>
+      </section>
+
+      <p v-if="storageWarning" class="block warning" role="status">{{ storageWarning }}</p>
+      <Banner v-if="error" class="block" tone="error" :title="error"
+        :actions="ready ? [] : [{ label: 'もう一度読み込む', variant: 'secondary', onPress: loadProofs }]" />
+      <p v-if="!ready && !error" class="block" role="status">端末の保存を読み込んでいます。</p>
+      <p v-if="busy" class="block" role="status">通信中です…</p>
+
+      <section class="block" aria-labelledby="stamp-congestion-title" :aria-busy="busy">
+        <h2 id="stamp-congestion-title" class="label">混雑</h2>
+        <div class="congestion choices">
+          <button v-for="item in CONGESTION" :key="item.kind" type="button"
+            class="congestion-button" :aria-label="item.label" :disabled="!canPress"
+            :style="badgeStyle(item.kind)" @click="press(item.kind)">{{ item.number }}</button>
+        </div>
+        <p class="scale secondary" aria-hidden="true"><span>空いている</span><span>とても混んでいる</span></p>
+      </section>
+
+      <section class="block" aria-labelledby="stamp-feeling-title" :aria-busy="busy">
+        <h2 id="stamp-feeling-title" class="label">感想</h2>
+        <!-- D-022 / API-17。時刻は既存設定を参照し、押した後の残り時間は expiresAt から表示する。 -->
+        <p class="secondary">感想のスタンプは、その日の閉場（{{ CLOSING_TIME }}）まで有効です。</p>
+        <div class="feelings choices">
+          <button v-for="item in FEELINGS" :key="item.kind" type="button" class="feeling-button"
+            :aria-label="item.label" :disabled="!canPress" @click="press(item.kind)">
+            <span class="feeling-mark" aria-hidden="true"><Icon :name="item.icon" :size="18" /></span>
+            <span>{{ item.label }}</span>
+          </button>
+        </div>
+      </section>
+
+      <section v-if="owned.length" class="block" aria-labelledby="my-stamps-title">
+        <h2 id="my-stamps-title" class="label">自分が押したスタンプ</h2>
+        <ul>
+          <li v-for="stamp in visible" :key="stamp.id" class="my-stamp">
+            <span class="badge" :style="pillStyle(stamp.kind)">
+              <Icon v-if="feelingIcon(stamp.kind)" :name="feelingIcon(stamp.kind)!" :size="14" />{{ title(stamp.kind) }}
+            </span>
+            <p class="stamp-time secondary">
+              <time :datetime="stamp.pressedAt">{{ age(Date.parse(stamp.pressedAt)) }}</time>
+              ・{{ remaining(stamp) }}
+            </p>
+            <Button variant="secondary" size="sm" label="取り消す" :disabled="busy"
+              :aria-label="`${title(stamp.kind)}を取り消す`" @press="retract(stamp)" />
+          </li>
+        </ul>
+        <Button v-if="!expanded && owned.length > VISIBLE_COUNT" variant="secondary" size="sm"
+          :label="`ほか ${owned.length - VISIBLE_COUNT} 件を見る`" @press="expanded = true" />
+        <p class="secondary">この端末のデータが消えると、取り消せなくなります。</p>
+      </section>
+    </Sheet>
+
+    <Toast v-if="activeToast" class="toast" floating :message="toastMessage(activeToast.kind)"
+      :on-undo="() => retract(activeToast!)" @dismiss="toast = null" />
   </main>
 </template>
 
 <style scoped>
 .stamp-view {
   box-sizing: border-box;
-  min-height: 100dvh;
-  padding: var(--stamp-space-4);
-  background: var(--stamp-page);
-  color: var(--stamp-text);
-  font-family: var(--stamp-font);
-  font-size: var(--stamp-body-size);
-  font-weight: var(--stamp-body-weight);
-  line-height: var(--stamp-body-leading);
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: var(--app-bg-page);
+  color: var(--app-text-primary);
+  font: var(--app-regular) var(--app-body) / var(--app-leading) var(--app-font);
 }
-header, .scale, .toast, .my-stamp { display: flex; align-items: center; justify-content: space-between; gap: var(--stamp-space-2); }
-header { flex-wrap: wrap; margin-bottom: var(--stamp-space-4); }
-h1, h2, p { margin: 0; }
-h1, h2 { font-weight: var(--stamp-heading-weight); line-height: var(--stamp-heading-leading); }
-h1 { font-size: var(--stamp-title-size); }
-h2 { font-size: var(--stamp-heading-size); margin-bottom: var(--stamp-space-3); }
-.panel, .error, .warning {
-  margin-bottom: var(--stamp-space-4);
-  padding: var(--stamp-space-4);
-  border: 1px solid var(--stamp-border);
-  border-radius: var(--stamp-radius);
-  background: var(--stamp-surface);
+p, h2, ul { margin: 0; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
-.secondary { color: var(--stamp-secondary); }
-.warning { color: var(--stamp-stale); }
-.error { background: var(--stamp-danger-bg); color: var(--stamp-danger); }
-button, a {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--stamp-target);
-  padding: var(--stamp-space-2);
-  color: var(--stamp-action);
-  font: inherit;
-  font-size: var(--stamp-action-size);
-  font-weight: var(--stamp-action-weight);
-  line-height: var(--stamp-action-leading);
-  overflow-wrap: anywhere;
+.block { display: grid; gap: var(--app-space-2); margin-bottom: var(--app-space-4); }
+.label { font-size: var(--app-body); font-weight: var(--app-bold); color: var(--app-text-secondary); }
+.secondary { color: var(--app-text-secondary); }
+.warning { color: var(--app-stale); }
+.actions { display: grid; gap: var(--app-space-2); }
+.link {
+  display: inline-flex; align-items: center; justify-content: center; min-height: var(--app-touch);
+  color: var(--app-action-primary); font-size: var(--app-action); font-weight: var(--app-bold);
 }
-button { border: 1px solid var(--stamp-border); border-radius: var(--stamp-radius); background: var(--stamp-surface); cursor: pointer; }
-button:disabled { opacity: var(--stamp-disabled); cursor: default; }
-button:focus-visible, a:focus-visible { outline: 2px solid var(--stamp-action); outline-offset: var(--stamp-space-1); }
-button:active:not(:disabled) { box-shadow: inset 0 0 0 100vmax var(--stamp-pressed); }
-.choices { display: grid; gap: var(--stamp-space-2); }
+.link:focus-visible { outline: 2px solid var(--app-action-primary); outline-offset: var(--app-space-1); }
+.choices { display: grid; gap: var(--app-space-2); }
+.choices button {
+  box-sizing: border-box; font: inherit; font-weight: var(--app-bold); cursor: pointer;
+}
+.choices button:disabled { opacity: var(--app-disabled); cursor: default; }
+.choices button:focus-visible { outline: 2px solid var(--app-action-primary); outline-offset: var(--app-space-1); }
+.choices button:active:not(:disabled) { box-shadow: inset 0 0 0 100vmax var(--app-state-pressed); }
+/* StampCongestionPicker: 60×52、濃淡と数字 */
 .congestion { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .congestion-button {
-  min-height: calc(var(--stamp-target) + var(--stamp-space-2));
-  border-color: var(--stamp-congestion-border);
-  font-size: var(--stamp-title-size);
+  min-height: 52px; border: 1px solid var(--app-congestion-border);
+  border-radius: var(--app-radius); font-size: var(--app-title); font-weight: 800;
 }
-.scale { margin-top: var(--stamp-space-2); }
-.feelings { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.feeling-button { flex-direction: column; gap: var(--stamp-space-1); padding: var(--stamp-space-3) 0; color: var(--stamp-text); }
-.feeling-mark { padding: var(--stamp-space-1) var(--stamp-space-2); border-radius: var(--stamp-radius); background: var(--stamp-feeling); color: var(--stamp-feeling-on); }
-ul { margin: 0; padding: 0; list-style: none; }
-.my-stamp { flex-wrap: wrap; padding: var(--stamp-space-2) 0; border-top: 1px solid var(--stamp-border); }
-.badge { padding: var(--stamp-space-1) var(--stamp-space-2); border-radius: var(--stamp-radius); font-weight: var(--stamp-action-weight); }
-.stamp-time { flex: 1; }
+.scale { display: flex; justify-content: space-between; gap: var(--app-space-2); font-size: 11px; }
+/* StampFeelingButton: 横並び。左に桃色の丸+アイコン、右に文字。高さ 48px */
+.feelings { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.feeling-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--app-space-2);
+  min-height: 48px; padding: 0 var(--app-space-3);
+  background: var(--app-bg-surface); border: 1px solid var(--app-action-primary);
+  border-radius: var(--app-radius); color: var(--app-text-primary); font-size: var(--app-action);
+}
+.feeling-mark {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--app-feeling); color: var(--app-feeling-on);
+}
+/* MyStampRow: 枠つきの行。札は丸薬、時刻と残りは 1 行、右に外枠の取り消し */
+ul { padding: 0; list-style: none; display: grid; gap: var(--app-space-2); }
+.my-stamp {
+  display: flex; align-items: center; gap: var(--app-space-2); padding: var(--app-space-2) var(--app-space-3);
+  border: 1px solid var(--app-border-subtle); border-radius: var(--app-radius);
+}
+.badge {
+  display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 2px 10px;
+  border-radius: 999px; font-size: 12px; font-weight: 800; line-height: 1.5; white-space: nowrap;
+}
+.stamp-time { flex: 1; min-width: 0; font-size: 12px; }
+.my-stamp :deep(.nv-btn) { flex: none; }
 </style>
