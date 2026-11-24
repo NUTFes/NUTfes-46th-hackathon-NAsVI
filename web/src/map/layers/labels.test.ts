@@ -475,5 +475,27 @@ describe('labels Layer', () => {
       expect(labels.hitTest!(200, 300)).toEqual({ kind: 'place', id: 'wc' });
       expect(labels.hitTest!(x, y)).toEqual({ kind: 'place', id: 'a' });
     });
+
+    it('描いた丸薬の矩形の内側は、地面の印のほうが近くても丸薬を優先する', () => {
+      const ctx = canvas();
+      const building = landmark();
+      const hgt = buildingHeight(building.footprint!.map((p) => toXY(p.lat, p.lng)));
+      const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0, hgt);
+      // 丸薬(幅 43・高さ 26)の中心から右へ 7px の点に、地面の印を 8px 離して置く。
+      // 地面の印の中心 = (x + 15, y)、タップ点 = (x + 7, y)。
+      const v = { ...view, k: 1 };
+      const [, y0] = project(v, 400, 600, 0, 0);
+      const [, y1] = project(v, 400, 600, 0, 1);
+      const wy = (y - y0) / (y1 - y0); // 地面の y が丸薬の中心の y と同じになる世界座標
+      const wc = place('wc', { kind: 'wc', location: fromXY(15, wy) });
+      labels.draw(ctx, v, state({ landmarks: [building], places: [place('a', { landmarkId: 'a' }), wc] }), 0);
+      const [gx, gy] = project(v, 400, 600, 15, wy);
+      expect(gx).toBeCloseTo(x + 15, 5);
+      expect(gy).toBeCloseTo(y, 5);
+      // タップ点は丸薬の中心から 7px(丸薬の描いた矩形の内側)、地面の印の中心から 8px。
+      expect(labels.hitTest!(x + 7, y)).toEqual({ kind: 'place', id: 'a' });
+      // 描いた矩形の外(丸薬の幅は 43 なので中心から 21.9px)では、近い(6px)地面の印が勝つ。
+      expect(labels.hitTest!(x + 21.9, y)).toEqual({ kind: 'place', id: 'wc' });
+    });
   });
 });

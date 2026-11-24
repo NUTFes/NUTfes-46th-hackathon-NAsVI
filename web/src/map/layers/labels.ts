@@ -10,7 +10,7 @@ import type { MarkIcon } from './buildings';
 import type { Layer } from './types';
 
 export interface Rect { x: number; y: number; w: number; h: number }
-export interface LabelHit { rect: Rect; placeId: string; /** 見た目より広げた押下領域(BuildingFlag)。隣の印と競り合う。 */ soft?: boolean }
+export interface LabelHit { rect: Rect; placeId: string; /** 見た目より広げた押下領域(BuildingFlag)。隣の印と競り合う。 */ soft?: boolean; /** soft のとき、描いた丸薬の矩形。この中は常にラベルを優先する。 */ drawn?: Rect }
 export interface LabelCandidate {
   placeId: string;
   text: string;
@@ -178,7 +178,7 @@ const labels: Layer = {
       labelHits = placed.map((p) => {
         if (p.flagCount === undefined || p.isDestination) return p;
         const w = Math.max(HIT_HALF * 2, p.rect.w);
-        return { placeId: p.placeId, soft: true, rect: { x: p.x - w / 2, y: p.y - HIT_HALF, w, h: HIT_HALF * 2 } };
+        return { placeId: p.placeId, soft: true, drawn: p.rect, rect: { x: p.x - w / 2, y: p.y - HIT_HALF, w, h: HIT_HALF * 2 } };
       });
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'center';
@@ -219,7 +219,9 @@ const labels: Layer = {
       // 吹き出し(行き先)と、丸薬の描いた矩形の中は従来どおり先頭のラベルを優先する。
       const hit = labelHits.find((h) => h.placeId === label.id)!;
       const { x: rx, y: ry, w, h } = hit.rect;
-      if (hit.soft && Math.hypot(x - marker.x, y - marker.y) < Math.hypot(x - (rx + w / 2), y - (ry + h / 2))) {
+      const d = hit.drawn;
+      const inside = d !== undefined && x >= d.x && x <= d.x + d.w && y >= d.y && y <= d.y + d.h;
+      if (hit.soft && !inside && Math.hypot(x - marker.x, y - marker.y) < Math.hypot(x - (rx + w / 2), y - (ry + h / 2))) {
         return { kind: 'place', id: marker.placeId };
       }
     }
