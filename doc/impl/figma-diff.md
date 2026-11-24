@@ -1,22 +1,36 @@
 # Figma(デザインシステム)と実装の差分
 
-Figma「NAsVI デザインシステム」(ファイル FIAsdXNhkURiVxDV9lHVnB、Components ページ 17:2 と 地図を暗く 45:727)と、`impl/main`(S-08 merge 後)の実装を照合した結果。照合は 2026-11-24 に、画像(Figma の各部品)・`design-system/` の仕様・実装のコードだけで行った(ワイヤーフレーム版 37 の画像、実機、ブラウザの描画は見ていない)。
+Figma「NAsVI デザインシステム」(ファイル FIAsdXNhkURiVxDV9lHVnB、Components ページ 17:2 と 地図を暗く 45:727)と、`impl/main` の実装を照合した結果。
+- 照合の対象(以下「照合時点」): `impl/main` 7405dbb(S-08 merge 直後)のコード。読み取りのみ。Figma は部品ごとの PNG 44 枚。
+- 照合は 2026-11-24 に、画像・`design-system/` の仕様・コードだけで行った。ワイヤーフレーム版 37 の画像、実機、ブラウザの描画は見ていない。
+- その後 `impl/main` に I-0・I-1・I-4・I-6・I-7・I-9 が merge され、I-5 がレビュー中(§6 の進捗)。差分の記述は照合時点のもので、直った項目は §6 で示す。
+- パスは `web/src/` からの相対。「確認」はコードと画像から読み取れた事実、「推測」は実機で見ていない判断、「未確認」は画像・実機で確かめていないもの。
 
-## 決定(ユーザー: 「全部 Figma に合わせて」)
-下の「要確認」6 点は、次のとおり決めた。実装は Figma を正とする。
-1. コンパスボタンは、Figma に無いので外す。
-2. 地図の建物は、Figma の MapBackdrop に合わせて平面にする(現在の立体は外す。M23)。大きい変更なので、I-4 とは別に、地図の層の PR で行う。
-3. スタンプを押す画面の緯度・経度の表示は、Figma に無いので外す。
-4. ライトテーマは使う(Figma にライトの変種がある)。`data-theme` を OS の設定(prefers-color-scheme)に追従させて書き込む。
-5. Noto Sans JP は、Figma のフォントに合わせて読み込む(依存の追加が要る場合は、基盤タスクとして別 PR)。
-6. カメラ画面でもタブバーを出す(Figma の TabBar に「カメラ」選択の状態がある)。
+## 方針と決定の状態
+
+方針は「実装を Figma に合わせる」。ただし、チームが確認した範囲は次までで、方針の全体は未確認。
+- 確認済み: `design-system/decisions.md`(2026-11-22・23)の「トークンと部品の元は Figma にする」。looky-looky と naoto-anzai が確認した。チーム全体は未確認(同ファイルに「チームは未確認」とある)。
+- 未確認: 「画面の構成・文言まで全部 Figma に合わせる」こと。これは上の決定を実装全体に広げた方針で、チームの確認は #167 に挙げてある。
+- Figma と DS 仕様・ワイヤーフレームが食い違う項目は、DS 仕様を先に更新(または Figma を直す)してから合わせる。実装を先に Figma へ寄せない。
+  - L1: FilterBand.md は「『〇〇』で絞り込み中・N 件」、Figma は「〇〇で絞り込み中」。
+  - L2: StampCongestionPicker.md と ワイヤーフレーム V1f は「とても混んでいる」、Figma は「混んでいる」。
+
+### 決定済み(ユーザー、2026-11-24)
+1. コンパスボタンは残す。M-02 の受け入れ条件「コンパスで北に戻す」を満たす手段がほかに無い(`map/interaction.ts` の回転は Shift+ドラッグと右ボタンだけ)。Figma には無い差として記録する。Figma 側に足すかはチーム確認(#167)。
+2. ライトテーマは、`data-theme` を OS の設定(prefers-color-scheme)に追従させて使う。根拠と、実機で見比べて確定する条件は §1 の「配色の切り替え」に書く。
+3. 混雑スタンプの丸の数字は、DS(StampMark.md)を正として戻す。Figma の StampMark は数字なしなので、Figma 側の更新が要る。「Figma に合わせる」の例外。
+
+### 方針(ユーザーの意向、チーム未確認)
+4. スタンプを押す画面の緯度・経度の数値は外す(Figma に無い。個人の位置を画面に出す必要が薄い)。ただし I-8 の受け入れ条件に、「この地点が公開されます」の開示と精度の表示を残すことを入れる。
+5. 地図の建物を Figma の MapBackdrop に合わせて平面にするか(M23)は、地図の層の別 PR で扱う。立体が意図的か(モック由来)を確認する。
+6. Noto Sans JP を使うか、使う場合の同梱方法(§6「決める事項」)。
+7. カメラ画面でもタブバーを出す(Figma の TabBar に「カメラ」選択の状態がある)。ワイヤーフレームでの確認が要る。
+
+「要確認・未決」の一覧は §4 に 1 か所にまとめる(#167 と対応)。
 
 ---
 
-# Figma と来場者アプリ(feat/s-08)の差分レポート
-
-対象: `~/.herdr/worktrees/NUTfes-46th-hackathon-NAsVI/s-08`(読み取りのみ)。Figma は部品ごとの PNG 44 枚。
-パスは `web/src/` からの相対。「確認」はコードと画像から読み取れた事実、「推測」は実機で見ていない判断。
+# Figma と来場者アプリの差分レポート
 
 ## 0. 要約
 
@@ -26,19 +40,19 @@ Figma「NAsVI デザインシステム」(ファイル FIAsdXNhkURiVxDV9lHVnB、
   2. 地図画面が「地図を全面に置き、部品を重ねる」形でなく、見出し・検索・ボタン・地図を縦に並べたページになっている。地図の部品(StampFab・MapEyeButton・MapZoomButtons・MapLocateButton・DestinationBar)が無い。
   3. 地図の印(EventMark・FacilityMark・ParkingMark・BuildingFlag)が点と文字の札で、Figma の旗・アイコン付きの印になっていない。
 - 実装は色・余白・角丸・文字の大きさをトークン経由で正しく使っている部品が多い(PlaceRow、FilterBand、FilterChips、StampView の混雑の色)。差は「部品の構成・アイコン・配置」に集中している。
-- 検証の限界: ワイヤーフレーム画像(版 37)は見ていない。Figma の PNG と design-system の仕様、実装のコードだけで照合した。実機・ブラウザでの描画は見ていない。
+- 検証の限界は冒頭のとおり。画像で確かめていない判定は「未確認」とした。
 
 ### 画像を読めなかった・読みにくかった部品
-- Icon: 淡色の背景に淡色のアイコンで、ほぼ判別できなかった(個々のアイコンの形は確認できていない)。
-- PlaceRow・Button・IconButton・TagCreateField・CheckRow・MyStampRow・MapBackdrop の一部: 画像の背景が明るく、ダーク用の淡い文字が背景に溶けて読めない箇所がある。形・色・並びは確認できた。
+- Icon: 淡色の背景に淡色のアイコンで、ほぼ判別できなかった(個々のアイコンの形は未確認)。
+- PlaceRow・Button・IconButton・TagCreateField・CheckRow・MyStampRow・MapBackdrop の一部: 画像の背景が明るく、ダーク用の淡い文字が背景に溶けて読めない箇所がある。形・色・並びは確認できたが、読めない箇所の判定は「未確認」を含む。
 - map-backdrop-dark-45-727: 単色の暗い面だけ(地図背景の色見本)。
 
 ### 部品ごとの合致・不一致(44 部品)
-凡例: 合致 / 一部(合致しない点あり)/ 不一致 / 未実装(実装に部品が無い)
+凡例: 合致 / 一部(合致しない点あり)/ 不一致 / 未実装(実装に部品が無い)/ 未確認(画像で確かめられていない)。判定は照合時点のもの。
 
 | # | 部品 | 判定 | 一言 |
 |---|---|---|---|
-| 1 | Button | 不一致 | 共通部品が無い。画面ごとに外枠だけのボタンを再定義。塗り(主)・黄・赤の変種が無い |
+| 1 | Button | 不一致(形・変種は確認、文字色は未確認) | 共通部品が無い。画面ごとに外枠だけのボタンを再定義。塗り(主)・黄・赤の変種が無い |
 | 2 | Chip | 合致 | FilterChips。32px の見た目と 44px の押下領域、選択時の ✓ まで一致 |
 | 3 | Badge | 一部 | 部品が無い。PlaceRow の種別は外枠のみ(Figma は塗りの丸薬)。MyStamp の札は角丸が丸薬でない |
 | 4 | CheckRow | 不一致 | TagsView。チェックの箱が文字 ✓、行頭アイコンは文字 |
@@ -48,10 +62,10 @@ Figma「NAsVI デザインシステム」(ファイル FIAsdXNhkURiVxDV9lHVnB、
 | 8 | EmptyState | 一部 | VisitorList の中に埋め込み。アイコンが文字 ⌕。Guide・Tags は別々の自前 |
 | 9 | FilterBand | 合致 | 文言だけ差(Figma「飲食で絞り込み中」/ 実装「『飲食』で絞り込み中」) |
 | 10 | TabBar | 不一致 | アイコン無し・選択時の mint 色無し(§2 H1) |
-| 11 | Icon | 未実装 | 部品が無い。SVG はインラインで 6 ファイルに散在 |
+| 11 | Icon | 未実装(アイコンの形は未確認) | 部品が無い。SVG はインラインで 6 ファイルに散在。Figma の Icon 画像が読めず、形は未確認 |
 | 12 | IconButton | 未実装 | × は文字。PlaceCard の「閉じる」は文字ボタン |
 | 13 | Sheet | 不一致 | 取っ手が中央(Figma は左の短い線)。TagsView だけがシート風。Stamp・PlaceCard は別の作り |
-| 14 | PlaceRow | 一部 | 種別の塗り・全高の黄線・タグの選択表現が違う |
+| 14 | PlaceRow | 一部(文字が読めない箇所は未確認) | 種別の塗り・全高の黄線・タグの選択表現が違う |
 | 15 | DestinationBar | 未実装 | 地図に出す黄の帯が無い |
 | 16 | StampCongestionPicker | 一部 | 色は一致。形(角の丸め・押下)と下の文言は近い。ボタンの外枠は congestion-border |
 | 17 | StampFeelingButton | 不一致 | アイコン(顔・フォーク・親指)の代わりに 楽・食・良。ボタンが縦並び |
@@ -70,7 +84,7 @@ Figma「NAsVI デザインシステム」(ファイル FIAsdXNhkURiVxDV9lHVnB、
 | 30 | BuildingShapePreview | 一部 | 輪郭の線だけ。mint の輪郭+塗りの暗い面が無い |
 | 31 | DeleteConfirm | 一部 | `<dialog>`。文言は詳細だが、Figma の赤い面・「削除する」を先に置く並びと違う |
 | 32 | BuildingFloorPlan | 一部 | 設備の印・名前の吹き出し・「1階・見取り図は仮」の札が無い |
-| 33 | MapBackdrop | 一部 | 道路・建物の平面図でなく、立ち上げた立体の建物(推測: 意図的な立体表示か要確認) |
+| 33 | MapBackdrop | 一部(道路・建物の詳細は未確認) | 道路・建物の平面図でなく、立ち上げた立体の建物(推測: 意図的な立体表示か要確認) |
 | 34 | StampFab | 未実装 | 浮かぶ「スタンプ」ボタンが無い。文字リンク「スタンプを押す」 |
 | 35 | MapEyeButton | 未実装 | 「表示」ボタンが無い |
 | 36 | MapZoomButtons | 未実装 | ＋/− が無い(ホイール・ピンチのみ) |
@@ -80,8 +94,8 @@ Figma「NAsVI デザインシステム」(ファイル FIAsdXNhkURiVxDV9lHVnB、
 | 40 | CameraLabel | 一部 | 札は mint の面で近いが、固定形でなく状態の札(現在地 ±8m)・ヒントの札が無い |
 | 41 | DataTable | 一部 | 列・位置の状態(設定済み/要確認)・種類の札・選択行が違う |
 | 42 | MapHighlight | 一部 | 暗い mint の面+明るい縁でなく、event 色の半透明塗り(低) |
-| 43 | BuildingCameraOverlay | 不一致 | 黄の丸薬「PMC LIVE 90 m >」でなく surface 色の全幅ボタン |
-| 44 | map-backdrop-dark-45-727 | 合致 | 地図背景は透明で、ページ背景 ink-900(#130a22)が出る。色見本と同系統(低: Figma は少し濃い) |
+| 43 | BuildingCameraOverlay | 一部(丸薬の色は未確認) | 実装は surface 色の全幅ボタン。Figma は丸薬「PMC LIVE 90 m >」。丸薬の色は、ワイヤーフレーム V3a では白灰、保存済みの BuildingCameraOverlay.png の正面の建物では mint と報告されている(黄は行き先だけ)。画像の読み取りが一致していないため未確認 |
+| 44 | map-backdrop-dark-45-727 | 合致(色見本として) | 地図背景は透明で、ページ背景 ink-900(#130a22)が出る。色見本と同系統(低: Figma は少し濃い) |
 
 ### イシュー案の見出し(§6 に詳細)
 - I-0 トークンの整理(border-control・danger-on・destination-text の取り込み、16 進数の直書きの置き換え)
@@ -110,8 +124,11 @@ Figma「NAsVI デザインシステム」(ファイル FIAsdXNhkURiVxDV9lHVnB、
 - `border-subtle` を GuideView は `#a78bfa47` と直書き(tokens.json のダークは alpha 0.28 = `#a78bfa47`、一致)。ただし BuildingView/FloorPlan は `rgba(167,139,250,0.28)` と別の書き方で、同じ値が 3 通りの書式で存在する。
 - Figma の仮置き変数 border-control・danger-on・destination-text は `design-system/claude-design/tokens.json:321-345` と `tokens.css:41-43` に既にある。DTCG の `tokens.json` には無い(`design-system/decisions.md:140` に記載)。実装では `border-control` だけを `app/tokens.ts:25-26` で読んでいる。`danger-on`・`destination-text` はどこからも参照されていない(確認)。
   - `destination-text` はライトで濃い茶(orange-900)。GuideView で「案内中・総合研究棟 2階」の黄の文字を作る箇所が無い(§2 H7)。
-- 配色の切り替え: `data-theme` を書き込む箇所がコードに無い(読むだけ)。ダークが既定で、ライトは到達しない。運営画面だけ `light-dark()`(`admin/tokens.ts:27-29`)で OS 設定に従うため、OS がライトだと運営画面だけライトになる(Figma の運営画面はダーク)。
-- フォント: `index.html` にも CSS にも Noto Sans JP の読み込みが無い(`@font-face` なし)。端末に無ければ sans-serif に落ちる。「外部から読み込まない」方針のコメントあり。Figma は Noto Sans JP で描いている(低〜中。要判断)。
+- 配色の切り替え(照合時点): `data-theme` を書き込む箇所がコードに無い(読むだけ)。ダークが既定で、ライトは到達しない。運営画面だけ `light-dark()`(`admin/tokens.ts:27-29`)で OS 設定に従うため、OS がライトだと運営画面だけライトになる(Figma の運営画面はダーク)。
+  - 決定: OS の設定に追従して使う(冒頭の決定 2)。「Figma にライトの変種がある」だけでは根拠が弱いので、次を前提として明記する。ワイヤーフレームはライトを「昼の屋外の日なた向けの比較用。実機で見比べる」としている(`doc/screen-design/wireframe.md` のライト V1-a)。行き先の黄の縁と、追加トークン 3 点(border-control・danger-on・destination-text)は仮置き。したがって、OS 追従は実機で見比べて確定する。来場者が切り替える案との比較も、その時に行う。
+  - 配線の進捗: I-0(#190)で `app/useThemeAttribute.ts` が入ったが、`App.vue` ではまだ呼ばれていない(確認、9cde1c9)。入れるのは I-2。
+  - 未決・確認項目: (a) 運営画面を OS 追従に含めるか。(b) canvas の各層(buildings・route・stamps・me・labels)と `StampView`・`ArView` が、テーマ切り替え時に再描画・再取得されるか。照合時点で、`buildings.ts`・`route.ts` は `canvas.closest('[data-theme]')`、`stamps.ts` は `document.documentElement` を読み、`StampView`・`ArView` は MutationObserver を持つ。読む場所と再描画の契機が揃っていない。
+- フォント: `index.html` にも CSS にも Noto Sans JP の読み込みが無い(`@font-face` なし)。端末に無ければ sans-serif に落ちる。コードは端末フォントのみを使う方針(`views/PlaceCard.vue:45` に「端末フォントのみ」のコメント。`views/StampView.vue:64`・`ar/ArView.vue:91` は `font.family.base` の値で、読み込みは無い)。Figma は Noto Sans JP で描いている(低〜中。同梱するか・どう同梱するかは §6「決める事項」)。
 - `index.html` の `<title>` が「Hub 試作」のまま(低)。
 
 ## 2. 差分(重要度つき)
@@ -136,8 +153,9 @@ Figma「NAsVI デザインシステム」(ファイル FIAsdXNhkURiVxDV9lHVnB、
 - 直し方: `.map-view__canvas` を全面にし、`__controls` を絶対配置の重ねにする。h1 は視覚的に隠す(アクセシビリティ用に残す)。出典は地図の右下の小さな札に。
 
 **H4 地図の部品が 5 つ無い(StampFab・MapEyeButton・MapZoomButtons・MapLocateButton・DestinationBar)**
+- 前提: 4 部品(StampFab・MapEyeButton・MapZoomButtons・MapLocateButton)は、`design-system/components/` に仕様の md が無い(DestinationBar.md はある)。I-3 の前に仕様 md を足す(§6 の I-3 前提)。
 - 場所: 該当ファイル無し(grep で 0 件)。`views/MapView.vue:98-104` が文字リンクで代用。`map/MapCanvas.vue:176-182` に Figma に無いコンパスボタンがある。
-- 直し方: `components/map/` に 5 部品を作り MapView に置く。Zoom・Locate は `MapCanvas` に `zoomBy(±)`・`flyToMe()` の公開メソッドが要る(`MapCanvas.vue:16` の `goal` を操作)。DestinationBar は黄の面 + 「お化け屋敷まで 150 m」+ × で、`案内中` の間だけ出す。コンパスは残すか Figma 側に足すか要確認(§4)。
+- 直し方: `components/map/` に 5 部品を作り MapView に置く。Zoom・Locate は `MapCanvas` に `zoomBy(±)`・`flyToMe()` の公開メソッドが要る(`MapCanvas.vue:16` の `goal` を操作)。DestinationBar は黄の面 + 「お化け屋敷まで 150 m」+ × で、`案内中` の間だけ出す。コンパスは残す(冒頭の決定 1)。Figma に無い差として記録し、足すかはチーム確認(§4)。
 
 **H5 地図の印が Figma と別物(EventMark・FacilityMark・ParkingMark・BuildingFlag)**
 - 場所: `map/layers/labels.ts:97-117`(印は点だけ)、`labels.ts:154-174`(札は名前と「+N」)、`map/layers/buildings.ts:141-163`(輪郭なしの企画は小さな円)
@@ -146,10 +164,10 @@ Figma「NAsVI デザインシステム」(ファイル FIAsdXNhkURiVxDV9lHVnB、
 - 直し方: `labels.ts` の点の描画を、種類ごとの描画関数(丸+アイコンパス、四角+P)に分ける。BuildingFlag は 同じ建物の企画を 1 つにまとめる既存の処理(`labels.ts:131-148`)の出力を、名前でなく「旗+企画数」の丸薬に変える。名前は拡大時だけ出す(EventMark.md「拡大すると名前」)。Canvas に絵文字・SVG を描くなら `Path2D` にする。
 
 **H6 スタンプの描画位置が dpr ≠ 1 でずれる可能性**(確認したのはコード上の不整合)
-- 場所: `map/layers/stamps.ts:79-80`
-- `W = ctx.canvas.width` は device px。他の層(`buildings.ts:104-111` の `canvasSize`)は変換から DPR を割って CSS px を出している。`MapCanvas.vue:49` は `setTransform(dpr…)` を掛けるため、dpr=2 では `project()` の中心が 2 倍の幅・高さで計算され、スタンプが建物・ラベルと別の位置に出るはず(推測: 実機未確認)。テストは dpr=1 の偽 canvas。
-- 直し方: `canvasSize(ctx)` を使う。dpr=2 の偽 canvas のテストを足す。
-- 併せて `stamps.ts:19-24` の `theme()` は `document.documentElement` から読む。他の層は `canvas.closest('[data-theme]')`。同じ方式にそろえる(低)。
+- 場所: `map/layers/stamps.ts:114-115`(照合時点 impl/main 7405dbb。I-5 #195 で直す予定でレビュー中。9cde1c9 でも同じ)
+- `W = ctx.canvas.width` は device px。`buildings.ts` の `canvasSize`(同 102 行)と `labels.ts` は変換から DPR を割って CSS px を出している。`me.ts:50` と `route.ts:61` は `ctx.canvas.clientWidth || ctx.canvas.width`(CSS px を優先し、取れなければ device px)で、`stamps.ts` だけが device px 固定。`MapCanvas.vue:49` は `setTransform(dpr…)` を掛けるため、dpr=2 では `project()` の中心が 2 倍の幅・高さで計算され、スタンプが建物・ラベルと別の位置に出るはず(推測: 実機未確認)。テストは dpr=1 の偽 canvas。
+- 直し方: `canvasSize(ctx)` を使う(me・route も `canvasSize` に揃えるかは別判断)。dpr=2 の偽 canvas のテストを足す。
+- 併せて `stamps.ts:19-24` の `theme()` は `document.documentElement` から読む。他の層は `canvas.closest('[data-theme]')`。同じ方式にそろえる(低。上の「テーマ切り替え時の再描画」の確認項目と合わせる)。
 
 **H7 案内中(DestinationCard)の構成が別物**
 - 場所: `views/GuideView.vue:141-196`
@@ -161,14 +179,14 @@ Figma「NAsVI デザインシステム」(ファイル FIAsdXNhkURiVxDV9lHVnB、
 - 場所: `views/StampView.vue:298-372`
 - Figma: Sheet(取っ手・「混雑を足元に押す」・説明・閉じる ×)の中に StampCongestionPicker(1〜5、両端に「空いている」「混んでいる」)、StampFeelingButton(顔 / フォーク / 親指のアイコン、桃色の丸)、MyStampRow、Toast「混雑3 を足元に押しました [取り消す]」を画面下に浮かせる。
 - 実装: 全画面のページ。「スタンプを押す」の h1+「マップへ戻る」リンク、枠付きの panel が縦に並ぶ(押す地点 / 混雑 / 感想 / 自分が押したスタンプ)。「押す地点」に緯度・経度の数値を出している(`StampView.vue:307`)。感想は 楽 / 食 / 良 の漢字の札+文字を縦に並べる。Toast は panel の 1 つで、浮かない。
-- 注: 緯度・経度の表示が Figma に無い。個人の位置を画面に出す必要があるかは仕様側で確認(推測: ワイヤーフレーム版 37 の記載は未確認)。
+- 注: 緯度・経度の数値は Figma に無いので外す(冒頭の方針 4)。ただし「この地点が公開されます」の開示と、位置の精度の表示は残す(I-8 の受け入れ条件)。ワイヤーフレーム版 37 の記載は未確認。
 - 直し方: Sheet 部品に載せ替える(地図の上に重ねる)。感想は Icon で。Toast は `position: fixed; bottom: タブの上`。
 
 **H9 カメラ画面がタブを覆い、部品も Figma と違う**
 - 場所: `ar/ArView.vue:442`(`.ar-view { position: fixed; inset: 0 }`)、`ar/ArView.vue:155-157`(`views/CameraView.vue` のスロットで「地図 / 企画一覧」のリンクを別に出している)
 - Figma: TabBar の「カメラ」選択状態がある(= カメラ画面でも下のタブが見える)。
 - 実装: fixed の全面で、DOM 順で後ろにある `<nav class="visitor-tabs">`(`App.vue:90`)を位置付き要素が覆う(推測: 実機で見て確認)。代わりに画面内に別のリンクが並ぶため、タブの切り替えが 2 系統になる。
-- 他の差(カメラ部品): ミニマップが円(`ArView.vue:455` `border-radius:50%`、Figma は角丸四角で枠・コーン付き)、十字が全角文字 `＋`(`:401`)、上の状態表示が角丸の面 `<p>`(Figma は「● 現在地 ±8 m・北東を向いています」の丸薬、●は mint または赤)、ヒント「左右にドラッグして向きを合わせる」の丸薬が無い、正面の建物のボタンが surface 色の全幅(`.ar-front`)で Figma の黄の丸薬「PMC LIVE 90 m >」と別物。
+- 他の差(カメラ部品): ミニマップが円(`ArView.vue:455` `border-radius:50%`、Figma は角丸四角で枠・コーン付き)、十字が全角文字 `＋`(`:401`)、上の状態表示が角丸の面 `<p>`(Figma は「● 現在地 ±8 m・北東を向いています」の丸薬、●は mint または赤)、ヒント「左右にドラッグして向きを合わせる」の丸薬が無い、正面の建物のボタンが surface 色の全幅(`.ar-front`)で、Figma の丸薬「PMC LIVE 90 m >」と形が別物(丸薬の色は未確認。表の 43 行目。黄は行き先の建物だけ)。
 - 直し方: `.ar-view` を `position: absolute`(visitor-stage の中)にして TabBar を見せる、または TabBar を fixed の z-index 上位に置く。CameraLabel・BuildingCameraOverlay・状態の丸薬を部品化。
 
 **H10 LocationPicker が無い(運営の位置の入力)**
@@ -202,15 +220,15 @@ Figma「NAsVI デザインシステム」(ファイル FIAsdXNhkURiVxDV9lHVnB、
 | M20 | DataTable の列と表現 | `views/admin/PlacesAdmin.vue:254-278` | 名前(上)+建物名(下)、種別、種類(丸薬)、位置の状態(mint の「設定済み」/ 桃の「要確認」)、操作(外枠の「編集」/ 編集中) | 列を Figma に寄せる。位置を緯度・経度の数値でなく状態に |
 | M21 | 運営の FormField・DeleteConfirm | `PlacesAdmin.vue:286-312,335-`(dialog) | 暗い入力欄+ border-control、エラーは赤枠+桃の文。削除は赤い面の確認で「削除する」(赤塗り)を左、「やめる」を右 | 枠色を border-control に。削除の確認を Figma の構成に。ボタンの並び順(現状は「キャンセル」が先)を合わせる |
 | M22 | BuildingShapePreview | `views/admin/LandmarksAdmin.vue:355-365` | 暗い枠の中に mint の縁+暗い面、無い時は「形なし(カメラの正面に出ない)」を中央に | 部品化(面の塗りと縁) |
-| M23 | MapBackdrop(推測) | `map/layers/buildings.ts:136-199` | 建物の面は ink-700 の塗り+violet-400 の縁の平面図。道路の細い帯もある | 現在は立体(壁と屋根)に描く。立体は意図的(モック由来)で、Figma は平面のスナップ。どちらを正とするか要確認 |
+| M23 | MapBackdrop(推測) | `map/layers/buildings.ts:136-199` | 建物の面は ink-700 の塗り+violet-400 の縁の平面図。道路の細い帯もある | 現在は立体(壁と屋根)に描く。立体は意図的(モック由来)で、Figma は平面のスナップ。どちらを正とするか要確認(§4) |
 | M24 | 古い現在地の状態が無い | `map/layers/me.ts` | PositionMark.md「古い=灰色(text-disabled)」 | `stale` を持たせて色を `text-disabled` に |
 | M25 | NoLocation の Banner アイコン | `NoLocationView.vue:61` | 警告の三角アイコン+太字 | Icon の `warning`。なお `idle`・`asking` でも赤い面(`danger`)なのは、Banner の info 変種が無いため(推測) |
 
 ### 低
-- L1 FilterBand の文言: 「『飲食』で絞り込み中」→ Figma は「飲食で絞り込み中」(`FilterBand.vue:51`)。
-- L2 StampCongestionPicker の下の文言「とても混んでいる」(`StampView.vue:333`)→ Figma は「混んでいる」。
+- L1 FilterBand の文言: 「『飲食』で絞り込み中」(`FilterBand.vue:51`)、Figma は「飲食で絞り込み中」。DS(FilterBand.md)は「『〇〇』で絞り込み中・N 件」なので、DS を先に更新するか Figma を直す。
+- L2 StampCongestionPicker の下の文言「とても混んでいる」(`StampView.vue:333`)→ Figma は「混んでいる」。DS(StampCongestionPicker.md)と V1f は「とても混んでいる」なので、DS を先に更新するか Figma を直す。
 - L3 PlaceCard の地図上の重なり順: `app/app.css:9` の `.place-card { bottom: … }` が `PlaceCard.vue:234` の `bottom` と二重。
-- L4 `map/MapCanvas.vue:192` の `var(--panel-solid, #fff)` は未定義の変数。フォールバックの白がダークでも出る。コンパスを残すなら `--app-bg-surface` に。
+- L4 `map/MapCanvas.vue:192` の `var(--panel-solid, #fff)` は未定義の変数。フォールバックの白がダークでも出る。コンパスは残すので `--app-bg-surface` に直す。
 - L5 `index.html` の `<title>` が「Hub 試作」。
 - L6 Noto Sans JP の読み込み無し(§1)。
 - L7 MapHighlight: 実装は event 色の半透明(`buildings.ts:171-185`)、Figma は暗い mint の面+明るい mint の縁。
@@ -223,21 +241,26 @@ Figma「NAsVI デザインシステム」(ファイル FIAsdXNhkURiVxDV9lHVnB、
 Figma にあって実装に無い: Icon、IconButton、Button、Badge、SearchField、Toast、EmptyState(部品として)、TabBar(部品として)、Sheet(共通部品として)、DestinationBar、StampFab、MapEyeButton、MapZoomButtons、MapLocateButton、BuildingFlag、EventMark、FacilityMark、ParkingMark、LocationPicker、FormField、DataTable、DeleteConfirm、CameraLabel、BuildingCameraOverlay。
 
 実装にあって Figma に無い:
-- コンパスボタン(`map/MapCanvas.vue:176-182`)。
-- StampView の「押す地点:緯度・経度」と「位置の利用を許可する」ブロック(`StampView.vue:304-316`)。
+- コンパスボタン(`map/MapCanvas.vue:176-182`)。残す(冒頭の決定 1)。差として記録し、Figma に足すかはチーム確認。
+- StampView の「押す地点:緯度・経度」と「位置の利用を許可する」ブロック(`StampView.vue:304-316`)。緯度・経度の数値は外す(方針 4)。
 - GuideView の「方角:北(北を基準)」の独立した行(Figma は距離の横に「北」)。
 - ArView の起動前の画面 `.ar-start`(「カメラを起動」)。Figma に無い。許可の取得に必要なため、Figma 側に足すのが筋。
 - App の `app-banner`(アプリの更新・場所の取得失敗)。Banner の用途としては合うが、Figma の変種に無い(要追加)。
 - VisitorList の「検索語を消す」ボタン(`VisitorList.vue:288`)。SearchField の × に置き換える。
 - 運営画面の `AdminErrorBanner`、一覧の「再読み込み」ボタン。
 
-## 4. 要確認(推測を含むもの)
-1. コンパスは残すか(Figma に無い)。
-2. 地図の建物を立体にするか、Figma のような平面にするか(M23)。
-3. 緯度・経度の表示(StampView)を残すか。
-4. ライトテーマを来場者向けに使うか(使わないなら `data-theme` の切り替えが要らず、ライト用の色表も複製が減らせる)。
-5. Noto Sans JP を同梱するか。
-6. カメラ画面で TabBar を出す想定か(Figma の TabBar の「カメラ」選択状態から読み取った。ワイヤーフレームで確認が必要)。
+## 4. 要確認・未決
+決定済みは冒頭に移した。ここは未決だけ。チームで決める事項は #167(「Figma に合わせる修正で新しく挙げるもの」)に追記してあり、同じ内容。
+1. 「全部 Figma に合わせる」方針のチーム確認(`decisions.md` の確認は looky-looky・naoto-anzai まで)。
+2. DS 仕様の更新: FilterBand.md(L1)・StampCongestionPicker.md(L2)を Figma に合わせるか。地図の 4 部品(StampFab・MapEye・MapZoom・MapLocate)の仕様 md を足す。
+3. 混雑スタンプの数字: Figma の StampMark を DS に合わせて直す。色だけに頼らない方針(縁・形)も決める。
+4. コンパス: Figma に足すか、差として記録に留めるか。
+5. ライトの OS 追従: 実機で見比べて確定。運営画面を含めるか。canvas 各層のテーマ切り替え時の再描画の確認。
+6. 地図の建物を立体のままにするか平面にするか(M23)。I-4(#196)merge 後の建物名の出し場所(Figma の BuildingFlag に名前が無く、F5「いまいる建物が分かる」に影響。DestinationBar と合わせて決める)。
+7. Noto Sans JP を使うか、同梱方法。
+8. カメラ画面で TabBar を出す想定か(ワイヤーフレームで確認)。
+9. Badge の種別ごとの色(I-6)、Banner の info 変種(I-9)を I-1 の部品に足すか。
+10. 丸薬が重なりで省かれた建物は押せない(I-4)。
 
 ## 5. 実装の重複(共通部品化の提案は別枠)
 
@@ -256,10 +279,39 @@ Figma にあって実装に無い: Icon、IconButton、Button、Badge、SearchFi
 2. `app/tokens.ts` が全トークンを CSS 変数で出し、各画面は `var(--app-…)` だけを使う。Canvas 層は `getComputedStyle` で読むか、`mapColors` を 1 つに統合。
 3. VisitorList と ListView を統合し、ListView が表示対象を props で受ける(VisitorList のコメントが言う「契約」)。
 
-## 6. 修正のイシュー案
+## 6. 修正のイシュー案(WBS の新規タスクとして)
 
-前提: `doc/impl/wbs.yaml` の owns は、F-3(`web/src/**` と package.json など、基盤。「このタスクだけが共有ファイルの作成を許される」)、S-xx・R-02・M-xx・O-xx(ファイル単位)、S-08(`web/src/views/MapView.vue`、`router/journeys.test.ts`、`web/src/App.vue`、`web/src/app/**`)。これらのタスクは feat/s-08 に統合済みで、現時点で並行して走っている WBS タスクは無い(確認: wbs は wave 3 までの定義)。したがって、下の各イシューは「担当ファイルの集合が互いに重ならない」ことを守る。新しいファイルは、どの owns にも無い新ディレクトリ(`web/src/components/ui/`、`web/src/components/map/`)に置く。既存ファイルを直す場合は、元の WBS タスクの owns に含まれるものを担当に書いた。共有の `web/package.json`・`pnpm-lock.yaml`・router は触らない(依存の追加は不要)。
-順序: I-0 と I-1 を先に(他が使う)。I-2 以降は I-1 のマージ後に並行できる。
+### 進捗(`gh pr list` で確認、2026-11-24)
+| タスク | PR | 状態 |
+|---|---|---|
+| I-0 トークンの整理 | #190 | merge 済み |
+| I-1 共通部品の土台 | #191 | merge 済み |
+| I-7 案内中 | #192 | merge 済み |
+| I-6 場所のカード・一覧の行 | #193 | merge 済み |
+| I-9 タグ・位置が使えない | #194 | merge 済み |
+| I-4 地図の印 | #196 | merge 済み |
+| I-5 スタンプの地図表示 | #195 | レビュー中 |
+| I-2・I-3・I-8・I-10〜I-13 | - | 未着手 |
+
+### owns の扱い(新規 WBS タスクとして定義し直す)
+`doc/impl/wbs.yaml` は完了済みタスク(F-3、S-xx、R-02、M-xx、O-xx、S-08 など)の定義だけで、I-0 以降は載っていない。そのため、I-x の担当ファイルの根拠が無く、担当が曖昧になっている。次のとおり、I-0〜I-13 を新しい WBS タスクとして `wbs.yaml` に足し、owns を各タスクの「担当」に書いたファイルとする(足すのは別の PR)。元のタスクはすべて完了済みなので、元の owns との重なりは並行作業の衝突にはならない。重なるのは I-x 同士で、次の「決める事項」で決める。
+
+- 共有の `web/package.json`・`pnpm-lock.yaml`・router は触らない。依存の追加が要るもの(フォントの同梱など)は基盤タスクとして別 PR。
+- 新しいファイルは新ディレクトリ(`web/src/components/ui/`、`web/src/components/map/`、`web/src/components/admin/`)に置く。
+
+### 決める事項(着手前に)
+1. `app/app.css` は I-0・I-2・I-6 が触る。I-0・I-6 は merge 済みで(I-6 が `.place-card` の重複指定を外したことを 9cde1c9 で確認)、残るのは I-2 だけ。以後 `app.css` は I-2 が持ち、他のタスクが触る必要が出たら I-2 の後に行う。
+2. `MapView.vue`(S-08 の owns)は I-3 が担当、`App.vue`(S-08 の owns)は I-2 が担当。I-3 が `App.vue` を触る必要が出たら、I-2 の後に行う。同じファイルを I-2 と I-3 が同時に触らない。
+3. canvas 用のアイコンは、I-1 の Icon(SVG のインライン)と別形式の `Path2D`(24 格子のパス文字列)。置き場は、照合後の実装では `map/layers/buildings.ts`(`drawIcon`、134 行付近)にある。I-1 の Icon が持つパスと二重にならないよう、パス文字列の置き場を 1 つにするか(例: `components/ui/iconPaths.ts` を I-1 の Icon と canvas が共に読む)を決める。
+4. I-8 の Sheet と I-1 の二重の可能性: Sheet は I-1 の Icon 群に含まれていない(I-1 の merge 済みの部品は Icon・IconButton・Button・Badge・SearchField・Toast・Banner・EmptyState)。Sheet は I-8 で新規に作る。I-2(TabBar)や I-3(地図の上のシート)も Sheet を使うなら、I-8 より先に Sheet を独立したタスクで作る。
+5. 担当者: 未割り当て。各タスクを誰が持つかを決める。
+6. Noto Sans JP の同梱方法: コードは端末フォントのみ(§1)。同梱するなら、依存(`@fontsource/noto-sans-jp` など)かファイル同梱かを決める。外部から読み込まない方針なら、サブセットのファイルを `web/public/` に置く方法がある。基盤タスク(F-3 相当)として別 PR。
+7. 地図の 4 部品の仕様 md(次の I-3 の前提)。
+
+### 前提タスク: 地図の 4 部品の仕様 md の追加
+- 担当: 新規 `design-system/components/{StampFab,MapEyeButton,MapZoomButtons,MapLocateButton}.md`(doc のみ)。
+- やること: 他の部品の md(DestinationBar.md など)と同じ書式で、props・状態・押下領域・アクセシビリティを書く。Figma の 17:2 を元にする。MapEye が切り替える層の props もここで決める。
+- I-3 はこの仕様 md の merge 後に着手する。
 
 ### I-0 トークンの整理
 - 担当(新規・既存): `web/src/app/tokens.ts`(S-08)、`web/src/app/app.css`(S-08)。
@@ -273,12 +325,13 @@ Figma にあって実装に無い: Icon、IconButton、Button、Badge、SearchFi
 
 ### I-2 アプリの枠: TabBar
 - 担当: `web/src/App.vue`(S-08)、`web/src/app/app.css`(S-08)、新規 `components/ui/TabBar.vue`。
-- やること: H1。アイコン・選択の mint・太字。H9 のうち「カメラ画面でもタブを出す」側(`.ar-view` を fixed でなく stage 内に収める変更は I-10)。
+- やること: H1。アイコン・選択の mint・太字。`App.vue` で `useThemeAttribute`(I-0 で追加済み)を呼び、`data-theme` を OS に追従させる(canvas 各層の再描画の確認は §4-5)。H9 のうち「カメラ画面でもタブを出す」側(`.ar-view` を fixed でなく stage 内に収める変更は I-10)。
 - 受け入れ条件: 3 状態が Figma と一致。`aria-current`、押下領域 44px 以上、高さ 72px。`App.test.ts` が通る。
 
 ### I-3 地図画面の構成
-- 担当: `web/src/views/MapView.vue`(S-08)、`web/src/map/MapCanvas.vue`(M-02: `zoomBy`・`flyTo`・コンパスの扱い)、新規 `web/src/components/map/{DestinationBar,StampFab,MapEyeButton,MapZoomButtons,MapLocateButton}.vue`。
-- やること: H3・H4。地図を全面、部品を重ねる。SearchField(I-1)・Chip・FilterBand を上に。Eye は 非表示にする層を切り替える(仕様 MapEyeButton の props を `design-system` に追加が必要か要確認)。
+- 担当: `web/src/views/MapView.vue`(S-08)、`web/src/map/MapCanvas.vue`(M-02: `zoomBy`・`flyTo`。コンパスは残す)、新規 `web/src/components/map/{DestinationBar,StampFab,MapEyeButton,MapZoomButtons,MapLocateButton}.vue`。
+- 前提: 地図の 4 部品の仕様 md(上の前提タスク)。
+- やること: H3・H4。地図を全面、部品を重ねる。コンパスは残す(`MapCanvas` の北に戻す手段を維持)。SearchField(I-1)・Chip・FilterBand を上に。Eye は 非表示にする層を切り替える(仕様 MapEyeButton の props を `design-system` に追加が必要か要確認)。
 - 受け入れ条件: Figma の MapBackdrop 上の配置と一致(右の縦並び、右下の FAB)。Zoom・Locate が動く。既存の遷移(スタンプ・案内・位置が使えない)がすべて残る。`router/journeys.test.ts` が通る。
 
 ### I-4 地図の印
@@ -288,7 +341,7 @@ Figma にあって実装に無い: Icon、IconButton、Button、Badge、SearchFi
 
 ### I-5 スタンプの地図表示
 - 担当: `web/src/map/layers/stamps.ts`・`stamps.test.ts`(M-05)。
-- やること: H6 の dpr の不具合、感想のアイコン(Icon の Path2D)、拡大時の札「混雑4 6分 +5」、近いスタンプのまとめ(24px)。
+- やること: H6 の dpr の不具合、感想のアイコン(Path2D、置き場は上の決める事項 3)、拡大時の札「混雑4 6分 +5」、近いスタンプのまとめ(24px)。混雑の丸の数字は DS を正として入れる(Figma は数字なし)。
 - 受け入れ条件: dpr=2 の偽 canvas で位置が CSS px 基準。まとめの代表(混雑は新しい方、感想は多い種類)。Figma の StampMark(丸の大きさ・色)と一致。
 
 ### I-6 場所のカード・一覧の行
@@ -304,7 +357,7 @@ Figma にあって実装に無い: Icon、IconButton、Button、Badge、SearchFi
 ### I-8 スタンプを押す
 - 担当: `web/src/views/StampView.vue`・`StampView.test.ts`(S-04)。
 - やること: H8、M11〜M13、L2。Sheet(新規 `components/ui/Sheet.vue` を I-1 に含めてもよい)。
-- 受け入れ条件: Figma の Sheet・Picker・Feeling・MyStampRow・Toast と一致。緯度・経度の表示は §4-3 の判断に従う。押下・取り消し・期限の既存テストが通る。
+- 受け入れ条件: Figma の Sheet・Picker・Feeling・MyStampRow・Toast と一致。緯度・経度の数値は外し、「この地点が公開されます」の開示と精度の表示は残す。混雑スタンプの丸の数字は DS(StampMark.md)のとおり(Figma は数字なしだが DS を正とする)。押下・取り消し・期限の既存テストが通る。
 
 ### I-9 タグ・位置が使えない
 - 担当: `web/src/views/TagsView.vue`・`TagsView.test.ts`(S-05)、`web/src/views/NoLocationView.vue`・`NoLocationView.test.ts`(S-06)。
@@ -313,8 +366,8 @@ Figma にあって実装に無い: Icon、IconButton、Button、Badge、SearchFi
 
 ### I-10 カメラ画面
 - 担当: `web/src/ar/ArView.vue`・`ArView.test.ts`(R-02)、`web/src/views/CameraView.vue`(R-02)、新規 `components/ui/{CameraLabel,BuildingCameraOverlay}.vue`。
-- やること: H9。タブを覆わない、ミニマップを角丸四角、状態の丸薬(● と文言)、ヒントの丸薬、十字、正面の建物の黄の丸薬。
-- 受け入れ条件: Figma の BuildingCameraOverlay・CameraLabel の全状態と一致。カメラ起動前・拒否時の既存の挙動が変わらない。画面にタブが見える。
+- やること: H9。タブを覆わない、ミニマップを角丸四角、状態の丸薬(● と文言)、ヒントの丸薬、十字、正面の建物の丸薬(色は I-10 の前にワイヤーフレーム V3a と BuildingCameraOverlay.png を突き合わせて決める)。
+- 受け入れ条件: Figma の BuildingCameraOverlay・CameraLabel の全状態と一致(丸薬の色は V3a と突き合わせて決める)。カメラ起動前・拒否時の既存の挙動が変わらない。画面にタブが見える。
 
 ### I-11 建物の中の地図
 - 担当: `web/src/views/BuildingView.vue`・`BuildingView.test.ts`、`web/src/components/FloorPlan.vue`・`FloorPlan.test.ts`(S-07)。
@@ -323,7 +376,7 @@ Figma にあって実装に無い: Icon、IconButton、Button、Badge、SearchFi
 
 ### I-12 運営画面
 - 担当: `web/src/views/admin/{PlacesAdmin,LandmarksAdmin,FloorPlansAdmin,LabelsAdmin}.vue` とテスト(O-02〜O-05)、`web/src/admin/tokens.ts`・`views/admin/AdminLayout.vue`(O-01)、新規 `components/admin/{FormField,LocationPicker,DataTable,DeleteConfirm,BuildingShapePreview}.vue`。
-- やること: H10、M20〜M22。配色はダーク固定にするか OS 追従かを §4-4 で判断。大きいため、2 PR に分ける案(12a: FormField・DataTable・DeleteConfirm、12b: LocationPicker・BuildingShapePreview)。
+- やること: H10、M20〜M22。運営画面をライトの OS 追従に含めるかを §4-5 で判断(含めない場合は `admin/tokens.ts` の `light-dark()` をダーク固定に)。大きいため、2 PR に分ける案(12a: FormField・DataTable・DeleteConfirm、12b: LocationPicker・BuildingShapePreview)。
 - 受け入れ条件: Figma の各部品の全状態と一致。位置を地図で置ける。既存の API 呼び出し・検証・フォーカスの挙動が変わらない。
 
 ### I-13(別枠・提案)重複の整理
@@ -333,7 +386,6 @@ Figma にあって実装に無い: Icon、IconButton、Button、Badge、SearchFi
 - 注意: S-01 と S-08 の両方の owns を跨ぐため、他のイシュー(I-6 は PlaceRow を触る)と同時に走らせない。
 
 ### 担当の衝突の確認
-- I-2(App.vue、app.css)と I-0(app/tokens.ts、app.css)は `app.css` が重なる。I-0 → I-2 の順にするか、`app.css` の変更を I-0 に寄せる。
-- I-6 の `app.css:9` の 1 行も同様。I-2 に含めるのが安全。
+- I-2(App.vue、app.css)と I-0 は `app.css` が重なるが、I-0 は merge 済みで解消。
 - I-3(MapView、MapCanvas)・I-4(labels、buildings、route、me)・I-5(stamps)は互いに重ならない。
 - I-6(PlaceCard、PlaceRow)・I-13(VisitorList、ListView)は PlaceRow の呼び出し側で接する(挙動は変えないが、I-13 を I-6 の後に)。
