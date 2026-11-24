@@ -212,6 +212,8 @@ describe('検索結果', () => {
 
   it('検索語・一致した名前・建物・階・件数を示し、設備は検索に出さない', async () => {
     const wrapper = await render();
+    expect(wrapper.getComponent(ListView).props('searchMode')).toBe(true);
+    expect(wrapper.findAll('h1')).toHaveLength(1);
     expect(wrapper.get('h1').text()).toBe('検索結果');
     expect(wrapper.get('input').element.value).toBe('カード');
     expect(wrapper.get('.place-view__count').text()).toBe('『カード』の検索結果・3 件');

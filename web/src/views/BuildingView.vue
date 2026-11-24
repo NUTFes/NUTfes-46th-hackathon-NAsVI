@@ -1,19 +1,28 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import FloorPlan, { useBuildingTokens } from '../components/FloorPlan.vue';
+import { useAppTokens } from '../app/tokens';
+import FloorPlan from '../components/FloorPlan.vue';
+import PlaceRow from '../components/PlaceRow.vue';
 import { useLandmarksStore, usePlacesStore } from '../stores';
 
 const route = useRoute();
 const router = useRouter();
 const places = usePlacesStore();
 const landmarks = useLandmarksStore();
-const root = ref<Element>();
-const buildingTokens = useBuildingTokens(root);
+// 色は I-0 の --app-*。
+const root = ref<HTMLElement>();
+const appTokens = useAppTokens(root);
+const FACILITY_KINDS = ['info', 'wc', 'rest', 'trash'];
 const buildingId = computed(() => String(route.params.id ?? ''));
 const building = computed(() => landmarks.items.find((item) => item.id === buildingId.value));
 const events = computed(() => places.items.filter((place) =>
   place.landmarkId === buildingId.value && place.kind === 'event',
+));
+// 設備は企画に数えず（D-030）、見取り図の印としてだけ出す。
+const facilities = computed(() => places.items.filter((place) =>
+  place.landmarkId === buildingId.value && FACILITY_KINDS.includes(place.kind)
+  && (place.floor ?? 1) === currentFloor.value,
 ));
 const floors = computed(() => {
   const numbers = new Set(building.value?.floors.map((plan) => plan.floor) ?? []);
@@ -63,7 +72,7 @@ function openPlace(id: string) {
 </script>
 
 <template>
-  <main ref="root" class="building" :style="buildingTokens">
+  <main ref="root" class="building" :style="appTokens">
     <template v-if="building">
       <h1>{{ building.name }}</h1>
       <nav class="building__floors" role="tablist" aria-label="階">
@@ -81,7 +90,7 @@ function openPlace(id: string) {
           @keydown="moveFloor($event, item.floor)"
         >
           {{ floorLabel(item.floor) }}
-          <span v-if="item.count > 0">{{ item.count }} 件</span>
+          <span v-if="item.count > 0" class="building__count" aria-hidden="true">{{ item.count }}</span>
         </button>
       </nav>
 
@@ -91,7 +100,7 @@ function openPlace(id: string) {
         :aria-labelledby="currentFloor !== undefined ? `building-floor-${currentFloor}` : undefined"
         tabindex="0"
       >
-        <FloorPlan :plan="plan" :places="currentPlaces" @select="openPlace" />
+        <FloorPlan :plan="plan" :places="currentPlaces" :facilities="facilities" @select="openPlace" />
         <p v-if="!plan" class="building__note">この階の見取り図はありません</p>
 
         <section class="building__events" aria-label="この階の企画">
@@ -112,10 +121,14 @@ function openPlace(id: string) {
           </div>
           <ul v-else class="building__list">
             <li v-for="place in currentPlaces" :key="place.id">
-              <button type="button" class="building__row" @click="openPlace(place.id)">
-                <span class="building__name">{{ place.name }}</span>
-                <span class="building__note">企画 · {{ building.name }} · {{ floorLabel(currentFloor!) }}</span>
-              </button>
+              <PlaceRow
+                :place-id="place.id"
+                :name="place.name"
+                kind-label="企画"
+                :building="building.name"
+                :floor="floorLabel(currentFloor!)"
+                :on-open="() => openPlace(place.id)"
+              />
             </li>
           </ul>
         </section>
@@ -129,83 +142,104 @@ function openPlace(id: string) {
 .building {
   box-sizing: border-box;
   min-height: 100%;
-  padding: var(--building-space-4);
-  background: var(--building-bg-page);
-  color: var(--building-text-primary);
-  font-size: var(--building-font-md);
+  padding: var(--app-space-4);
+  background: var(--app-bg-page);
+  color: var(--app-text-primary);
+  font-family: var(--app-font);
+  font-size: var(--app-action);
 }
 
 h1 {
-  margin: 0 0 var(--building-space-4);
-  font-size: var(--building-font-2xl);
+  margin: 0 0 var(--app-space-4);
+  font-size: var(--app-title);
 }
 
 h2 {
   margin: 0;
-  font-size: var(--building-font-xl);
+  font-size: var(--app-input);
 }
 
 .building__floors,
 .building__suggestions {
   display: flex;
-  gap: var(--building-space-2);
+  gap: var(--app-space-2);
 }
 
 .building__floors {
-  margin-bottom: var(--building-space-4);
+  margin-bottom: var(--app-space-4);
   overflow-x: auto;
-  padding: var(--building-space-1);
+  padding: var(--app-space-1);
 }
 
 button {
   box-sizing: border-box;
-  min-height: var(--building-touch-target);
-  padding: var(--building-space-2) var(--building-space-3);
-  border: 1px solid var(--building-border-subtle);
-  border-radius: var(--building-radius);
-  background: var(--building-bg-surface);
-  color: var(--building-text-primary);
+  min-height: var(--app-touch);
+  padding: var(--app-space-2) var(--app-space-3);
+  border: 1px solid var(--app-border-control);
+  border-radius: var(--app-radius);
+  background: var(--app-bg-surface);
+  color: var(--app-text-secondary);
   font: inherit;
+  font-weight: var(--app-bold);
+  line-height: 1.4;
   cursor: pointer;
 }
 
 .building__floors button {
   display: flex;
+  flex: 1 0 auto;
   align-items: center;
-  gap: var(--building-space-2);
-  height: var(--building-touch-target);
-  flex-shrink: 0;
+  justify-content: center;
+  gap: var(--app-space-1);
+  height: var(--app-touch);
+}
+
+/* BuildingFloorTabs の件数: 20px の mint の丸に数字。 */
+.building__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 var(--app-space-1);
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: var(--app-event);
+  color: var(--app-event-on);
+  font-size: 12px;
+  line-height: 1;
 }
 
 button[aria-selected='true'],
 .building__suggestions button {
-  background: var(--building-action-primary);
-  color: var(--building-action-on-primary);
+  border-color: var(--app-action-primary);
+  background: var(--app-action-primary);
+  color: var(--app-action-on-primary);
 }
 
 button:focus-visible {
-  outline: var(--building-space-1) solid var(--building-action-primary);
+  outline: var(--app-space-1) solid var(--app-action-primary);
 }
 
 .building__events {
   display: grid;
-  gap: var(--building-space-3);
-  margin-top: var(--building-space-4);
+  gap: var(--app-space-3);
+  margin-top: var(--app-space-4);
 }
 
 .building__empty {
-  padding: var(--building-space-4);
-  border-radius: var(--building-radius);
-  background: var(--building-bg-surface);
+  padding: var(--app-space-4);
+  border-radius: var(--app-radius);
+  background: var(--app-bg-surface);
 }
 
 .building__empty p {
-  margin: var(--building-space-3) 0;
+  margin: var(--app-space-3) 0;
 }
 
 .building__note,
 .building__empty p {
-  color: var(--building-text-secondary);
+  color: var(--app-text-secondary);
 }
 
 .building__suggestions {
@@ -214,26 +248,8 @@ button:focus-visible {
 
 .building__list {
   display: grid;
-  gap: var(--building-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.building__row {
-  display: grid;
-  gap: var(--building-space-2);
-  width: 100%;
-  min-height: calc(var(--building-touch-target) + var(--building-space-3));
-  padding: var(--building-space-3);
-  text-align: start;
-}
-
-.building__name {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow-wrap: anywhere;
 }
 </style>
