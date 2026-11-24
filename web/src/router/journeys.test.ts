@@ -109,7 +109,7 @@ describe('S-08 screens.yaml の来場者ジャーニー', () => {
     await open();
     position.setManually(event.location.lat, event.location.lng, 8);
     await flushPromises();
-    await app!.click('スタンプを押す', '.map-view a');
+    await app!.click('スタンプ', '.map-view button'); await vi.waitFor(() => expect(app!.router.currentRoute.value.name).toBe('stamp')); await flushPromises();
     const now = Date.now();
     const stamp = {
       id: 's-08-stamp', kind: 'congestion-3', at: event.location,
