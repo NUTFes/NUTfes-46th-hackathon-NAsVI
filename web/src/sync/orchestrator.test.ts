@@ -263,6 +263,62 @@ describe('保存層・初回取得・ストアの結線', () => {
   });
 });
 
+describe('公開 refresh での再取得', () => {
+  it('一部失敗後に state.failedKeys を渡すと失敗した一覧だけを取得して状態を更新する', async () => {
+    await seed();
+    fetchMock.mockImplementation(async url => {
+      if (url === '/api/places' || url === '/api/labels') throw new TypeError('offline');
+      return responseFor(url);
+    });
+    const instance = app();
+    await instance.start();
+    expect(instance.state.failedKeys).toEqual(['places', 'labels']);
+    expect(instance.state.error).toBeInstanceOf(Error);
+    expect(usePlacesStore().items).toEqual(cached.places);
+
+    const next: Snapshot = { ...fresh, labels: [{ id: 'label', title: '更新した展示' }] };
+    fetchMock.mockClear().mockImplementation(async url => responseFor(url, next));
+    await instance.refresh(instance.state.failedKeys);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/places', '/api/labels']);
+    expect(usePlacesStore().items).toEqual(next.places);
+    expect(useLabelsStore().items).toEqual(next.labels);
+    expect(useStampsStore().items).toEqual(fresh.stamps);
+    expect(useLandmarksStore().items).toEqual(fresh.landmarks);
+    expect(instance.state.failedKeys).toEqual([]);
+    expect(instance.state.error).toBeNull();
+    expect(instance.state.syncing).toBe(false);
+  });
+
+  it('空配列を渡すと一覧を取得しない', async () => {
+    const instance = app();
+    await instance.start();
+    fetchMock.mockClear();
+    await instance.refresh([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(usePlacesStore().items).toEqual(fresh.places);
+    expect(instance.state.syncing).toBe(false);
+  });
+
+  it('再取得中の呼び出しは同じ Promise を返し、取得を増やさない', async () => {
+    const instance = app();
+    await instance.start();
+    const gate = deferred<void>();
+    fetchMock.mockClear().mockImplementation(async url => {
+      await gate.promise;
+      return responseFor(url);
+    });
+    const refreshing = instance.refresh();
+    expect(instance.refresh(['places'])).toBe(refreshing);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    expect(instance.refresh([])).toBe(refreshing);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(cacheKeys.map(key => `/api/${key}`));
+    gate.resolve();
+    await refreshing;
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(instance.state.syncing).toBe(false);
+  });
+});
+
 describe('online での取得再試行とエラー状態', () => {
   it.each([false, true])('全件失敗後は online で再試行し、成功時にエラーを解除する（キャッシュ: %s）', async hasCache => {
     if (hasCache) await seed();
