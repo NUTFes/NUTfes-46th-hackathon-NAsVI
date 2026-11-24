@@ -68,6 +68,14 @@ async function editFirst(wrapper: VueWrapper) {
 }
 
 describe('建物の一覧・登録・更新', () => {
+  it('「編集」を押すと、ボタンが「編集中」に替わってもフォーカスはフォーム先頭の入力へ移る', async () => {
+    const { wrapper } = await render([building()]);
+    await editFirst(wrapper);
+    await flushPromises();
+    expect(wrapper.get('tbody tr').text()).toContain('編集中');
+    expect(document.activeElement).toBe(wrapper.get('#landmark-name').element);
+  });
+
   it('AdminLayout の中で一覧、輪郭の有無、階の状態を表示する', async () => {
     const { wrapper } = await render([
       building({ floors: [floor] }), building({ id: 'lm-b', name: 'B棟', footprint: null }),
@@ -103,7 +111,7 @@ describe('建物の一覧・登録・更新', () => {
 
   it('空の一覧には未登録の案内と登録欄を出す', async () => {
     const { wrapper } = await render([]);
-    expect(wrapper.text()).toContain('建物はまだ登録されていません。');
+    expect(wrapper.text()).toContain('まだ登録されていません');
     expect(wrapper.get('fieldset').attributes('disabled')).toBeUndefined();
     expect(button(wrapper, '登録する').exists()).toBe(true);
   });
@@ -111,7 +119,7 @@ describe('建物の一覧・登録・更新', () => {
   it('読み込み失敗を共通バナーに出し、空の一覧と区別して再取得する', async () => {
     const { wrapper } = await render([], Promise.resolve(json({ code: 'internal_error', message: '取得できません' }, 500)));
     expect(wrapper.get('[role="alert"]').text()).toContain('取得できません');
-    expect(wrapper.text()).not.toContain('建物はまだ登録されていません。');
+    expect(wrapper.text()).not.toContain('まだ登録されていません');
     expect(wrapper.get('fieldset').attributes('disabled')).toBeDefined();
     fetchMock.mockResolvedValueOnce(json({ items: [building()] }));
     fetchMock.mockResolvedValueOnce(json({ items: [] }));
@@ -298,10 +306,11 @@ describe('建物の削除', () => {
     const { wrapper } = await render();
     await editFirst(wrapper);
     await button(wrapper, '建物を削除').trigger('click');
-    await button(wrapper, 'やめる').trigger('keydown', { key: 'Tab', shiftKey: true });
-    expect(document.activeElement).toBe(button(wrapper, '削除する').element);
-    await button(wrapper, '削除する').trigger('keydown', { key: 'Tab' });
+    // 並びは「削除する」「やめる」（Figma の DeleteConfirm）。先頭で Shift+Tab すると末尾へ、末尾で Tab すると先頭へ戻る。
+    await button(wrapper, '削除する').trigger('keydown', { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(button(wrapper, 'やめる').element);
+    await button(wrapper, 'やめる').trigger('keydown', { key: 'Tab' });
+    expect(document.activeElement).toBe(button(wrapper, '削除する').element);
     await wrapper.get('dialog').trigger('cancel');
     expect(wrapper.find('dialog').exists()).toBe(false);
     expect(document.activeElement).toBe(button(wrapper, '建物を削除').element);

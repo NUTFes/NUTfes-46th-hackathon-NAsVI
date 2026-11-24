@@ -3,6 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { adminGet, adminSend, ApiError } from '../../admin/client';
 import { useAdminFeedback } from '../../admin/feedback';
 import { adminTokens } from '../../admin/tokens';
+import DeleteConfirm from '../../components/admin/DeleteConfirm.vue';
+import FormField from '../../components/admin/FormField.vue';
+import Button from '../../components/ui/Button.vue';
 import { useLabelsStore, usePlacesStore } from '../../stores';
 import type { Label } from '../../types';
 
@@ -28,8 +31,8 @@ const trimmedTitle = computed(() => newTitle.value.trim());
 const titleLength = computed(() => [...trimmedTitle.value].length);
 const validTitle = computed(() => titleLength.value >= 1 && titleLength.value <= TITLE_MAX_LENGTH);
 const pendingDelete = ref<Label | null>(null);
-const cancelButton = ref<HTMLButtonElement>();
-const reloadButton = ref<HTMLButtonElement>();
+const deleteConfirm = ref<InstanceType<typeof DeleteConfirm>>();
+const reloadButton = ref<{ $el: HTMLButtonElement }>();
 let deleteTrigger: HTMLButtonElement | null = null;
 let refreshPending = false;
 const disabled = computed(() => loading.value || saving.value || !ready.value || pendingDelete.value !== null);
@@ -121,7 +124,7 @@ async function askToRemove(label: Label, event: Event) {
   deleteTrigger = event.currentTarget as HTMLButtonElement;
   pendingDelete.value = label;
   await nextTick();
-  cancelButton.value?.focus();
+  deleteConfirm.value?.focusCancel();
 }
 
 async function cancelRemove() {
@@ -141,7 +144,7 @@ async function confirmRemove() {
     labelId,
   );
   await nextTick();
-  (deleteTrigger?.isConnected ? deleteTrigger : reloadButton.value)?.focus();
+  (deleteTrigger?.isConnected ? deleteTrigger : reloadButton.value?.$el)?.focus();
 }
 
 function toggleLabel(placeId: string, labelId: string, event: Event) {
@@ -189,26 +192,27 @@ onBeforeUnmount(() => {
 <template>
   <main class="labels-admin" :style="TOKENS" :aria-busy="loading || saving">
     <h2>種類の定義・管理(運営)</h2>
-    <button ref="reloadButton" type="button" :disabled="loading || saving || pendingDelete !== null" @click="loadLists()">一覧を読み込む</button>
+    <Button ref="reloadButton" variant="secondary" label="一覧を読み込む" :disabled="loading || saving || pendingDelete !== null" @press="loadLists()" />
     <p v-if="loading" role="status">一覧を読み込んでいます。</p>
     <p v-else-if="!ready">一覧を読み込めませんでした。「一覧を読み込む」で再試行してください。</p>
     <p v-if="saving" role="status">変更を保存しています。</p>
     <p v-if="notice" role="status">{{ notice }}</p>
 
     <form aria-label="種類の作成" @submit.prevent="createLabel">
-      <label for="label-title">新しい種類の名前</label>
-      <p id="label-title-help" class="muted">
-        前後の空白を除いて1〜{{ TITLE_MAX_LENGTH }}文字で入力してください。同じ名前の種類は作成できません。
-      </p>
-      <input
-        id="label-title" v-model="newTitle" type="text" required
-        :aria-describedby="titleError ? 'label-title-help label-title-error' : 'label-title-help'"
-        :aria-invalid="!!titleError || (newTitle.length > 0 && !validTitle)"
-        :disabled="disabled"
-        @input="titleError = ''"
+      <FormField
+        label="新しい種類の名前" control-id="label-title"
+        :help="`前後の空白を除いて1〜${TITLE_MAX_LENGTH}文字で入力してください。同じ名前の種類は作成できません。`" help-id="label-title-help"
+        :error="titleError" error-id="label-title-error"
       >
-      <p v-if="titleError" id="label-title-error" class="conflict" aria-live="polite">{{ titleError }}</p>
-      <button type="submit" :disabled="disabled || !validTitle">種類を作成</button>
+        <input
+          id="label-title" v-model="newTitle" type="text" required
+          :aria-describedby="titleError ? 'label-title-help label-title-error' : 'label-title-help'"
+          :aria-invalid="!!titleError || (newTitle.length > 0 && !validTitle)"
+          :disabled="disabled"
+          @input="titleError = ''"
+        >
+      </FormField>
+      <Button type="submit" label="種類を作成" :disabled="disabled || !validTitle" />
     </form>
 
     <section v-if="ready" aria-labelledby="labels-heading">
@@ -225,29 +229,24 @@ onBeforeUnmount(() => {
       <ul v-else class="label-list">
         <li v-for="label in labels.items" :key="label.id">
           <span>{{ label.title }}</span>
-          <button
-            type="button" :aria-label="`${label.title}を削除`" :disabled="disabled"
+          <Button
+            variant="danger" label="削除" :aria-label="`${label.title}を削除`" :disabled="disabled"
             @click="askToRemove(label, $event)"
-          >削除</button>
+          />
         </li>
       </ul>
     </section>
 
-    <!-- DeleteConfirm の見出し・影響・確認/キャンセルと初期フォーカスに従う。 -->
-    <section
-      v-if="pendingDelete" class="delete-confirm" role="alertdialog"
-      aria-labelledby="delete-title" aria-describedby="delete-effects"
-      @keydown.esc.prevent="cancelRemove"
+    <DeleteConfirm
+      v-if="pendingDelete" ref="deleteConfirm" :title="`「${pendingDelete.title}」を削除しますか？`"
+      @keydown.esc.prevent="cancelRemove" @confirm="confirmRemove" @cancel="cancelRemove"
     >
-      <h3 id="delete-title">「{{ pendingDelete.title }}」を削除しますか？</h3>
-      <p id="delete-effects">
+      <p>
         種類の一覧から削除され、場所に付けられなくなります。この操作は取り消せません。
         この種類が付いている場所がある場合は、使用中のため削除できません。
         先にすべての場所から外してください。場所そのものは削除されません。
       </p>
-      <button ref="cancelButton" type="button" @click="cancelRemove">やめる</button>
-      <button type="button" @click="confirmRemove">削除する</button>
-    </section>
+    </DeleteConfirm>
 
     <section v-if="ready" aria-labelledby="assignments-heading">
       <h3 id="assignments-heading" tabindex="-1">場所への付け外し</h3>
@@ -295,25 +294,11 @@ form, fieldset {
 legend { font-weight: var(--admin-bold); }
 .muted { color: var(--admin-muted); }
 .conflict { color: var(--admin-danger-text); }
-.delete-confirm { padding: var(--admin-space-lg); border: thin solid var(--admin-danger); border-radius: var(--admin-radius); background: var(--admin-danger-bg); }
 a { color: var(--admin-action); }
 .label-list { display: grid; gap: var(--admin-space-sm); margin: 0; padding: 0; list-style: none; }
 .label-list li { display: flex; align-items: center; flex-wrap: wrap; gap: var(--admin-space-lg); }
-button, input[type='text'] {
-  box-sizing: border-box;
-  min-width: 0;
-  min-height: var(--admin-touch-target);
-  padding: var(--admin-space-sm) var(--admin-space-lg);
-  border: thin solid var(--admin-border);
-  border-radius: var(--admin-radius);
-  background: var(--admin-surface);
-  color: var(--admin-text);
-  font: inherit;
-}
-input[aria-invalid='true'] { border-color: var(--admin-danger); }
-button { justify-self: start; font-weight: var(--admin-bold); cursor: pointer; }
-button:disabled, fieldset:disabled .check-row { cursor: default; }
 .check-row { display: flex; align-items: center; gap: var(--admin-space-sm); min-height: var(--admin-touch-target); cursor: pointer; }
+fieldset:disabled .check-row { cursor: default; }
 input[type='checkbox'] { accent-color: var(--admin-action); margin: 0; }
-button:focus-visible, input:focus-visible, a:focus-visible, fieldset:focus { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
+input:focus-visible, a:focus-visible, fieldset:focus { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
 </style>

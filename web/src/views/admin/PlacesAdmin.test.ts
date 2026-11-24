@@ -106,9 +106,9 @@ describe('場所の登録・管理', () => {
 
   it('空の一覧と建物・階の位置の状態を表示する', async () => {
     const empty = await render([]);
-    expect(empty.wrapper.get('tbody').text()).toContain('場所はまだ登録されていません');
+    expect(empty.wrapper.get('tbody').text()).toContain('まだ登録されていません');
     const indoor = await render([{ ...place, landmarkId: 'lm_a', floor: -1 }]);
-    expect(indoor.wrapper.get('tbody').text()).toContain('建物 講義棟');
+    expect(indoor.wrapper.get('tbody').text()).toContain('講義棟');
     expect(indoor.wrapper.get('tbody').text()).toContain('-1階');
   });
 
@@ -316,7 +316,7 @@ describe('場所の登録・管理', () => {
       status: 404, headers: { 'Content-Type': 'application/problem+json' },
     }));
     fetchMock.mockResolvedValueOnce(json({ items: [], cursor: '121' }));
-    if (method === 'DELETE') await button(wrapper, '了承して削除する').trigger('click');
+    if (method === 'DELETE') await button(wrapper, '削除する').trigger('click');
     else await wrapper.get('form').trigger('submit');
     await flushPromises();
     expect(fetchMock).toHaveBeenCalledTimes(5);
@@ -355,7 +355,7 @@ describe('場所の登録・管理', () => {
     expect(dialog.text()).toContain('スタンプは地点に付くため、場所の削除には連動しません');
     expect(dialog.text()).toContain('削除した ID は再利用されません');
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    await button(wrapper, 'キャンセル').trigger('click');
+    await button(wrapper, 'やめる').trigger('click');
     expect(dialog.element.open).toBe(false);
     await wrapper.get('button[aria-label="焼きそば屋台を削除"]').trigger('click');
     await dialog.trigger('cancel');
@@ -371,7 +371,7 @@ describe('場所の登録・管理', () => {
     await wrapper.get('button[aria-label="焼きそば屋台を削除"]').trigger('click');
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     clearError.mockClear();
-    await button(wrapper, '了承して削除する').trigger('click');
+    await button(wrapper, '削除する').trigger('click');
     await flushPromises();
     expect(fetchMock).toHaveBeenLastCalledWith('/api/places/pl_01', expect.objectContaining({
       method: 'DELETE', credentials: 'include', body: undefined,
@@ -413,7 +413,7 @@ describe('場所の登録・管理', () => {
       code: 'unauthorized', message: '運営としてログインしてください',
     }), { status: 401, headers: { 'Content-Type': 'application/problem+json' } }));
     clearError.mockClear();
-    if (method === 'DELETE') await button(wrapper, '了承して削除する').trigger('click');
+    if (method === 'DELETE') await button(wrapper, '削除する').trigger('click');
     else await wrapper.get('form').trigger('submit');
     await flushPromises();
     expect(reportError).toHaveBeenCalledWith(expect.objectContaining({ status: 401, code: 'unauthorized' }));
@@ -442,9 +442,9 @@ describe('場所の登録・管理', () => {
     await wrapper.get('button[aria-label="焼きそば屋台を削除"]').trigger('click');
     let resolve!: (response: Response) => void;
     fetchMock.mockReturnValueOnce(new Promise<Response>(done => { resolve = done; }));
-    await button(wrapper, '了承して削除する').trigger('click');
-    expect(button(wrapper, '了承して削除する').attributes('disabled')).toBeDefined();
-    await button(wrapper, '了承して削除する').trigger('click');
+    await button(wrapper, '削除する').trigger('click');
+    expect(button(wrapper, '削除する').attributes('disabled')).toBeDefined();
+    await button(wrapper, '削除する').trigger('click');
     await wrapper.get('dialog').trigger('cancel');
     expect(wrapper.get<HTMLDialogElement>('dialog').element.open).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(4);
