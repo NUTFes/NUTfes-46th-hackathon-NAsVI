@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
-import { nextTick } from 'vue';
+import { enableAutoUnmount, mount } from '@vue/test-utils';
+import source from './FloorPlan.vue?raw';
 import { floorplanXY } from '../domain/floorplan';
 import type { FloorPlan as FloorPlanData, Place } from '../types';
 import FloorPlan from './FloorPlan.vue';
@@ -17,72 +17,58 @@ const place: Place = {
   location: { lat: 37.5, lng: 138.5 }, description: '',
   landmarkId: 'building-1', floor: 2, hours: [], labelIds: [],
 };
-const hosts: HTMLElement[] = [];
-
-function themeHost(theme?: string) {
-  const host = document.createElement('div');
-  if (theme !== undefined) host.dataset.theme = theme;
-  document.body.append(host);
-  hosts.push(host);
-  return host;
-}
-
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('コンポーネントからの通信は禁止'); }));
 });
 afterEach(() => {
   expect(fetch).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
-  hosts.splice(0).forEach((host) => host.remove());
 });
 
 describe('FloorPlan', () => {
-  it.each([
-    ['light', '#f6f4fa', '#ffffff', '#1e0b3a', '#5b5274', '#6d28d9', '#ffffff', 'rgba(30, 11, 58, 0.15)', '#0f766e'],
-    ['dark', '#130a22', '#1c1032', '#f4f0ff', '#b4a9cf', '#a78bfa', '#1e0b3a', 'rgba(167, 139, 250, 0.28)', '#5eead4'],
-    [undefined, '#130a22', '#1c1032', '#f4f0ff', '#b4a9cf', '#a78bfa', '#1e0b3a', 'rgba(167, 139, 250, 0.28)', '#5eead4'],
-    ['unknown', '#130a22', '#1c1032', '#f4f0ff', '#b4a9cf', '#a78bfa', '#1e0b3a', 'rgba(167, 139, 250, 0.28)', '#5eead4'],
-  ])('テーマ %s に対応するデザイントークンを使う', async (theme, bg, surface, text, secondary, action, onAction, border, event) => {
-    const wrapper = mount(FloorPlan, { attachTo: themeHost(theme), props: { plan, places: [place] } });
-    await nextTick();
-    const style = wrapper.get('svg').element.style;
-    const expected = {
-      'bg-page': bg, 'bg-surface': surface, 'text-primary': text, 'text-secondary': secondary,
-      'action-primary': action, 'action-on-primary': onAction, 'border-subtle': border,
-      event, 'map-ring': bg,
-    };
-    for (const [token, value] of Object.entries(expected)) {
-      expect(style.getPropertyValue(`--building-${token}`)).toBe(value);
+  it('色は --app-* だけを参照し、旧 --building-* を使わない', () => {
+    const wrapper = mount(FloorPlan, { props: { plan, places: [place] } });
+    expect(wrapper.get('svg').element.style.getPropertyValue('--building-bg-page')).toBe('');
+    expect(source).not.toContain('--building-');
+    for (const token of ['--app-event', '--app-facility', '--app-facility-on', '--app-map-ring', '--app-bg-surface']) {
+      expect(source).toContain(`var(${token})`);
     }
   });
 
-  it('最寄りのテーマを優先し、ライト・ダークの切替と属性の削除に追従する', async () => {
-    const outer = themeHost('light');
-    const inner = document.createElement('div');
-    inner.dataset.theme = 'dark';
-    outer.append(inner);
-    const wrapper = mount(FloorPlan, { attachTo: inner, props: { plan, places: [] } });
-    await nextTick();
-    const color = () => wrapper.get('svg').element.style.getPropertyValue('--building-event');
-    expect(color()).toBe('#5eead4');
-    inner.dataset.theme = 'light';
-    await flushPromises();
-    expect(color()).toBe('#0f766e');
-    inner.dataset.theme = 'dark';
-    await flushPromises();
-    expect(color()).toBe('#5eead4');
-    inner.removeAttribute('data-theme');
-    await flushPromises();
-    expect(color()).toBe('#0f766e');
+  it('右上に「階・見取り図は仮」の札を出す', async () => {
+    const wrapper = mount(FloorPlan, { props: { plan, places: [] } });
+    expect(wrapper.get('.floor-plan__note').text()).toBe('2階・見取り図は仮');
+    await wrapper.setProps({ plan: { ...plan, floor: -1 } });
+    expect(wrapper.get('.floor-plan__note').text()).toBe('地下1階・見取り図は仮');
   });
 
-  it('後から見取り図が届いた場合も祖先のライト配色を使う', async () => {
-    const wrapper = mount(FloorPlan, {
-      attachTo: themeHost('light'), props: { plan: undefined, places: [place] },
-    });
-    await wrapper.setProps({ plan });
-    await nextTick();
-    expect(wrapper.get('svg').element.style.getPropertyValue('--building-event')).toBe('#0f766e');
+  it('設備を白い丸とアイコンの印で出し、位置は floorplanXY の割合に合わせる', () => {
+    const wc = { ...place, id: 'wc-1', name: '1号館のトイレ', kind: 'wc' as const, location: { lat: 37, lng: 139 } };
+    const parking = { ...place, id: 'p', kind: 'parking' as const };
+    const wrapper = mount(FloorPlan, { props: { plan, places: [place], facilities: [wc, parking, place] } });
+    const marks = wrapper.findAll('.floor-plan__facility');
+    expect(marks).toHaveLength(1);
+    expect(marks[0].attributes('role')).toBe('img');
+    expect(marks[0].attributes('aria-label')).toBe('1号館のトイレ');
+    expect(marks[0].find('svg').exists()).toBe(true);
+    expect(marks[0].attributes('style')).toContain('left: 50%');
+    expect(marks[0].attributes('style')).toContain('top: 50%');
+    expect(wrapper.findAll('[role="button"]')).toHaveLength(1);
+  });
+
+  it('企画の印に触れるかフォーカスすると名前の吹き出しを出し、離れると消す', async () => {
+    const wrapper = mount(FloorPlan, { props: { plan, places: [place] } });
+    expect(wrapper.find('.floor-plan__bubble').exists()).toBe(false);
+    const target = wrapper.get('[role="button"]');
+    await target.trigger('focus');
+    expect(wrapper.get('.floor-plan__bubble').text()).toBe('お化け屋敷');
+    expect(wrapper.get('.floor-plan__bubble').attributes('aria-hidden')).toBe('true');
+    await target.trigger('blur');
+    expect(wrapper.find('.floor-plan__bubble').exists()).toBe(false);
+    await target.trigger('pointerenter');
+    expect(wrapper.find('.floor-plan__bubble').exists()).toBe(true);
+    await target.trigger('pointerleave');
+    expect(wrapper.find('.floor-plan__bubble').exists()).toBe(false);
   });
 
   it('指定の形を描き、floorplanXY の位置に企画の円を重ねる', () => {
@@ -136,8 +122,9 @@ describe('FloorPlan', () => {
   });
 
   it('plan が無いとき SVG と印を出さない', async () => {
-    const wrapper = mount(FloorPlan, { props: { plan: undefined, places: [place] } });
+    const wrapper = mount(FloorPlan, { props: { plan: undefined, places: [place], facilities: [] } });
     expect(wrapper.find('svg').exists()).toBe(false);
+    expect(wrapper.find('.floor-plan__note').exists()).toBe(false);
     await wrapper.setProps({ plan });
     expect(wrapper.findAll('circle[role="button"]')).toHaveLength(1);
     await wrapper.setProps({ plan: undefined });
