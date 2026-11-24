@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { enableAutoUnmount, mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { appColors } from '../app/tokens';
 import NoLocationView from './NoLocationView.vue';
 
 enableAutoUnmount(afterEach);
@@ -44,15 +45,29 @@ afterEach(() => {
 });
 
 describe('NoLocationView', () => {
+  it('見出しは sr-only の h1 で、Banner は role=alert にならず live 領域は 1 つだけ', () => {
+    const wrapper = mount(NoLocationView);
+    expect(wrapper.get('h1').text()).toBe('現在地の利用を選べます');
+    expect(wrapper.get('h1').classes()).toContain('sr-only');
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.findAll('[role="status"]')).toHaveLength(1);
+  });
+
+  it('Banner の見た目: idle は info、失敗は alert のアイコンで、ボタンは Banner の中に出る', async () => {
+    const wrapper = mount(NoLocationView);
+    expect(wrapper.get('.nv-banner').attributes('data-tone')).toBe('warning');
+    expect(wrapper.get('.nv-banner__icon').attributes('data-icon')).toBe('info');
+    expect(wrapper.get('.nv-banner__actions button').text()).toBe('位置の利用を許可');
+  });
+
   it('idle では現在地を使えないと断定せず、位置の利用を案内する', () => {
     const wrapper = mount(NoLocationView);
     const banner = wrapper.get('[role="status"]');
 
-    expect(banner.get('h1').text()).toBe('現在地の利用を選べます');
-    expect(banner.findAll('p').map((line) => line.text())).toEqual([
-      '位置を利用すると、行き先への方角と距離、スタンプを使えます。',
-      '検索・一覧・場所の情報は、このまま使えます。',
-    ]);
+    expect(banner.get('.nv-banner__title').text()).toBe('現在地の利用を選べます');
+    expect(banner.get('.nv-banner__body').text()).toBe(
+      '位置を利用すると、行き先への方角と距離、スタンプを使えます。\n検索・一覧・場所の情報は、このまま使えます。',
+    );
     expect(banner.text()).not.toContain('使えません');
     expect(banner.findAll('button')).toHaveLength(1);
     expect(banner.text()).not.toContain('地図で指定');
@@ -71,7 +86,7 @@ describe('NoLocationView', () => {
       expect.any(Function), expect.any(Function),
       expect.objectContaining({ enableHighAccuracy: true }),
     );
-    expect(wrapper.get('h1').text()).toBe('位置情報の許可を確認しています');
+    expect(wrapper.get('.nv-banner__title').text()).toBe('位置情報の許可を確認しています');
     expect(wrapper.text()).toContain('端末やブラウザの許可画面を確認してください');
     expect(wrapper.text()).not.toContain('使えません');
     expect(button.text()).toBe('確認中…');
@@ -86,10 +101,10 @@ describe('NoLocationView', () => {
     fail({ code: 1 } as GeolocationPositionError);
     await nextTick();
 
-    expect(wrapper.get('h1').text()).toBe('現在地の利用が許可されていません');
+    expect(wrapper.get('.nv-banner__title').text()).toBe('現在地の利用が許可されていません');
     expect(wrapper.text()).toContain('行き先への方角と距離、スタンプは使えません。');
     expect(wrapper.text()).toContain('検索・一覧・場所の情報は、このまま使えます。');
-    expect(wrapper.get('[aria-hidden="true"]').text()).toBe('!');
+    expect(wrapper.get('.nv-banner__icon').attributes('data-icon')).toBe('alert');
     expect(wrapper.text()).toContain('許可画面が再表示されず反応がない場合があります');
     expect(wrapper.text()).toContain('iOS（Safari）:「設定」→「プライバシーとセキュリティ」→「位置情報サービス」');
     expect(wrapper.text()).toContain('「SafariのWebサイト」で使用中の位置情報を許可');
@@ -110,7 +125,7 @@ describe('NoLocationView', () => {
     fail({ code } as GeolocationPositionError);
     await nextTick();
 
-    expect(wrapper.get('h1').text()).toBe(title);
+    expect(wrapper.get('.nv-banner__title').text()).toBe(title);
     expect(wrapper.text()).toContain(guidance);
     expect(wrapper.text()).toContain('行き先への方角と距離、スタンプは使えません。');
     expect(wrapper.text()).toContain('検索・一覧・場所の情報は、このまま使えます。');
@@ -122,7 +137,7 @@ describe('NoLocationView', () => {
     await wrapper.get('button').trigger('click');
     expect(clearWatch).toHaveBeenCalledExactlyOnceWith(0);
     expect(watchPosition).toHaveBeenCalledTimes(2);
-    expect(wrapper.get('h1').text()).toBe('位置情報の許可を確認しています');
+    expect(wrapper.get('.nv-banner__title').text()).toBe('位置情報の許可を確認しています');
   });
 
   it.each([1, 2, 3])('asking → エラー %i でも同じ live 領域の内容を更新する', async (code) => {
@@ -164,7 +179,7 @@ describe('NoLocationView', () => {
     const wrapper = mount(NoLocationView);
     await wrapper.get('button').trigger('click');
 
-    expect(wrapper.get('h1').text()).toBe('現在地を取得できません');
+    expect(wrapper.get('.nv-banner__title').text()).toBe('現在地を取得できません');
     expect(wrapper.get('[role="status"]').text()).toContain('検索・一覧・場所の情報は、このまま使えます。');
     expect(wrapper.get('button').text()).toBe('もう一度試す');
     expect(wrapper.get('button').element.disabled).toBe(false);
@@ -196,14 +211,9 @@ describe('NoLocationView', () => {
   });
 });
 
-const expectedColors = {
-  dark: ['#f87171', '#2d1520', '#fecaca', '#f4f0ff', '#a78bfa', '#1e0b3a', '#ffffff1f'],
-  light: ['#dc2626', '#fef2f2', '#b91c1c', '#1e0b3a', '#6d28d9', '#ffffff', '#1e0b3a14'],
-};
 const colorProperties = [
-  '--noloc-border', '--noloc-background', '--noloc-text', '--noloc-heading',
-  '--noloc-action', '--noloc-on-action', '--noloc-pressed',
-];
+  'danger', 'danger-bg', 'danger-text', 'text-primary', 'action-primary', 'action-on-primary', 'state-pressed',
+].map(name => `--app-${name}`);
 
 function createHost(theme?: string, parent = document.body) {
   const host = document.createElement('div');
@@ -216,6 +226,10 @@ function createHost(theme?: string, parent = document.body) {
 function readColors(element: HTMLElement) {
   return colorProperties.map((property) => element.style.getPropertyValue(property));
 }
+const expectedColors = {
+  dark: colorProperties.map(property => appColors('dark')[property]),
+  light: colorProperties.map(property => appColors('light')[property]),
+};
 
 describe('NoLocationView のテーマ', () => {
   it.each([

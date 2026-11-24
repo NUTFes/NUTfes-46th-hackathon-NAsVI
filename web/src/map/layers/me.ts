@@ -7,6 +7,13 @@ import type { Layer } from './types';
 
 // 精度不良でも地図を覆わないよう、精度円の画面上の半径を 120 CSS px に制限する。
 export const ACCURACY_MAX_PX = 120;
+// PositionMark.md「古い=灰色」。古いとみなす時間は未確認のため、GuideView の STALE_AFTER_MS と同じ 30 秒を仮置きする。
+export const STALE_AFTER_MS = 30_000;
+
+/** 位置が古いか。now が未来(時計のずれ)や非有限なら古いとはしない。 */
+export function isStale(position: Position, now: number): boolean {
+  return Number.isFinite(now) && Number.isFinite(position.takenAt) && now - position.takenAt >= STALE_AFTER_MS;
+}
 
 /** 現在地と行き先を地面 (z=0) に投影し、描画用の画面座標を返す。 */
 export function meGeometry(
@@ -53,11 +60,16 @@ const me: Layer = {
     if (!geometry) return;
     const { x, y, accuracyRx, accuracyRy, accuracyCapped, angle } = geometry;
     const colors = resolveColors(ctx);
+    const stale = isStale(state.position, state.now);
+    // 古い間は精度の円・輪・矢印を text-disabled の灰色にし、円と輪は破線にする。
+    const tone = stale ? colors['text-disabled'] : colors.event;
+    const arrow = stale ? colors['text-disabled'] : colors.white;
+    const dash: number[] = stale ? [4, 4] : [];
 
     ctx.save();
     try {
       ctx.globalAlpha = 1;
-      ctx.setLineDash([]);
+      ctx.setLineDash(dash);
       ctx.lineDashOffset = 0;
 
       // PositionMark.md の円・輪は event。無効な精度円は省略し、矢印と輪は描き続ける。
@@ -66,14 +78,14 @@ const me: Layer = {
         const fade = accuracyCapped ? 0.5 : 1;
         ctx.beginPath();
         ctx.ellipse(x, y, accuracyRx, accuracyRy, 0, 0, Math.PI * 2);
-        ctx.fillStyle = colors.event;
+        ctx.fillStyle = tone;
         ctx.globalAlpha = 0.12 * fade;
         ctx.fill();
         ctx.globalAlpha = 0.35 * fade;
         ctx.strokeStyle = colors['map-ring'];
         ctx.lineWidth = 5; // 1px の縁の外側に map-ring の下地を 2px 残す。
         ctx.stroke();
-        ctx.strokeStyle = colors.event;
+        ctx.strokeStyle = tone;
         ctx.lineWidth = 1;
         ctx.stroke();
       }
@@ -87,12 +99,13 @@ const me: Layer = {
       ctx.strokeStyle = colors['map-ring'];
       ctx.lineWidth = 5.5; // 1.5px の輪の外側に下地を 2px 残す。
       ctx.stroke();
-      ctx.strokeStyle = colors.event;
+      ctx.strokeStyle = tone;
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
       // 出典: PR #4 の ar-guide/mock/index.html。矢印のオフセット・頂点・濃色の縁 2px を固定。
       ctx.globalAlpha = 1;
+      if (stale) ctx.setLineDash([]); // 矢印の縁は実線
       ctx.translate(x, y - 4);
       ctx.rotate(angle + Math.PI / 2);
       ctx.beginPath();
@@ -104,7 +117,7 @@ const me: Layer = {
       ctx.strokeStyle = colors['map-ring'];
       ctx.lineWidth = 6; // 濃色の縁 2px の外側に下地を 2px 残す。
       ctx.stroke();
-      ctx.fillStyle = colors.white;
+      ctx.fillStyle = arrow;
       ctx.fill();
       ctx.strokeStyle = colors['destination-on'];
       ctx.lineWidth = 2;

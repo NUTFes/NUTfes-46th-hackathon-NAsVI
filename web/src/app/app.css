@@ -8,7 +8,6 @@
 .visitor-stage { flex: 1; min-height: 0; position: relative; overflow: auto; }
 .visitor-map { height: 100%; }
 .visitor-overlay { position: absolute; inset-inline: 0; bottom: 0; max-height: 65%; overflow: auto; }
-.visitor-app .visitor-overlay .place-card { bottom: calc(var(--app-tab-height) + var(--app-space-4) + env(safe-area-inset-bottom)); }
 .visitor-tabs { display: flex; flex: none; background: var(--app-bg-surface); padding-bottom: env(safe-area-inset-bottom); }
 .visitor-app .app-action, .map-view .app-action, .visitor-list .app-action, .visitor-tabs a {
   box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
