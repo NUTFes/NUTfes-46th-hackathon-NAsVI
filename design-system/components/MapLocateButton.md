@@ -46,6 +46,10 @@
 - 押せる大きさ: 各ボタンの押下領域を幅・高さとも 44 px 以上にする(`size.touch-target`)。見た目が小さい場合は周囲で補い、隣の押下領域と重ねない。
 - 色だけに頼っていないか: アイコンの形で操作を区別する。無効時は操作を止め、無効状態を支援技術へ伝える。装飾アイコンは読み上げを重複させない。
 
+## 実装との差(2026-11-24 にコードで確認)
+- [MapView.vue](../../web/src/views/MapView.vue) と [MapCanvas.vue](../../web/src/map/MapCanvas.vue) に現在地へ戻るボタンも、現在地へ移動する公開メソッドも無い。位置が無いときは MapView が「noloc」への `RouterLink` を出す。
+- Figma を正とする範囲は未決([#197 事項 1](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/197))。この部品を Figma に合わせて作るかは、その決定待ち。
+
 ## 未確認・要確認
 - Figma の description は「位置が使えないとき」。MapState.position は Position または null だが、null・古い位置・許可拒否・取得中をどう無効表示へ対応させるかは Figma に無く、未確認。
 - 現在地へ移動する公開メソッド名は未確認([#173](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/173)の figma-diff 方針 H4 は flyToMe、[#177](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/177)の I-3 担当欄は flyTo)。位置が使えないときの既存の案内・設定への遷移を画面の側で維持する。

@@ -33,7 +33,7 @@
 |---|---|---|
 | 通常 | 両方有効(`minusDisabled=false, plusDisabled=false`、ノード 42:2960)。アイコンは `text-primary`。Figma 上の見た目は無効でないときの 1 つ | bg-surface、text-primary、border-subtle、radius.xl |
 | 押下 | 押した有効な側だけ対応する関数を実行。面に色を重ねる案 | state-pressed |
-| 無効 | 無効な側の領域(44×43)だけ不透明度 40%(Figma の値。tokens の `opacity.disabled`=0.45 とは別の値で、Figma 側に変数は付いていない)。もう片方は通常のまま。両方同時に無効な variant は無い。無効な操作は実行しない | text-disabled の変数は Figma で参照されるが、不透明度 40% が実際の見た目 |
+| 無効 | 無効な側の領域(44×43)だけ不透明度 40%(Figma の値。tokens の `opacity.disabled`=0.45 とは別の値で、Figma 側に変数は付いていない。差・未決: 実装でどちらを使うかは決まっていない。tokens の 0.45 を使う案だが、#197 事項 1 の決定待ち)。もう片方は通常のまま。両方同時に無効な variant は無い。無効な操作は実行しない | text-disabled の変数は Figma で参照されるが、不透明度 40% が実際の見た目 |
 | 読み込み中・空・エラー | この部品では出さない | — |
 
 ## 使う / 使わない
@@ -49,6 +49,12 @@
 ## 実装で確認済み
 - [interaction.ts](../../web/src/map/interaction.ts) の `K_MIN = 0.9`・`K_MAX = 7` を `clampScale` が適用し、`zoomAt` とピンチの倍率を 0.9〜7 に制限する。
 - `zoomAt` は現在の倍率に引数 `f` を掛ける。ホイールは `exp(-deltaY × 0.0018)`、ピンチは指間距離の比で変化する。これらは＋・−ボタン 1 回の変化量を定義するものではない。
+
+## 実装との差(2026-11-24 にコードで確認)
+- 押せる大きさの差: Figma の＋・−の各領域は 44×43 で、`size.touch-target`(44)に高さが 1 px 足りない。実装では各ボタンを 44 px 以上にする案(Figma の値との差として記録。#197 事項 1 の決定待ち)。
+- 不透明度の差・未決: 無効の不透明度は Figma が 40%、tokens の `opacity.disabled` が 0.45。実装は tokens の 0.45 を使う想定だが未決(#197 事項 1)。
+- [MapView.vue](../../web/src/views/MapView.vue) と [MapCanvas.vue](../../web/src/map/MapCanvas.vue) に＋・−ボタンは無い(ホイールとピンチのみ)。向きを戻すコンパスのボタン(aria-label「向きを戻す」)だけがある。
+- Figma を正とする範囲は未決([#197 事項 1](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/197))。この部品を Figma に合わせて作るかは、その決定待ち。
 
 ## 未確認・要確認
 - ＋・−ボタン 1 回の変化量・長押しの有無は、Figma にも確認した実装にも定義が無く未確認。MapState に倍率は無く、契約の View.k が表示倍率に関わる。上限・下限での無効判定の受け渡しと地図への接続を要確認。Figma の description は「minusDisabled は縮小の限界、plusDisabled は拡大の限界(V1-i)」で、限界は上の `K_MIN`・`K_MAX` に当たると読める。
