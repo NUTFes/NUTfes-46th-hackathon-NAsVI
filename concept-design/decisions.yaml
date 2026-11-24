@@ -458,7 +458,8 @@ decisions:
       2026-11-24 の issue #165 の決定。PR #212(api/src/middleware/access.ts)の実装に基づく。
       運営の更新系 API(POST/PATCH/PUT/DELETE)は来場者の読み取りと同じパスにあり、Access の保護をパスで分けられない。
       B は OpenAPI と全実装の破壊的変更になり、C は別オリジンで CORS・Cookie の扱いが増える。
-      B・C を推すレビューもあったが、変更が最小で試験環境で動いた D をまず採る。
+      B・C を推すレビューもあったが、変更が最小の D をまず採る。
+      確認済みの範囲は、認証なしと偽 Cookie のリクエストが 401 になったこと、およびテスト796件が通ったこと。管理画面からの実書き込みは未確認。
       具体構成(Worker の assets / Pages Functions / route)は試験環境 nasvi-preview の配信に合わせる。
       wrangler.jsonc と doc/deploy.md への反映は別 PR とする。
       未確認: Access 設定後に管理画面から実際に書き込めるか、Access Cookie の SameSite 属性(公式ドキュメントで未確認)。

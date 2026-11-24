@@ -330,11 +330,11 @@ tasks:
   - doc/tech-stack.md
   goal: 管理系の認証(T4)。`requireOperator` の本実装。
   scope:
-  - '`Cf-Access-Jwt-Assertion` の署名検証(JWKS の取得とキャッシュ、iss・aud・exp の確認)'
+  - '`Cf-Access-Jwt-Assertion` ヘッダーを優先し、無いときだけ `Sec-Fetch-Site: same-origin` の場合に `CF_Authorization` Cookie から JWT を読む。不正ヘッダーではフォールバックせず、Cookie 欠落も 401。両経路で共通の署名検証(JWKS の取得とキャッシュ、iss・aud・exp の確認)と email claim の必須・非空検証を行い、失敗は 401'
   - 検証できたら `c.set('actor', {email})`。できなければ 401 problem+json
   - '`ACCESS_BYPASS=true` のときだけ検証を迂回する(開発・テスト用)。本番の設定で迂回が有効にならないことを README に書く'
   acceptance:
-  - 'テスト: 正しい JWT・期限切れ・署名不正・aud 不一致・迂回'
+  - 'テスト: 正しい JWT・期限切れ・署名不正・aud 不一致・email 欠落/空・ヘッダー優先・不正ヘッダー時のフォールバック拒否・same-origin の Cookie 認証・Sec-Fetch-Site 不一致/欠落と Cookie 欠落の拒否・迂回'
   - テストは、テスト内で作った鍵ペアと偽の JWKS で行う(外部通信なし)
   notes: Cloudflare 側の設定(ポリシー、AUD、チームのドメイン)は人が行う(D-03)。値は環境変数で受ける。
 - id: A-13
@@ -1006,7 +1006,7 @@ tasks:
     - 410 resync と接続の作り直しは W-09 が行う。画面側で重ねて処理しない。
     - `appVersionChanged` のフラグは `web/src/stores/changes.ts` の `versionChanged`。orchestrator には無い。
     - 階が null の企画は 1 階とみなす(S-07、チームで確認中)。
-    - 本番構成(同一オリジンか、Access が 302 を返す構成か)は issue #165 で決定待ち。401 の見せ方は O-01 の admin 側にあり、来場者の画面では扱わない。
+    - 本番構成は issue #165 の決定D(D-034)に従い、web と API は同一オリジンで配信する。Access は画面 `/admin/*` のみを守り、API は `requireOperator` が JWT を検証し、認証失敗は 401 を返す。401 の見せ方は O-01 の admin 側にあり、来場者の画面では扱わない。
     - 位置・方位・カメラ画像を外へ送らない。
     - チームで決める事項の一覧は issue #167。
     - `web/src/views/PlaceCard.test.ts` は S-02 の owns にもある(二重所有)。S-08 が編集してよいのは、App で同期を起動することに伴う mount 方法の修正(PlaceCard を直接 mount する形)に限る。0 件の判定(issue #167)や、テストの検証内容は変えない。PlaceCard.vue の 0 件の扱いは S-02 の所有で、後続の対応とする。
@@ -1166,7 +1166,7 @@ tasks:
   reads:
   - doc/tech-stack.md
   - doc/deploy.md
-  goal: '`/admin/*` と `/api/admin/*` を Access で守る。人が Cloudflare で行う。'
+  goal: 'Access は画面 `/admin/*` のみを守り、API は `requireOperator` が JWT を検証する。Access の設定は人が Cloudflare で行う。'
   scope:
   - Access のアプリケーションとポリシーを作る(実行委員のメール)
   - AUD とチームのドメインを、API の環境変数に設定

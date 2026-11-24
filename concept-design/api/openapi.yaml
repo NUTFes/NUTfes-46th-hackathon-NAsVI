@@ -903,6 +903,7 @@ components:
         Cf-Access-Jwt-Assertion ヘッダーを優先し、ヘッダーの JWT が不正なときは Cookie にフォールバックしない。
         ヘッダーがない場合は Cookie の CF_Authorization から JWT を読む。ただし CSRF 対策として Sec-Fetch-Site: same-origin のときだけ受け入れ、欠けている場合も拒否する。
         どちらの経路でも署名・iss・aud・exp を同じ処理で検証し、認証できなければ 401 unauthorized を返す。
+        JWT の email claim は必須で、無い・空(空白のみを含む)なら 401 unauthorized を返す。
         web と API は同一オリジンで配信する。別オリジンでは Cookie 経由の条件を満たせず、運営の書き込みは 401 になる。
         この security scheme の type/in/name はヘッダー経路を表し、Cookie 経路の条件はこの説明に従う。
         ログインの操作はこの API に持たない(Access のログインを使う)。

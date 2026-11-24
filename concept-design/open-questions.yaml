@@ -164,7 +164,9 @@ questions:
       署名・iss・aud・exp はどちらも同じ処理で検証する。web と API は同一オリジンで配信する。
     note: >-
       運営の更新系 API(POST/PATCH/PUT/DELETE)は来場者の読み取りと同じパスにあり、パスで Access を分けられない。
-      試験環境で動いた、変更の最小な D をまず採る。B(運営専用パス)・C(別ホスト)を推すレビューもあった。
+      変更の最小な D をまず採る。確認済みの範囲は、認証なしと偽 Cookie のリクエストが 401 になったこと、およびテスト796件が通ったこと。実書き込みは未確認。
+      B(運営専用パス)・C(別ホスト)を推すレビューもあった。
       具体構成(Worker の assets / Pages Functions / route)は試験環境 nasvi-preview の配信に合わせ、wrangler.jsonc と doc/deploy.md への反映は別 PR。
       Access 設定後の管理画面からの実書き込み、Access Cookie の SameSite 属性(公式ドキュメントで未確認)は未確認。
       Sec-Fetch-Site を送らない古いブラウザは Cookie 経由で認証できない。運営端末は最近のブラウザを前提とする。
+      未確認の3点(実書き込み、SameSite、古いブラウザ)は #150 で追う。
