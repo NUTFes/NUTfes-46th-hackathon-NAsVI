@@ -1,0 +1,137 @@
+name: deploy
+
+# 試験(preview)と本番(production)へ、Worker・D1 のマイグレーション・Web(Pages)をデプロイする。
+# - 手動(workflow_dispatch): 環境を選んで実行する。本番はこちらだけ。
+# - impl/main への push: 試験だけ。リポジトリの変数 AUTO_DEPLOY_PREVIEW が 'true' のときだけ動く(既定は止まっている)。
+# 実値(D1 の ID・Access の AUD など)はリポジトリに置かず、GitHub の Environments の変数・Secrets から受け取る。
+# 必要な値の一覧は doc/deploy.md の「GitHub Actions での自動デプロイ」を見る。
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: デプロイ先の環境
+        type: choice
+        options: [preview, production]
+        default: preview
+  push:
+    branches: [impl/main]
+
+permissions:
+  contents: read
+
+env:
+  COREPACK_ENABLE_NETWORK: '0'
+  WRANGLER_SEND_METRICS: 'false'
+  CI: 'true'
+
+jobs:
+  deploy:
+    # push は、AUTO_DEPLOY_PREVIEW が 'true' のときだけ。
+    if: github.event_name == 'workflow_dispatch' || vars.AUTO_DEPLOY_PREVIEW == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'preview' }}
+    concurrency:
+      group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'preview' }}
+      cancel-in-progress: false
+    env:
+      TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'preview' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      # 環境ごとの値(Environments の変数)
+      D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID }}
+      ACCESS_TEAM_DOMAIN: ${{ vars.ACCESS_TEAM_DOMAIN }}
+      ACCESS_AUD: ${{ vars.ACCESS_AUD }}
+      OSM_CONTACT: ${{ vars.OSM_CONTACT }}
+      SITE_HOST: ${{ vars.SITE_HOST }}
+      ZONE_NAME: ${{ vars.ZONE_NAME }}
+      PAGES_PROJECT: ${{ vars.PAGES_PROJECT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.32.1 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - name: 検査(型・テスト)
+        run: |
+          pnpm -r typecheck
+          pnpm --filter api test
+          pnpm --filter web test
+
+      - name: Web をビルド
+        run: pnpm --filter web build
+
+      - name: 実値入りの設定を組み立てる(コミットしない。api/.wrangler は無視対象)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          required = [
+              'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'D1_DATABASE_ID', 'ACCESS_TEAM_DOMAIN',
+              'ACCESS_AUD', 'OSM_CONTACT', 'SITE_HOST', 'ZONE_NAME', 'PAGES_PROJECT',
+          ]
+          missing = [name for name in required if not os.environ.get(name)]
+          if missing:
+              raise SystemExit('未設定の値があります: ' + ', '.join(missing))
+
+          target = os.environ['TARGET']
+          assert target in ('preview', 'production')
+          config = json.loads(Path('api/wrangler.jsonc').read_text())
+          env = config['env'][target]
+          env['vars']['ACCESS_TEAM_DOMAIN'] = os.environ['ACCESS_TEAM_DOMAIN']
+          env['vars']['ACCESS_AUD'] = os.environ['ACCESS_AUD']
+          env['vars']['OSM_CONTACT'] = os.environ['OSM_CONTACT']
+          # 公開環境では開発用の入口を閉じる(doc/deploy.md)。
+          assert env['vars']['ENABLE_DEV_EMIT'] == 'false'
+          assert 'ACCESS_BYPASS' not in env['vars']
+          env['d1_databases'][0]['database_id'] = os.environ['D1_DATABASE_ID']
+          # 設定ファイルは api/.wrangler/deploy/ に置くので、パスはそこからの相対にする。
+          env['d1_databases'][0]['migrations_dir'] = '../../migrations'
+          env['main'] = '../../src/index.ts'
+          env['routes'] = [{'pattern': f"{os.environ['SITE_HOST']}/api/*", 'zone_name': os.environ['ZONE_NAME']}]
+          config['main'] = '../../src/index.ts'
+          out = Path('api/.wrangler/deploy/wrangler.jsonc')
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(json.dumps(config, indent=2, ensure_ascii=False))
+          print(f'設定を組み立てました: {target}(実値は表示しません)')
+          PY
+
+      - name: D1 のマイグレーションを適用
+        working-directory: api
+        run: |
+          pnpm exec wrangler d1 migrations list DB --env "$TARGET" --remote --config ./.wrangler/deploy/wrangler.jsonc
+          pnpm exec wrangler d1 migrations apply DB --env "$TARGET" --remote --config ./.wrangler/deploy/wrangler.jsonc
+          pnpm exec wrangler d1 migrations list DB --env "$TARGET" --remote --config ./.wrangler/deploy/wrangler.jsonc
+
+      - name: Worker をデプロイ
+        working-directory: api
+        run: pnpm exec wrangler deploy --env "$TARGET" --config ./.wrangler/deploy/wrangler.jsonc
+
+      - name: Web(Pages)をデプロイ
+        working-directory: api
+        run: pnpm exec wrangler pages deploy ../web/dist --project-name "$PAGES_PROJECT" --branch main --commit-hash "$GITHUB_SHA"
+
+      - name: 動作確認(読み取りだけ)
+        shell: bash
+        run: |
+          set -e
+          # Pages の反映と証明書の発行に少しかかることがある。
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://$SITE_HOST/api/places" || true)
+            [ "$code" = 200 ] && break
+            sleep 10
+          done
+          echo "GET /api/places: $code"
+          [ "$code" = 200 ]
+          # 認証なしの書き込みは通らないこと
+          code=$(curl -s -X POST -H 'content-type: application/json' -d '{}' -o /dev/null -w '%{http_code}' "https://$SITE_HOST/api/places")
+          echo "POST /api/places(認証なし): $code"
+          [ "$code" = 401 ]

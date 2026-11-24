@@ -134,3 +134,35 @@ env -i PATH="$PATH" COREPACK_ENABLE_NETWORK=0 WRANGLER_SEND_METRICS=false CI=tru
 ```
 
 ローカルで外部通信を禁止する場合は、依存を事前に用意し、OS 側でも通信を遮断して検証する。ログ・バンドル等の生成物は scratch 配下に置き、worktree に残さない。dry-run はバンドルと設定の検査であり、D1 ID の存在、SQL のリモート適用、Pages の経路、Access の動作や無料枠を検証しない。
+
+## GitHub Actions での自動デプロイ
+
+`.github/workflows/deploy.yml` が、Worker・D1 のマイグレーション・Web(Pages)を、まとめてデプロイする。実値はリポジトリに置かず、GitHub の Secrets と Environments の変数から受け取る(上の「実値を注入した一時設定」と同じ方針。設定ファイルは workflow が実行中に組み立て、コミットしない)。
+
+| 契機 | 動作 |
+| --- | --- |
+| 手動(Actions の `deploy` → Run workflow) | 環境(`preview` / `production`)を選んで実行する。本番はこちらだけ |
+| `impl/main` への push | `preview` だけ。リポジトリの変数 `AUTO_DEPLOY_PREVIEW` が `true` のときだけ動く(既定は止まっている) |
+
+実行の順序は、検査(型・テスト)→ Web のビルド → 設定の組み立て → D1 のマイグレーション → Worker → Pages → 動作確認(読み取りと、認証なしの書き込みが 401 になること)。マイグレーションが失敗すると、Worker は更新されない。
+
+### 登録する値
+
+| 種類 | 名前 | 置く場所 | 内容 |
+| --- | --- | --- | --- |
+| Secret | `CLOUDFLARE_API_TOKEN` | リポジトリ | アカウントの API トークン(Workers・D1・Pages の編集、対象ゾーンの Workers Routes の編集) |
+| 変数 | `CLOUDFLARE_ACCOUNT_ID` | リポジトリ | Cloudflare のアカウント ID |
+| 変数 | `AUTO_DEPLOY_PREVIEW` | リポジトリ | `true` で、`impl/main` への push の自動デプロイが有効になる |
+| 変数 | `D1_DATABASE_ID` | Environment(`preview`・`production` ごと) | その環境の D1 の ID |
+| 変数 | `ACCESS_TEAM_DOMAIN` | Environment ごと | Access のチームドメイン(ホスト名だけ) |
+| 変数 | `ACCESS_AUD` | Environment ごと | その環境の Access アプリの AUD |
+| 変数 | `OSM_CONTACT` | Environment ごと | OSM へのリクエストに含める連絡先 |
+| 変数 | `SITE_HOST` | Environment ごと | 公開するホスト名(Worker は `<ホスト名>/api/*` に置く) |
+| 変数 | `ZONE_NAME` | Environment ごと | ホスト名が属する Cloudflare のゾーン名 |
+| 変数 | `PAGES_PROJECT` | Environment ごと | Pages のプロジェクト名 |
+
+- 値が 1 つでも欠けていると、設定の組み立ての段階で止まる(Cloudflare には何も送られない)。
+- 本番(`production`)は、GitHub の Environments で、承認者を必須にすることを勧める。
+- トークンを持つ workflow は、アカウントの Workers・D1・Pages を操作できる。`.github/workflows/` の変更は、必ず PR のレビューを通す。
+- フォークからの PR には、Secrets は渡されない(GitHub の仕様)。
+- 初回は、`preview` を手動で実行して、権限のエラーが出ないかを確かめる。足りない権限は、その時点で分かる。
