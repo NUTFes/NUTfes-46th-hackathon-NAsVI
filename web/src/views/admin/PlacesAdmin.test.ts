@@ -97,7 +97,7 @@ describe('場所の登録・管理', () => {
     expect(row.text()).toContain('2026-11-28 11:00 〜 2026-11-28 15:00');
     expect(fetchMock).toHaveBeenCalledWith('/api/landmarks', expect.objectContaining({ method: 'GET', credentials: 'include' }));
     expect(fetchMock).toHaveBeenCalledWith('/api/labels', expect.objectContaining({ method: 'GET', credentials: 'include' }));
-    expect(row.text()).toContain('設定済み');
+    expect(row.text()).toContain('緯度 37.4249 / 経度 138.7781');
     expect(row.text()).toContain('屋外');
     expect(store.items).toEqual([place]);
     expect(clearError).toHaveBeenCalledTimes(2);

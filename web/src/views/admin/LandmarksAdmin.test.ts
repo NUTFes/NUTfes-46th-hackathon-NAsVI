@@ -68,6 +68,14 @@ async function editFirst(wrapper: VueWrapper) {
 }
 
 describe('建物の一覧・登録・更新', () => {
+  it('「編集」を押すと、ボタンが「編集中」に替わってもフォーカスはフォーム先頭の入力へ移る', async () => {
+    const { wrapper } = await render([building()]);
+    await editFirst(wrapper);
+    await flushPromises();
+    expect(wrapper.get('tbody tr').text()).toContain('編集中');
+    expect(document.activeElement).toBe(wrapper.get('#landmark-name').element);
+  });
+
   it('AdminLayout の中で一覧、輪郭の有無、階の状態を表示する', async () => {
     const { wrapper } = await render([
       building({ floors: [floor] }), building({ id: 'lm-b', name: 'B棟', footprint: null }),

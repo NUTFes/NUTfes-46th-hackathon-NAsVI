@@ -18,14 +18,9 @@ const kinds: Record<PlaceKind, string> = {
 };
 const columns: DataTableColumn[] = [
   { key: 'name', label: '名前' }, { key: 'kind', label: '種別' }, { key: 'labels', label: '種類' },
-  { key: 'position', label: '位置' }, { key: 'floor', label: '階' }, { key: 'hours', label: '開催時間 (日本時間)' },
+  { key: 'position', label: '位置 (緯度・経度)' }, { key: 'floor', label: '階' }, { key: 'hours', label: '開催時間 (日本時間)' },
   { key: 'actions', label: '操作', align: 'end' },
 ];
-// 位置が正しく入っていれば「設定済み」、そうでなければ「要確認」。
-function locationSet(place: Place) {
-  const { lat, lng } = place.location;
-  return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
-}
 const places = usePlacesStore();
 const { reportError, clearError } = useAdminFeedback();
 const busy = ref(false);
@@ -281,7 +276,7 @@ function confirmDelete() {
           <span v-else class="sub">なし</span>
         </template>
         <template #cell-position="{ row }">
-          <span :class="locationSet(row) ? 'state-ok' : 'state-check'">{{ locationSet(row) ? '設定済み' : '要確認' }}</span>
+          <span class="sub">緯度 {{ row.location.lat }} / 経度 {{ row.location.lng }}</span>
         </template>
         <template #cell-floor="{ row }">{{ row.floor === null ? '階の指定なし' : `${row.floor}階` }}</template>
         <template #cell-hours="{ row }">
@@ -389,8 +384,6 @@ legend { font-weight: var(--admin-bold); }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--admin-space-sm); }
 .actions--end { justify-content: flex-end; }
 .sub { color: var(--admin-muted); font-size: var(--admin-label-size); font-weight: var(--admin-weight); }
-.state-ok { color: var(--app-event); font-weight: var(--admin-bold); } /* event（mint） */
-.state-check { color: var(--admin-danger-text); font-weight: var(--admin-bold); } /* danger-text（桃） */
 .field-error { color: var(--admin-danger-text); font-weight: var(--admin-bold); }
 dialog { box-sizing: border-box; width: min(100%, 32rem); padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
 dialog::backdrop { background: var(--admin-selected); }

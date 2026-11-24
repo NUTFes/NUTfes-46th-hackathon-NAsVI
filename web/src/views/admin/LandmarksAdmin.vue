@@ -143,7 +143,7 @@ function load() {
   });
 }
 
-function edit(item: Landmark) {
+async function edit(item: Landmark) {
   if (locked.value) return;
   clearError();
   fieldErrors.value = {};
@@ -151,6 +151,9 @@ function edit(item: Landmark) {
   deleteConflict.value = false;
   selectedId.value = item.id;
   Object.assign(draft, { name: item.name, lat: String(item.location.lat), lng: String(item.location.lng) });
+  // 押した「編集」ボタンは「編集中」の文字に替わるので、フォーカスをフォーム先頭の入力へ移す。
+  await nextTick();
+  formElement.value?.querySelector<HTMLInputElement>('#landmark-name')?.focus();
 }
 
 function startNew() {

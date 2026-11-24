@@ -230,7 +230,7 @@ onBeforeUnmount(() => {
         <li v-for="label in labels.items" :key="label.id">
           <span>{{ label.title }}</span>
           <Button
-            variant="danger" size="sm" label="削除" :aria-label="`${label.title}を削除`" :disabled="disabled"
+            variant="danger" label="削除" :aria-label="`${label.title}を削除`" :disabled="disabled"
             @click="askToRemove(label, $event)"
           />
         </li>
