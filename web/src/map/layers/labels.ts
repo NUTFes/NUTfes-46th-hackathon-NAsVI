@@ -10,7 +10,7 @@ import type { MarkIcon } from './buildings';
 import type { Layer } from './types';
 
 export interface Rect { x: number; y: number; w: number; h: number }
-export interface LabelHit { rect: Rect; placeId: string }
+export interface LabelHit { rect: Rect; placeId: string; /** 見た目より広げた押下領域(BuildingFlag)。隣の印と競り合う。 */ soft?: boolean }
 export interface LabelCandidate {
   placeId: string;
   text: string;
@@ -174,10 +174,12 @@ const labels: Layer = {
       }
       const placed = placeLabels(candidates, view.k, W, H);
       // 丸薬は押下領域を 44 CSS px 角にする(配置の重なり判定は見た目の矩形のまま)。
-      labelHits = placed.map((p) => p.flagCount !== undefined && !p.isDestination
-        ? { placeId: p.placeId, rect: {
-          x: p.x - HIT_HALF, y: p.y - HIT_HALF, w: HIT_HALF * 2, h: HIT_HALF * 2,
-        } } : p);
+      // 幅は max(44, 丸薬の幅)。2 桁以上の数で丸薬が 44 を超えても、見た目より狭くしない。
+      labelHits = placed.map((p) => {
+        if (p.flagCount === undefined || p.isDestination) return p;
+        const w = Math.max(HIT_HALF * 2, p.rect.w);
+        return { placeId: p.placeId, soft: true, rect: { x: p.x - w / 2, y: p.y - HIT_HALF, w, h: HIT_HALF * 2 } };
+      });
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'center';
       for (const { placeId, text, x, y, stem, rect: r, isDestination, flagCount } of placed) {
@@ -211,8 +213,17 @@ const labels: Layer = {
   },
   hitTest(x, y) {
     const label = hitLabel(labelHits, x, y);
-    if (label) return label;
     const marker = markerHits.find((p) => Math.abs(p.x - x) <= HIT_HALF && Math.abs(p.y - y) <= HIT_HALF);
+    if (label && marker) {
+      // 広げた丸薬の領域は、描いた丸薬の外では地面の印と競り合い、中心が近いほうを返す。
+      // 吹き出し(行き先)と、丸薬の描いた矩形の中は従来どおり先頭のラベルを優先する。
+      const hit = labelHits.find((h) => h.placeId === label.id)!;
+      const { x: rx, y: ry, w, h } = hit.rect;
+      if (hit.soft && Math.hypot(x - marker.x, y - marker.y) < Math.hypot(x - (rx + w / 2), y - (ry + h / 2))) {
+        return { kind: 'place', id: marker.placeId };
+      }
+    }
+    if (label) return label;
     return marker ? { kind: 'place', id: marker.placeId } : null;
   },
 };

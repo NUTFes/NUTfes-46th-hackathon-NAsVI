@@ -233,7 +233,7 @@ describe('labels Layer', () => {
     expect(ctx).toMatchObject(before);
   });
 
-  it('輪郭なしのラベル・波紋は企画の location に置き、印の建物判定を遮らない', () => {
+  it('輪郭なしのラベル・波紋は企画の location に置く', () => {
     const ctx = canvas();
     const building = { ...landmark(), footprint: null };
     const event = place('indoor', { landmarkId: 'a', location: fromXY(60, -30) });
@@ -242,11 +242,11 @@ describe('labels Layer', () => {
     const [x, y] = project(view, 400, 600, wx, wy);
     buildings.draw(ctx, view, data, 800);
     labels.draw(ctx, view, data, 800);
-    expect(ctx.ellipse).toHaveBeenCalledTimes(2); // buildings の印 1 個と labels の波紋 1 個。
+    expect(ctx.ellipse).toHaveBeenCalledTimes(1); // labels の波紋 1 個だけ(buildings は印を描かない)。
     expect(ctx.ellipse).toHaveBeenLastCalledWith(x, y, 33, 33 * TILT, 0, 0, 7);
     expect(ctx.fillText).toHaveBeenCalledExactlyOnceWith('indoor', x, y - 35 + 0.5);
     expect(labels.hitTest!(x, y)).toBeNull();
-    expect(buildings.hitTest!(x, y)).toEqual({ kind: 'building', id: 'a' });
+    expect(buildings.hitTest!(x, y)).toBeNull();
     expect(labels.hitTest!(x, y - 35)).toEqual({ kind: 'place', id: 'indoor' });
   });
 
@@ -430,6 +430,50 @@ describe('labels Layer', () => {
       expect(labels.hitTest!(x + 22, y - 22)).toEqual({ kind: 'place', id: 'a' });
       expect(labels.hitTest!(x + 22.1, y)).toBeNull();
       expect(labels.hitTest!(x, y + 22.1)).toBeNull();
+    });
+
+    it.each([[2, 10], [3, 20]])('丸薬が 44 px を超える %s 桁の数でも、押下領域は max(44, 丸薬の幅)', (digits, textWidth) => {
+      const ctx = canvas();
+      vi.mocked(ctx.measureText).mockImplementation(() => ({ width: textWidth * digits }) as TextMetrics);
+      const building = landmark();
+      const hgt = buildingHeight(building.footprint!.map((p) => toXY(p.lat, p.lng)));
+      const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0, hgt);
+      const places = Array.from({ length: 10 ** (digits - 1) }, (_, i) => place(`p${i}`, { landmarkId: 'a' }));
+      labels.draw(ctx, { ...view, k: 1 }, state({ landmarks: [building], places }), 0);
+      const pill = 9 * 2 + 12 + 3 + textWidth * digits;
+      expect(pill).toBeGreaterThan(44);
+      expect(labels.hitTest!(x + pill / 2, y)).toEqual({ kind: 'place', id: 'p0' });
+      expect(labels.hitTest!(x - pill / 2, y)).toEqual({ kind: 'place', id: 'p0' });
+      expect(labels.hitTest!(x + pill / 2 + 0.1, y)).toBeNull();
+    });
+
+    it('輪郭なしの建物は BuildingFlag の押下領域だけを持つ(EventMark と二重にならない)', () => {
+      const ctx = canvas();
+      const event = place('indoor', { landmarkId: 'a', location: fromXY(60, -30) });
+      const data = state({ landmarks: [{ ...landmark(), footprint: null }], places: [event] });
+      const [wx, wy] = toXY(event.location.lat, event.location.lng);
+      const [x, y] = project(view, 400, 600, wx, wy);
+      buildings.draw(ctx, view, data, 0);
+      labels.draw(ctx, view, data, 0);
+      expect(ctx.ellipse).not.toHaveBeenCalled(); // 丸(EventMark)は重ねない
+      expect(ctx.roundRect).toHaveBeenCalledOnce(); // 丸薬 1 つ
+      expect(buildings.hitTest!(x, y)).toBeNull();
+      expect(labels.hitTest!(x, y)).toEqual({ kind: 'place', id: 'indoor' });
+    });
+
+    it('広げた丸薬の押下領域は、描いた丸薬の外では近いほうの地面の印に譲る', () => {
+      const ctx = canvas();
+      const building = landmark();
+      const hgt = buildingHeight(building.footprint!.map((p) => toXY(p.lat, p.lng)));
+      const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0, hgt);
+      // 丸薬(中心 (x, y))の右 20px 先に、地面の印(施設)を置く。丸薬の描いた幅は 40 なので x+20 が縁。
+      const facility = place('wc', { kind: 'wc', location: fromXY(0, 0) });
+      labels.draw(ctx, { ...view, k: 1 }, state({ landmarks: [building], places: [
+        place('a', { landmarkId: 'a' }), facility,
+      ] }), 0);
+      // 施設の印は地面 (200, 300)。丸薬は屋根の位置にある。
+      expect(labels.hitTest!(200, 300)).toEqual({ kind: 'place', id: 'wc' });
+      expect(labels.hitTest!(x, y)).toEqual({ kind: 'place', id: 'a' });
     });
   });
 });

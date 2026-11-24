@@ -248,46 +248,20 @@ describe('buildings Layer', () => {
     expect(buildings.hitTest!(base[front][0], base[front][1] + 1)).toBeNull();
   });
 
-  it.each([1, 2, 3])('輪郭なしでは企画の location に高さなしの印を描き、円内だけ建物を返す (DPR=%s)', (dpr) => {
+  it.each([1, 2, 3])('輪郭なしの建物では buildings は何も描かず、押下領域も持たない(BuildingFlag と二重にしない) (DPR=%s)', (dpr) => {
     const { ctx, fills, strokes } = canvas(dpr);
     const event = place('event', { location: fromXY(60, -30), labelIds: ['show'] });
-    const data = state({ landmarks: [{ ...landmark('a'), footprint: null }], places: [event] });
+    const data = state({
+      landmarks: [{ ...landmark('a'), footprint: null }], places: [event],
+      destination: { placeId: 'event' },
+    });
     buildings.draw(ctx, view, data, 0);
     const [wx, wy] = toXY(event.location.lat, event.location.lng);
     const [x, y] = project(view, 400, 600, wx, wy);
-    // EventMark: k=2 は拡大扱いで 20 px(r=10)。画面に平行。押下領域は 44 px 角。
-    expect(ctx.ellipse).toHaveBeenCalledExactlyOnceWith(x, y, 10, 10, 0, 0, Math.PI * 2);
-    expect(fills).toEqual([mapColors.event.dark]);
-    expect(strokes).toEqual([mapColors['map-ring'].dark]);
-    expect(ctx.closePath).not.toHaveBeenCalled();
-    expect(buildings.hitTest!(x, y)).toEqual({ kind: 'building', id: 'a' });
-    expect(buildings.hitTest!(x + 22, y + 22)).toEqual({ kind: 'building', id: 'a' });
-    expect(buildings.hitTest!(x + 22.1, y)).toBeNull();
-    expect(buildings.hitTest!(x, y - 22)).toEqual({ kind: 'building', id: 'a' });
-    expect(buildings.hitTest!(x, y + 22.1)).toBeNull();
-    expect(buildings.hitTest!(200, 300)).toBeNull();
-    buildings.draw(ctx, view, { ...data, filter: { labelIds: ['hidden'], tagIds: [] } }, 1);
+    expect(ctx.ellipse).not.toHaveBeenCalled();
+    expect(fills).toEqual([]);
+    expect(strokes).toEqual([]);
     expect(buildings.hitTest!(x, y)).toBeNull();
-    buildings.draw(ctx, view, data, 2);
-    buildings.draw(ctx, { ...view, fx: 1000 }, data, 3);
-    expect(buildings.hitTest!(x, y)).toBeNull();
-    buildings.draw(ctx, view, data, 4);
-    buildings.draw(ctx, view, state({ landmarks: [] }), 5);
-    expect(buildings.hitTest!(x, y)).toBeNull();
-  });
-
-  it('輪郭なしの建物内に行き先があれば企画の印を強調し、絞り込み外の行き先も描く', () => {
-    const { ctx, fills, strokes } = canvas();
-    const data = state({
-      landmarks: [{ ...landmark('a'), footprint: null }],
-      places: [place('shown', { labelIds: ['show'] }),
-        place('dest', { labelIds: ['hidden'], location: fromXY(60, 0) })],
-      destination: { placeId: 'dest' }, filter: { labelIds: ['show'], tagIds: ['ignored'] },
-    });
-    buildings.draw(ctx, view, data, 0);
-    expect(fills).toEqual([mapColors.destination.dark, mapColors.destination.dark]);
-    expect(strokes).toEqual(Array(2).fill(mapColors['map-ring'].dark));
-    expect(buildings.hitTest!(320, 300)).toEqual({ kind: 'building', id: 'a' });
   });
 
   it.each(['info', 'wc', 'rest', 'trash', 'parking'] as const)('輪郭なしでも %s の印を buildings では重複描画しない', (kind) => {

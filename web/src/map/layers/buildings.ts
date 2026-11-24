@@ -275,20 +275,8 @@ const buildings: Layer = {
       for (const { landmark, points } of sortByDepth(list)) {
         const { isDest, isP } = buildingHighlight(landmark.id, shown, destination);
         if (points === null) {
-          // D-023: 輪郭なしには高さを付けず、企画の location に小さな地面の円を描く。
-          // 設備・駐車場の印は labels が担当。絞り込み外でも行き先の企画は残す。
-          const places = destination && !shown.some((p) => p.id === destination.id)
-            ? [...shown, destination] : shown;
-          const markers = [];
-          for (const p of places) {
-            if (p.landmarkId !== landmark.id || isFacility(p) || p.kind === 'parking') continue;
-            const [wx, wy] = toXY(p.location.lat, p.location.lng);
-            const [x, y] = project(view, width, height, wx, wy);
-            drawEventMark(ctx, colors, x, y, view.k >= 1.25, isDest);
-            const r = HIT_HALF;
-            markers.push({ x, y, r });
-          }
-          buildingHits.push({ id: landmark.id, polygons: [], markers });
+          // D-023: 輪郭なしには高さも印も付けない。企画の印は labels の BuildingFlag(旗+数)が
+          // 建物の位置に 1 つ出し、押下領域もそちらが持つ(ここで EventMark を重ねると二重になる)。
           continue;
         }
         const hgt = buildingHeight(points);
