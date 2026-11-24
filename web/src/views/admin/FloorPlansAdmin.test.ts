@@ -77,7 +77,7 @@ function deleteButton(wrapper: Screen) { return wrapper.get('button.delete'); }
 function reloadButton(wrapper: Screen) { return wrapper.get('main > button'); }
 async function confirmDelete(wrapper: Screen) {
   await deleteButton(wrapper).trigger('click');
-  await wrapper.get('[role="alertdialog"] button.delete').trigger('click');
+  await wrapper.findAll('[role="alertdialog"] button').find((item) => item.text() === '削除する')!.trigger('click');
 }
 
 describe('見取り図の登録・管理', () => {

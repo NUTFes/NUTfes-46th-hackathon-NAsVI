@@ -59,11 +59,13 @@ nav a {
   align-items: center;
   min-height: var(--admin-touch-target);
   padding-inline: var(--admin-space-lg);
+  border: thin solid var(--admin-border-control);
   border-radius: var(--admin-radius);
   color: var(--admin-muted);
   text-decoration: none;
 }
 nav a.is-current {
+  border-color: var(--admin-action);
   background: var(--admin-selected);
   color: var(--admin-text);
   font-weight: var(--admin-bold);

@@ -4,6 +4,10 @@ import { RouterLink } from 'vue-router';
 import { adminGet, adminSend, ApiError } from '../../admin/client';
 import { useAdminFeedback } from '../../admin/feedback';
 import { adminTokens } from '../../admin/tokens';
+import DataTable, { type DataTableColumn } from '../../components/admin/DataTable.vue';
+import DeleteConfirm from '../../components/admin/DeleteConfirm.vue';
+import FormField from '../../components/admin/FormField.vue';
+import Button from '../../components/ui/Button.vue';
 import { toXY } from '../../domain/geo';
 import { useLandmarksStore } from '../../stores/landmarks';
 import type { Landmark, Place } from '../../types';
@@ -85,8 +89,12 @@ function reportSaveError(error: unknown) {
 const confirmingDelete = ref(false);
 const locked = computed(() => busy.value || confirmingDelete.value);
 const deleteDialog = ref<HTMLDialogElement | null>(null);
-const cancelButton = ref<HTMLButtonElement | null>(null);
-const deleteButton = ref<HTMLButtonElement | null>(null);
+const deleteConfirm = ref<InstanceType<typeof DeleteConfirm> | null>(null);
+const columns: DataTableColumn[] = [
+  { key: 'name', label: '名前' }, { key: 'count', label: '場所の件数' }, { key: 'shape', label: '建物の形' },
+  { key: 'floors', label: '見取り図のある階' }, { key: 'actions', label: '操作', align: 'end' },
+];
+const deleteButton = ref<{ $el: HTMLButtonElement } | null>(null);
 let controller: AbortController | null = null;
 
 // 一度に一つだけ送信し、管理画面を離れた後の応答・エラーは反映しない。
@@ -206,14 +214,14 @@ async function askDelete() {
   confirmingDelete.value = true;
   await nextTick();
   deleteDialog.value?.showModal();
-  cancelButton.value?.focus();
+  deleteConfirm.value?.focusCancel();
 }
 
 async function cancelDelete() {
   if (busy.value) return;
   confirmingDelete.value = false;
   await nextTick();
-  deleteButton.value?.focus();
+  deleteButton.value?.$el.focus();
 }
 
 function handleDeleteKeydown(event: KeyboardEvent) {
@@ -274,7 +282,7 @@ function remove() {
   void result.then(async () => {
     if (confirmingDelete.value || deleteConflict.value) return;
     await nextTick();
-    if (selected.value) deleteButton.value?.focus();
+    if (selected.value) deleteButton.value?.$el.focus();
     else formElement.value?.querySelector<HTMLInputElement>('#landmark-name')?.focus();
   });
   return result;
@@ -293,26 +301,23 @@ onBeforeUnmount(() => controller?.abort());
     <section aria-labelledby="landmarks-list-title">
       <div class="actions">
         <h3 id="landmarks-list-title">建物の一覧</h3>
-        <button type="button" :disabled="locked" @click="load">一覧を読み込み直す</button>
-        <button type="button" :disabled="locked || !loaded" @click="startNew">新しい建物</button>
+        <Button variant="secondary" label="一覧を読み込み直す" :disabled="locked" @press="load" />
+        <Button variant="secondary" label="新しい建物" :disabled="locked || !loaded" @press="startNew" />
       </div>
       <p v-if="placesError" role="status">場所の件数を取得できませんでした。一覧を読み込み直してください。</p>
-      <p v-if="loaded && !store.items.length">建物はまだ登録されていません。</p>
-      <div v-else-if="loaded" class="table-scroll">
-        <table>
-          <caption>登録済みの建物と場所の件数・建物の形・見取り図の状態</caption>
-          <thead><tr><th scope="col">名前</th><th scope="col">場所の件数</th><th scope="col">建物の形</th><th scope="col">見取り図のある階</th><th scope="col">操作</th></tr></thead>
-          <tbody>
-            <tr v-for="item in store.items" :key="item.id" :class="{ selected: item.id === selectedId }">
-              <th scope="row">{{ item.name }}</th>
-              <td>{{ placesLoaded ? `${placeCounts.get(item.id) ?? 0}件` : '未取得' }}</td>
-              <td :class="{ missing: !hasFootprint(item) }">{{ hasFootprint(item) ? '形あり' : '形なし' }}</td>
-              <td>{{ item.floors.length ? item.floors.map((plan) => `${plan.floor}階`).join('、') : '未登録' }}</td>
-              <td><button type="button" :disabled="locked" :aria-label="`${item.name}を編集`" @click="edit(item)">編集</button></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        v-if="loaded" :columns="columns" :rows="store.items" :selected-id="selectedId ?? undefined"
+        caption="登録済みの建物と場所の件数・建物の形・見取り図の状態"
+      >
+        <template #cell-name="{ row }">{{ row.name }}</template>
+        <template #cell-count="{ row }">{{ placesLoaded ? `${placeCounts.get(row.id) ?? 0}件` : '未取得' }}</template>
+        <template #cell-shape="{ row }"><span :class="{ missing: !hasFootprint(row) }">{{ hasFootprint(row) ? '形あり' : '形なし' }}</span></template>
+        <template #cell-floors="{ row }">{{ row.floors.length ? row.floors.map((plan) => `${plan.floor}階`).join('、') : '未登録' }}</template>
+        <template #cell-actions="{ row }">
+          <span v-if="row.id === selectedId" class="missing">編集中</span>
+          <Button v-else variant="secondary" size="sm" label="編集" :disabled="locked" :aria-label="`${row.name}を編集`" @press="edit(row)" />
+        </template>
+      </DataTable>
     </section>
 
     <section aria-labelledby="landmark-form-title">
@@ -332,22 +337,22 @@ onBeforeUnmount(() => controller?.abort());
       <form ref="formElement" novalidate @submit.prevent="save">
         <fieldset :disabled="locked || !loaded">
           <legend>名前と位置</legend>
-          <label for="landmark-name">名前（1〜50文字）</label>
-          <input id="landmark-name" v-model="draft.name" name="name" required
-            :aria-invalid="fieldErrors.name ? 'true' : undefined" :aria-describedby="fieldErrors.name ? 'landmark-name-error' : undefined" @input="clearFieldError('name')" />
-          <p v-if="fieldErrors.name" id="landmark-name-error" class="field-error" role="alert">{{ fieldErrors.name }}</p>
-          <label for="landmark-lat">緯度</label>
-          <input id="landmark-lat" v-model="draft.lat" name="lat" type="number" step="any" min="-90" max="90" required
-            :aria-invalid="fieldErrors.lat || fieldErrors.location ? 'true' : undefined"
-            :aria-describedby="fieldErrors.lat ? 'landmark-lat-error' : fieldErrors.location ? 'landmark-location-error' : undefined" @input="clearFieldError('lat')" />
-          <p v-if="fieldErrors.lat" id="landmark-lat-error" class="field-error" role="alert">{{ fieldErrors.lat }}</p>
-          <label for="landmark-lng">経度</label>
-          <input id="landmark-lng" v-model="draft.lng" name="lng" type="number" step="any" min="-180" max="180" required
-            :aria-invalid="fieldErrors.lng || fieldErrors.location ? 'true' : undefined"
-            :aria-describedby="fieldErrors.lng ? 'landmark-lng-error' : fieldErrors.location ? 'landmark-location-error' : undefined" @input="clearFieldError('lng')" />
-          <p v-if="fieldErrors.lng" id="landmark-lng-error" class="field-error" role="alert">{{ fieldErrors.lng }}</p>
+          <FormField label="名前（1〜50文字）" control-id="landmark-name" :error="fieldErrors.name" error-id="landmark-name-error" alert>
+            <input id="landmark-name" v-model="draft.name" name="name" required
+              :aria-invalid="fieldErrors.name ? 'true' : undefined" :aria-describedby="fieldErrors.name ? 'landmark-name-error' : undefined" @input="clearFieldError('name')" />
+          </FormField>
+          <FormField label="緯度" control-id="landmark-lat" :error="fieldErrors.lat" error-id="landmark-lat-error" alert>
+            <input id="landmark-lat" v-model="draft.lat" name="lat" type="number" step="any" min="-90" max="90" required
+              :aria-invalid="fieldErrors.lat || fieldErrors.location ? 'true' : undefined"
+              :aria-describedby="fieldErrors.lat ? 'landmark-lat-error' : fieldErrors.location ? 'landmark-location-error' : undefined" @input="clearFieldError('lat')" />
+          </FormField>
+          <FormField label="経度" control-id="landmark-lng" :error="fieldErrors.lng" error-id="landmark-lng-error" alert>
+            <input id="landmark-lng" v-model="draft.lng" name="lng" type="number" step="any" min="-180" max="180" required
+              :aria-invalid="fieldErrors.lng || fieldErrors.location ? 'true' : undefined"
+              :aria-describedby="fieldErrors.lng ? 'landmark-lng-error' : fieldErrors.location ? 'landmark-location-error' : undefined" @input="clearFieldError('lng')" />
+          </FormField>
           <p v-if="fieldErrors.location" id="landmark-location-error" class="field-error" role="alert">{{ fieldErrors.location }}</p>
-          <button type="submit">{{ selected ? '更新する' : '登録する' }}</button>
+          <Button type="submit" :label="selected ? '更新する' : '登録する'" />
         </fieldset>
       </form>
       <section aria-labelledby="landmark-shape-title">
@@ -359,20 +364,20 @@ onBeforeUnmount(() => controller?.abort());
           </svg>
           <p v-else class="missing">形なし（カメラの正面に出ない）。輪郭なしでも一覧・見取り図・建物の企画に使えます。必要なときに形を読み込み直せます。</p>
           <p>保存済みの位置で形を取得します。位置を変えたら先に更新してください。</p>
-          <button type="button" :disabled="locked" @click="reloadFootprint">形を読み込み直す</button>
+          <Button variant="secondary" label="形を読み込み直す" :disabled="locked" @press="reloadFootprint" />
         </template>
         <p v-else>建物の登録後に形を確認できます。</p>
         <p class="attribution">© OpenStreetMap contributors（ODbL）</p>
       </section>
-      <button v-if="selected" ref="deleteButton" type="button" class="danger" :disabled="locked" @click="askDelete">建物を削除</button>
-      <dialog v-if="confirmingDelete && selected" ref="deleteDialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-effects" tabindex="-1" class="delete-confirm" @keydown="handleDeleteKeydown" @cancel.prevent="cancelDelete">
-        <h3 id="delete-title">「{{ selected.name }}」を削除しますか？</h3>
-        <p v-if="busy" role="status">削除しています。</p>
-        <p id="delete-effects">階ごとの見取り図も消えます。場所が付いている建物は削除できません。先に場所の建物を空にするか、付け替えてください。</p>
-        <div class="actions">
-          <button ref="cancelButton" type="button" :disabled="busy" @click="cancelDelete">やめる</button>
-          <button type="button" class="danger" :disabled="busy" @click="remove">削除する</button>
-        </div>
+      <Button v-if="selected" ref="deleteButton" variant="danger" label="建物を削除" :disabled="locked" @press="askDelete" />
+      <dialog v-if="confirmingDelete && selected" ref="deleteDialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-effects" tabindex="-1" class="delete-dialog" @keydown="handleDeleteKeydown" @cancel.prevent="cancelDelete">
+        <DeleteConfirm
+          ref="deleteConfirm" role="none" :title="`「${selected.name}」を削除しますか？`" :busy="busy"
+          effects="階ごとの見取り図も消えます。場所が付いている建物は削除できません。先に場所の建物を空にするか、付け替えてください。"
+          @confirm="remove" @cancel="cancelDelete"
+        >
+          <template #status><p v-if="busy" role="status">削除しています。</p></template>
+        </DeleteConfirm>
       </dialog>
     </section>
   </main>
@@ -386,27 +391,15 @@ h2 { font-size: var(--admin-title-size); font-weight: var(--admin-bold); }
 h3 { font-size: var(--landmark-heading-size); font-weight: var(--admin-bold); }
 section { display: grid; gap: var(--admin-space-lg); min-width: 0; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--admin-space-sm); }
-.table-scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; background: var(--admin-surface); }
-caption { text-align: start; padding-bottom: var(--admin-space-sm); color: var(--admin-muted); }
-th, td { padding: var(--admin-space-md); border-bottom: thin solid var(--admin-border); text-align: start; overflow-wrap: anywhere; }
-th { font-weight: var(--admin-bold); }
-.selected { background: var(--admin-selected); }
 fieldset { display: grid; gap: var(--admin-space-sm); margin: 0; padding: var(--admin-space-lg); border: thin solid var(--admin-border); border-radius: var(--admin-radius); }
-input, button { min-height: var(--admin-touch-target); padding: var(--admin-space-sm) var(--admin-space-lg); border: thin solid var(--admin-border); border-radius: var(--admin-radius); font: inherit; }
-input { min-width: 0; box-sizing: border-box; width: 100%; color: var(--admin-text); background: var(--admin-bg); }
-button { justify-self: start; color: var(--admin-action); background: var(--admin-surface); font-weight: var(--admin-bold); cursor: pointer; }
-button:disabled, fieldset:disabled button { color: var(--admin-muted); cursor: default; }
 a { color: var(--admin-action); }
-input:focus-visible, button:focus-visible, a:focus-visible, h3[tabindex]:focus { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
-.field-error { color: var(--admin-danger-text); }
-input[aria-invalid="true"] { border-color: var(--admin-danger); }
+a:focus-visible, h3[tabindex]:focus { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
+.field-error { color: var(--admin-danger-text); font-weight: var(--admin-bold); }
 .missing { color: var(--admin-muted); }
 .shape-preview { box-sizing: border-box; width: 100%; aspect-ratio: 2; padding: var(--admin-space-lg); border: thin solid var(--admin-border); border-radius: var(--admin-radius); background: var(--admin-surface); }
 .shape-preview path { fill: var(--admin-selected); stroke: var(--admin-action); vector-effect: non-scaling-stroke; }
 .attribution { color: var(--admin-muted); }
-.danger, .delete-confirm { border: thin solid var(--admin-danger); color: var(--admin-danger-text); background: var(--admin-danger-bg); }
-.delete-confirm[open] { display: grid; gap: var(--admin-space-lg); }
-.delete-confirm::backdrop { background: var(--admin-selected); }
-.delete-confirm { box-sizing: border-box; max-width: 100%; padding: var(--admin-space-lg); border-radius: var(--admin-radius); }
+.delete-dialog { box-sizing: border-box; width: min(100%, 32rem); padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
+.delete-dialog[open] { display: block; }
+.delete-dialog::backdrop { background: var(--admin-selected); }
 </style>
