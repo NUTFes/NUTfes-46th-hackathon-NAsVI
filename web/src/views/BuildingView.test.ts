@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { nextTick } from 'vue';
 import { useLandmarksStore, usePlacesStore } from '../stores';
+import { appColors } from '../app/tokens';
 import type { FloorPlan, Landmark, Place } from '../types';
 import BuildingView from './BuildingView.vue';
 
@@ -65,23 +66,40 @@ async function render(id = building.id, attachTo?: HTMLElement) {
 }
 
 describe('BuildingView', () => {
-  it('建物画面と見取り図が共に祖先のテーマ切替に追従する', async () => {
+  it('建物画面は --app-* の色を使い、祖先のテーマ切替に追従する', async () => {
     const host = document.createElement('div');
     host.dataset.theme = 'light';
     document.body.append(host);
     hosts.push(host);
     const { wrapper } = await render(building.id, host);
     await nextTick();
-    for (const element of [wrapper.get('main').element, wrapper.get('svg').element]) {
-      expect(element.style.getPropertyValue('--building-bg-page')).toBe('#f6f4fa');
-      expect(element.style.getPropertyValue('--building-text-primary')).toBe('#1e0b3a');
-    }
+    const main = wrapper.get('main').element;
+    expect(main.style.getPropertyValue('--app-bg-page')).toBe(appColors('light')['--app-bg-page']);
     host.dataset.theme = 'dark';
     await flushPromises();
-    for (const element of [wrapper.get('main').element, wrapper.get('svg').element]) {
-      expect(element.style.getPropertyValue('--building-bg-page')).toBe('#130a22');
-      expect(element.style.getPropertyValue('--building-text-primary')).toBe('#f4f0ff');
-    }
+    expect(main.style.getPropertyValue('--app-bg-page')).toBe(appColors('dark')['--app-bg-page']);
+    expect(main.style.getPropertyValue('--building-bg-page')).toBe('');
+  });
+
+  it('件数は企画のある階だけ丸いバッジで出し、読み上げは aria-label に任せる', async () => {
+    const { wrapper } = await render();
+    const tabs = wrapper.findAll('[role="tab"]');
+    expect(tabs.map((tab) => tab.find('.building__count').exists())).toEqual([true, true, true, true, false]);
+    expect(tabs[2].get('.building__count').text()).toBe('2');
+    expect(tabs[2].get('.building__count').attributes('aria-hidden')).toBe('true');
+  });
+
+  it('企画は PlaceRow（種別 Badge・建物・階）で出し、設備は見取り図の印にだけ出す', async () => {
+    const { wrapper } = await render();
+    await wrapper.get('nav [aria-label="2階、企画 2 件"]').trigger('click');
+    const rows = wrapper.findAll('.place-row');
+    expect(rows.map((row) => row.attributes('data-place-id'))).toEqual(['2f-a', '2f-b']);
+    expect(rows[0].get('.place-row__kind').text()).toBe('企画');
+    expect(rows[0].get('.place-row__meta').text()).toContain('図書館棟');
+    expect(rows[0].get('.place-row__meta').text()).toContain('2階');
+    expect(wrapper.findAll('.floor-plan__facility').map((mark) => mark.attributes('aria-label')))
+      .toEqual(['設備 info', '設備 wc', '設備 rest', '設備 trash']);
+    expect(wrapper.get('.floor-plan__note').text()).toBe('2階・見取り図は仮');
   });
 
   it('建物名、見取り図と企画の階の和集合、件数を表示し、最初は1階を選ぶ', async () => {
@@ -93,9 +111,8 @@ describe('BuildingView', () => {
     ]);
     expect(wrapper.get('nav [aria-selected="true"]').attributes('aria-label')).toBe('1階、企画 2 件');
     expect(buttons[4].text()).toBe('4階');
-    expect(wrapper.findAll('li').map((row) => row.text())).toEqual([
-      '企画 1f企画 · 図書館棟 · 1階', '企画 no-floor企画 · 図書館棟 · 1階',
-    ]);
+    expect(wrapper.findAll('.place-row__name').map((row) => row.text())).toEqual(['企画 1f', '企画 no-floor']);
+    expect(wrapper.findAll('.place-row__meta').map((row) => row.text())).toEqual(['企画図書館棟1階', '企画図書館棟1階']);
     expect(wrapper.get('.building__events h2').text()).toBe('1階の企画 2 件');
     expect(wrapper.findAll('[role="button"]').map((marker) => marker.attributes('aria-label')))
       .toEqual(['企画 1f', '企画 no-floor']);
@@ -140,12 +157,11 @@ describe('BuildingView', () => {
     const { wrapper } = await render();
     await wrapper.get('nav [aria-label="2階、企画 2 件"]').trigger('click');
     expect(wrapper.get('path').attributes('d')).toBe(floorPlan(2).plan.d);
-    expect(wrapper.findAll('li button').map((row) => row.text())).toEqual([
-      '企画 2f-a企画 · 図書館棟 · 2階', '企画 2f-b企画 · 図書館棟 · 2階',
-    ]);
+    expect(wrapper.findAll('.place-row__name').map((row) => row.text())).toEqual(['企画 2f-a', '企画 2f-b']);
     expect(wrapper.findAll('circle[role="button"]').map((marker) => marker.attributes('aria-label')))
       .toEqual(['企画 2f-a', '企画 2f-b']);
-    expect(wrapper.text()).not.toContain('設備');
+    expect(wrapper.text()).not.toContain('設備 ');
+    expect(wrapper.findAll('li')).toHaveLength(2);
     expect(wrapper.text()).not.toContain('parking');
     expect(wrapper.text()).not.toContain('other-building');
     expect(wrapper.text()).not.toContain('no-floor');
@@ -207,7 +223,8 @@ describe('BuildingView', () => {
     expect(wrapper.findAll('nav button')).toHaveLength(1);
     expect(wrapper.get('nav [aria-selected="true"]').attributes('aria-label')).toBe('1階、企画 1 件');
     expect(wrapper.get('.building__events h2').text()).toBe('1階の企画 1 件');
-    expect(wrapper.findAll('li').map((row) => row.text())).toEqual(['企画 no-floor企画 · 図書館棟 · 1階']);
+    expect(wrapper.findAll('.place-row__name').map((row) => row.text())).toEqual(['企画 no-floor']);
+    expect(wrapper.get('.place-row__meta').text()).toBe('企画図書館棟1階');
     expect(wrapper.text()).toContain('この階の見取り図はありません');
     expect(wrapper.find('.building__empty').exists()).toBe(false);
     expect(wrapper.find('svg').exists()).toBe(false);
