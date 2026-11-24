@@ -3,7 +3,7 @@ import { toXY } from '../../domain/geo';
 import type { Place } from '../../types';
 import { project, TILT } from '../core';
 import {
-  buildingHeight, canvasSize, drawBuildingFlag, drawEventMark, drawFacilityMark, drawParkingMark,
+  canvasSize, drawBuildingFlag, drawEventMark, drawFacilityMark, drawParkingMark,
   flagPillWidth, HIT_HALF, isFacility, MARK_FONT, resolveColors,
 } from './buildings';
 import type { MarkIcon } from './buildings';
@@ -85,19 +85,15 @@ const labels: Layer = {
     const counts = countByBuilding(shown, { labelIds: [], tagIds: [] });
     const destination = state.places.find((p) => p.id === state.destination?.placeId);
     const landmarks = new Map(state.landmarks.map((landmark) => [landmark.id, landmark]));
-    const heights = new Map(state.landmarks.map((landmark) => [landmark.id,
-      landmark.footprint === null ? 0
-        : buildingHeight(landmark.footprint.map((p) => toXY(p.lat, p.lng))),
-    ]));
     const anchor = (p: Place): [number, number, number] => {
-      // 設備と駐車場は建物所属でも地面の印。屋内企画はモック同様に建物の中心・屋根へ。
+      // 設備と駐車場は建物所属でも地面の印。屋内企画はモック同様に建物の平面の中心へ。
       const building = !isFacility(p) && p.kind !== 'parking' && p.landmarkId !== null
         ? landmarks.get(p.landmarkId) : undefined;
       // D-023: 輪郭なしの企画は、buildings の地面の印と同じ場所へ置く。
       const landmark = building?.footprint !== null ? building : undefined;
       const location = landmark?.location ?? p.location;
       const [x, y] = toXY(location.lat, location.lng);
-      return project(view, W, H, x, y, landmark ? heights.get(landmark.id) ?? 0 : 0);
+      return project(view, W, H, x, y);
     };
 
     ctx.save();
