@@ -238,3 +238,10 @@ it('ヘッダーと Cookie の両方があるときは、ヘッダーを使う',
   }), bindings());
   expect(await response.json()).toEqual({ email: 'header@example.test' });
 });
+
+it('ヘッダーが不正なときは、正当な Cookie があってもフォールバックせず 401', async () => {
+  await expectUnauthorized(await cookieRequest(await sign(), {
+    'Cf-Access-Jwt-Assertion': 'invalid',
+    'Sec-Fetch-Site': 'same-origin',
+  }));
+});
