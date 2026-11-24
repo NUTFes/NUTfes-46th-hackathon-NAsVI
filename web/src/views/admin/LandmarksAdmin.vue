@@ -9,7 +9,8 @@ import DeleteConfirm from '../../components/admin/DeleteConfirm.vue';
 import FormField from '../../components/admin/FormField.vue';
 import BuildingShapePreview from '../../components/admin/BuildingShapePreview.vue';
 import LocationPicker from '../../components/admin/LocationPicker.vue';
-import { ORIGIN, fromXY, toXY } from '../../domain/geo';
+import { toXY } from '../../domain/geo';
+import { getPickerBounds, inputToPoint, isPointInBounds, outlinePath, pointToLocation, type PickerPoint } from '../../components/admin/locationPickerGeometry';
 import Button from '../../components/ui/Button.vue';
 import { useLandmarksStore } from '../../stores/landmarks';
 import type { Landmark, Place } from '../../types';
@@ -296,36 +297,18 @@ function remove() {
 onMounted(load);
 onBeforeUnmount(() => controller?.abort());
 
-// 北が上の平面図。取得済みデータを囲み、最低400m×200mと周囲10%を確保する。
 // 入力中の座標は範囲に含めず、配置操作で地図が動かないようにする。
 const pickerBounds = computed(() => {
   const points = store.items.flatMap(item => [item.location, ...(item.footprint ?? [])]);
   points.push(...places.value.map(item => item.location));
-  const xy = (points.length ? points : [ORIGIN]).map(point => toXY(point.lat, point.lng));
-  const xs = xy.map(point => point[0]);
-  const ys = xy.map(point => point[1]);
-  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-  const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-  const width = Math.max(400, (Math.max(...xs) - Math.min(...xs)) * 1.2, (Math.max(...ys) - Math.min(...ys)) * 2.4);
-  return { west: cx - width / 2, north: cy + width / 4, width, height: width / 2 };
+  return getPickerBounds(points);
 });
-function pickerPoint(lat: number, lng: number) {
-  const [x, y] = toXY(lat, lng);
-  const b = pickerBounds.value;
-  return { x: (x - b.west) / b.width * 100, y: (b.north - y) / b.height * 100 };
-}
-const pickerValue = computed(() => {
-  if (!String(draft.lat).trim() || !String(draft.lng).trim()) return null;
-  const lat = Number(draft.lat), lng = Number(draft.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
-  const point = pickerPoint(lat, lng);
-  return point.x >= 0 && point.x <= 100 && point.y >= 0 && point.y <= 100 ? point : null;
-});
-const pickerOutlines = computed(() => store.items.filter(item => item.footprint && item.footprint.length >= 3).map(item =>
-  `M ${item.footprint!.map(point => { const p = pickerPoint(point.lat, point.lng); return `${p.x} ${p.y}`; }).join(' L ')} Z`));
-function pickLocation(point: { x: number; y: number }) {
-  const b = pickerBounds.value;
-  const location = fromXY(b.west + point.x / 100 * b.width, b.north - point.y / 100 * b.height);
+const pickerPoint = computed(() => inputToPoint(String(draft.lat), String(draft.lng), pickerBounds.value));
+const pickerOutOfRange = computed(() => pickerPoint.value !== null && !isPointInBounds(pickerPoint.value));
+const pickerValue = computed(() => pickerOutOfRange.value ? null : pickerPoint.value);
+const pickerOutlines = computed(() => store.items.map(item => outlinePath(item.footprint ?? [], pickerBounds.value)).filter(Boolean));
+function pickLocation(point: PickerPoint) {
+  const location = pointToLocation(point, pickerBounds.value);
   draft.lat = String(location.lat);
   draft.lng = String(location.lng);
   clearFieldError('lat');
@@ -382,7 +365,7 @@ function pickLocation(point: { x: number; y: number }) {
             <input id="landmark-name" v-model="draft.name" name="name" required
               :aria-invalid="fieldErrors.name ? 'true' : undefined" :aria-describedby="fieldErrors.name ? 'landmark-name-error' : undefined" @input="clearFieldError('name')" />
           </FormField>
-          <LocationPicker :value="pickerValue" :outlines="pickerOutlines" :disabled="locked || !loaded" @change="pickLocation" />
+          <LocationPicker :value="pickerValue" :out-of-range="pickerOutOfRange" :outlines="pickerOutlines" :disabled="locked || !loaded" @change="pickLocation" />
           <FormField label="緯度" control-id="landmark-lat" :error="fieldErrors.lat" error-id="landmark-lat-error" alert>
             <input id="landmark-lat" v-model="draft.lat" name="lat" type="number" step="any" min="-90" max="90" required
               :aria-invalid="fieldErrors.lat || fieldErrors.location ? 'true' : undefined"

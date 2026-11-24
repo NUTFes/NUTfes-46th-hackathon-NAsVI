@@ -495,3 +495,23 @@ describe('地図による位置の入力', () => {
     expect(wrapper.get('.location-picker p').text()).toContain('まだ置いていません');
   });
 });
+
+ it.each(['Enter', ' '])('範囲外の座標は矢印で変更せず、%sで中央に置き直す', async (key) => {
+    const { wrapper } = await render();
+    const lat = wrapper.get('#place-lat');
+    const lng = wrapper.get('#place-lng');
+    await lat.setValue('35');
+    await lng.setValue('139');
+    const picker = wrapper.get('.location-picker');
+    expect(picker.get('p[aria-live="polite"]').text()).toContain('入力した座標は地図の範囲外です');
+    expect(picker.text()).not.toContain('まだ置いていません');
+    expect(picker.find('[data-icon="flag"]').exists()).toBe(false);
+    for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+      await picker.get('button').trigger('keydown', { key, shiftKey: true });
+    }
+    expect((lat.element as HTMLInputElement).value).toBe('35');
+    expect((lng.element as HTMLInputElement).value).toBe('139');
+    await picker.get('button').trigger('keydown', { key });
+    expect(picker.get('p').text()).toContain('横 50.00%、縦 50.00%');
+    expect(picker.find('[data-icon="flag"]').exists()).toBe(true);
+  });

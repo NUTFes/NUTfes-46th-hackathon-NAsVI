@@ -9,9 +9,9 @@ describe('LocationPicker', () => {
     expect(wrapper.get('path').attributes('d')).toContain('M 10 10');
     const button = wrapper.get('button');
     vi.spyOn(button.element, 'getBoundingClientRect').mockReturnValue({ left: 10, top: 20, width: 400, height: 200 } as DOMRect);
-    await button.trigger('click', { clientX: 110, clientY: 170 });
+    await button.trigger('click', { detail: 1, clientX: 110, clientY: 170 });
     expect(wrapper.emitted('change')).toEqual([[{ x: 25, y: 75 }]]);
-    await button.trigger('click', { clientX: 900, clientY: 0 });
+    await button.trigger('click', { detail: 1, clientX: 900, clientY: 0 });
     expect(wrapper.emitted('change')?.at(-1)).toEqual([{ x: 100, y: 0 }]);
     wrapper.unmount();
   });
@@ -33,4 +33,40 @@ describe('LocationPicker', () => {
     expect(wrapper.emitted('change')).toHaveLength(count!);
     wrapper.unmount();
   });
+});
+
+it.each(['Enter', ' '])('範囲外は矢印で動かず%sで中央に置き直す', async (key) => {
+  const wrapper = mount(LocationPicker, { props: { outOfRange: true } });
+  const status = wrapper.get('p[aria-live="polite"]');
+  expect(status.text()).toContain('入力した座標は地図の範囲外です');
+  expect(status.text()).toContain('EnterまたはSpaceで中央');
+  expect(status.attributes('role')).toBeUndefined();
+  expect(wrapper.text()).not.toContain('まだ置いていません');
+  const button = wrapper.get('button');
+  for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+    await button.trigger('keydown', { key });
+  }
+  expect(wrapper.emitted('change')).toBeUndefined();
+  await button.trigger('keydown', { key });
+  expect(wrapper.emitted('change')).toEqual([[{ x: 50, y: 50 }]]);
+  wrapper.unmount();
+});
+
+it('Shiftで5%移動し、キーボード由来のclickでは座標を変更しない', async () => {
+  const wrapper = mount(LocationPicker, { props: { value: { x: 98, y: 3 } } });
+  const button = wrapper.get('button');
+  vi.spyOn(button.element, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 400, height: 200 } as DOMRect);
+  await button.trigger('keydown', { key: 'ArrowRight', shiftKey: true });
+  expect(wrapper.emitted('change')?.at(-1)).toEqual([{ x: 100, y: 3 }]);
+  await button.trigger('keydown', { key: 'ArrowUp', shiftKey: true });
+  expect(wrapper.emitted('change')?.at(-1)).toEqual([{ x: 98, y: 0 }]);
+  for (const key of ['Enter', ' ']) {
+    const event = new KeyboardEvent('keydown', { key, cancelable: true });
+    button.element.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    const count = wrapper.emitted('change')!.length;
+    await button.trigger('click', { detail: 0, clientX: 0, clientY: 0 });
+    expect(wrapper.emitted('change')).toHaveLength(count);
+  }
+  wrapper.unmount();
 });

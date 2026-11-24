@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import Icon from '../ui/Icon.vue';
 export type PickerPoint = { x: number; y: number };
-const props = defineProps<{ value?: PickerPoint | null; outlines?: string[]; disabled?: boolean }>();
+const props = defineProps<{ value?: PickerPoint | null; outlines?: string[]; disabled?: boolean; outOfRange?: boolean }>();
 const emit = defineEmits<{ change: [value: PickerPoint] }>();
 const clamp = (n: number) => Math.max(0, Math.min(100, n));
 function place(event: MouseEvent) {
-  if (props.disabled) return;
+  if (props.disabled || event.detail === 0) return;
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
   if (!rect.width || !rect.height) return;
   emit('change', { x: clamp((event.clientX - rect.left) / rect.width * 100), y: clamp((event.clientY - rect.top) / rect.height * 100) });
@@ -15,18 +15,22 @@ function move(event: KeyboardEvent) {
   const delta = directions[event.key];
   if (!delta || props.disabled) return;
   event.preventDefault();
-  emit('change', { x: clamp((props.value?.x ?? 50) + delta[0]), y: clamp((props.value?.y ?? 50) + delta[1]) });
+  const activate = event.key === 'Enter' || event.key === ' ';
+  if (props.outOfRange && !activate) return;
+  const value = props.outOfRange ? null : props.value;
+  const step = event.shiftKey ? 5 : 1;
+  emit('change', { x: clamp((value?.x ?? 50) + delta[0] * step), y: clamp((value?.y ?? 50) + delta[1] * step) });
 }
 </script>
 
 <template>
   <div class="location-picker">
     <span class="label">位置(地図を押して置く)</span>
-    <button type="button" class="map" aria-label="位置(地図を押して置く)。矢印キーで移動、Enterで中央に配置" :disabled="disabled" @click="place" @keydown="move">
+    <button type="button" class="map" aria-label="位置(地図を押して置く)。矢印キーで1%、Shift併用で5%移動。EnterまたはSpaceで配置" :disabled="disabled" @click="place" @keydown="move">
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path v-for="(d, index) in outlines" :key="index" :d="d" /></svg>
-      <span v-if="value" class="mark" :style="{ left: `${value.x}%`, top: `${value.y}%` }"><Icon name="flag" :size="14" /></span>
+      <span v-if="value && !outOfRange" class="mark" :style="{ left: `${value.x}%`, top: `${value.y}%` }"><Icon name="flag" :size="14" /></span>
     </button>
-    <p aria-live="polite">{{ value ? `横 ${value.x.toFixed(2)}%、縦 ${value.y.toFixed(2)}%（北が上）` : 'まだ置いていません' }}</p>
+    <p aria-live="polite">{{ outOfRange ? '入力した座標は地図の範囲外です。地図を押すか、EnterまたはSpaceで中央に置き直せます。' : value ? `横 ${value.x.toFixed(2)}%、縦 ${value.y.toFixed(2)}%（北が上）` : 'まだ置いていません' }}</p>
   </div>
 </template>
 

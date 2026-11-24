@@ -4,7 +4,7 @@ import { adminGet, adminSend, ApiError } from '../../admin/client';
 import { useAdminFeedback } from '../../admin/feedback';
 import { adminTokens } from '../../admin/tokens';
 import LocationPicker from '../../components/admin/LocationPicker.vue';
-import { ORIGIN, fromXY, toXY } from '../../domain/geo';
+import { getPickerBounds, inputToPoint, isPointInBounds, outlinePath, pointToLocation, type PickerPoint } from '../../components/admin/locationPickerGeometry';
 import Button from '../../components/ui/Button.vue';
 import Badge from '../../components/ui/Badge.vue';
 import DataTable, { type DataTableColumn } from '../../components/admin/DataTable.vue';
@@ -250,36 +250,18 @@ function confirmDelete() {
   }, true);
 }
 
-// 北が上の平面図。取得済みデータを囲み、最低400m×200mと周囲10%を確保する。
 // 入力中の座標は範囲に含めず、配置操作で地図が動かないようにする。
 const pickerBounds = computed(() => {
   const points = landmarks.value.flatMap(item => [item.location, ...(item.footprint ?? [])]);
   points.push(...places.items.map(item => item.location));
-  const xy = (points.length ? points : [ORIGIN]).map(point => toXY(point.lat, point.lng));
-  const xs = xy.map(point => point[0]);
-  const ys = xy.map(point => point[1]);
-  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-  const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-  const width = Math.max(400, (Math.max(...xs) - Math.min(...xs)) * 1.2, (Math.max(...ys) - Math.min(...ys)) * 2.4);
-  return { west: cx - width / 2, north: cy + width / 4, width, height: width / 2 };
+  return getPickerBounds(points);
 });
-function pickerPoint(lat: number, lng: number) {
-  const [x, y] = toXY(lat, lng);
-  const b = pickerBounds.value;
-  return { x: (x - b.west) / b.width * 100, y: (b.north - y) / b.height * 100 };
-}
-const pickerValue = computed(() => {
-  if (!String(form.lat).trim() || !String(form.lng).trim()) return null;
-  const lat = Number(form.lat), lng = Number(form.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
-  const point = pickerPoint(lat, lng);
-  return point.x >= 0 && point.x <= 100 && point.y >= 0 && point.y <= 100 ? point : null;
-});
-const pickerOutlines = computed(() => landmarks.value.filter(item => item.footprint && item.footprint.length >= 3).map(item =>
-  `M ${item.footprint!.map(point => { const p = pickerPoint(point.lat, point.lng); return `${p.x} ${p.y}`; }).join(' L ')} Z`));
-function pickLocation(point: { x: number; y: number }) {
-  const b = pickerBounds.value;
-  const location = fromXY(b.west + point.x / 100 * b.width, b.north - point.y / 100 * b.height);
+const pickerPoint = computed(() => inputToPoint(String(form.lat), String(form.lng), pickerBounds.value));
+const pickerOutOfRange = computed(() => pickerPoint.value !== null && !isPointInBounds(pickerPoint.value));
+const pickerValue = computed(() => pickerOutOfRange.value ? null : pickerPoint.value);
+const pickerOutlines = computed(() => landmarks.value.map(item => outlinePath(item.footprint ?? [], pickerBounds.value)).filter(Boolean));
+function pickLocation(point: PickerPoint) {
+  const location = pointToLocation(point, pickerBounds.value);
   form.lat = String(location.lat);
   form.lng = String(location.lng);
 }
@@ -346,7 +328,7 @@ function pickLocation(point: { x: number; y: number }) {
               <option v-for="(title, kind) in kinds" :key="kind" :value="kind">{{ title }}</option>
             </select>
           </FormField>
-          <LocationPicker :value="pickerValue" :outlines="pickerOutlines" :disabled="locked" @change="pickLocation" />
+          <LocationPicker :value="pickerValue" :out-of-range="pickerOutOfRange" :outlines="pickerOutlines" :disabled="locked" @change="pickLocation" />
           <FormField label="緯度 (必須)" control-id="place-lat">
             <input id="place-lat" v-model="form.lat" v-bind="errorAttrs('location')" type="text" inputmode="decimal" required>
           </FormField>
