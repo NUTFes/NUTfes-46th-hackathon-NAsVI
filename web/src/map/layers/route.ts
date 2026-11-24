@@ -1,19 +1,19 @@
 import { toXY } from '../../domain/geo';
 import type { Place, Position } from '../../types';
-import { project, TILT } from '../core';
+import { project } from '../core';
+import { drawDestinationMark, mapColors as baseColors } from './buildings';
 import type { Layer } from './types';
 
-// 出典: design-system/tokens.json の color.{dark,light} と color.palette。
-// 値は design-system/claude-design/tokens.css の解決済み hex。alpha は描画時に別指定する。
+// 色の表は buildings.ts(I-0 の appColors から引く)と共有する。
 // me.ts → route.ts の一方向で共有し、トークン名をキーとして固定する。
+// 白い矢印(PositionMark.md)は color.palette.white.0。facility はライトで violet.950 になるため別に持つ。
 export const mapColors = {
-  destination: { dark: '#ffd84a', light: '#facc15' }, // yellow.300 / yellow.400
-  'destination-border': { dark: '#ffd84a', light: '#1e0b3a' }, // yellow.300 / violet.950
-  'destination-on': { dark: '#1e0b3a', light: '#1e0b3a' }, // violet.950
-  event: { dark: '#5eead4', light: '#0f766e' }, // teal.300 / teal.700
-  'map-ring': { dark: '#130a22', light: '#f6f4fa' }, // ink.900 / violet.50
-  // color.palette.white.0: PositionMark.md の「白い矢印」に一致する。
-  // facility はライトで violet.950 になるため、両テーマで白を保つ white を選ぶ。
+  destination: baseColors.destination,
+  'destination-border': baseColors['destination-border'],
+  'destination-on': baseColors['destination-on'],
+  event: baseColors.event,
+  'map-ring': baseColors['map-ring'],
+  'text-disabled': baseColors['text-disabled'],
   white: { dark: '#ffffff', light: '#ffffff' },
 } as const;
 
@@ -27,6 +27,7 @@ export function resolveColors(ctx: CanvasRenderingContext2D) {
     'destination-on': mapColors['destination-on'][theme],
     event: mapColors.event[theme],
     'map-ring': mapColors['map-ring'][theme],
+    'text-disabled': mapColors['text-disabled'][theme],
     white: mapColors.white[theme],
   };
 }
@@ -83,22 +84,11 @@ const route: Layer = {
         ctx.stroke();
       }
 
-      // V1-g: 現在地が使えなくても行き先は示す。黄の線 3px、半径 14px (脈動なし) は固定。
+      // V1-g: 現在地が使えなくても行き先は示す。DestinationMark は旗の入った黄の丸(24 px、脈動なし)。
+      // ライトでは destination-border の濃い縁が必須。
       ctx.setLineDash([]);
       ctx.lineDashOffset = 0;
-      ctx.beginPath();
-      ctx.ellipse(ax, ay, 14, 14 * TILT, 0, 0, Math.PI * 2);
-      // map-ring の下地 2px と destination-border の縁 1.5px を外側に残す。
-      // ライトでは violet.950 の縁が必須。塗りはせず destination の黄の線を重ねる。
-      ctx.strokeStyle = colors['map-ring'];
-      ctx.lineWidth = 10;
-      ctx.stroke();
-      ctx.strokeStyle = colors['destination-border'];
-      ctx.lineWidth = 6;
-      ctx.stroke();
-      ctx.strokeStyle = colors.destination;
-      ctx.lineWidth = 3;
-      ctx.stroke();
+      drawDestinationMark(ctx, colors, ax, ay);
     } finally {
       ctx.restore();
     }
