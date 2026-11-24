@@ -6,7 +6,7 @@ import tokenSource from '../../../../design-system/tokens.json?raw';
 import { fromXY, toXY } from '../../domain/geo';
 import type { Landmark, Place } from '../../types';
 import { project, TILT } from '../core';
-import buildings, { buildingHeight, buildingHighlight, canvasSize, mapColors, planColors, pointInPolygon, resolveColors, sortByDepth } from './buildings';
+import buildings, { buildingHighlight, canvasSize, mapColors, planColors, pointInPolygon, resolveColors, sortByDepth } from './buildings';
 import type { Layer, MapState, View } from './types';
 
 const view: View = { fx: 0, fy: 0, k: 2, th: 0, cy: 300 };
@@ -110,26 +110,6 @@ describe('mapColors / resolveColors', () => {
   });
 });
 
-describe('buildingHeight', () => {
-  it('外積和の半分を面積とし、モックの固定値で高さを求める', () => {
-    // 面積 100 m²。外積和 200 をそのまま使う実装とは異なる値になる。
-    expect(buildingHeight([[0, 0], [10, 0], [10, 10], [0, 10]])).toBeCloseTo(10.2, 10);
-    expect(buildingHeight([[0, 0], [10, 0], [0, 10]])).toBeCloseTo(7 + Math.sqrt(50) * 0.32, 10);
-  });
-
-  it('反転・閉じた輪郭・平行移動でも同じ高さ', () => {
-    expect(buildingHeight([...square].reverse())).toBe(buildingHeight(square));
-    expect(buildingHeight([...square, square[0]])).toBe(buildingHeight(square));
-    expect(buildingHeight(square.map(([x, y]) => [x + 100, y - 50]))).toBe(buildingHeight(square));
-  });
-
-  it('下限 7 m と上限 30 m を守る', () => {
-    expect(buildingHeight([])).toBe(7);
-    expect(buildingHeight([[0, 0], [10, 0], [20, 0]])).toBe(7);
-    expect(buildingHeight([[0, 0], [1000, 0], [1000, 1000], [0, 1000]])).toBe(30);
-  });
-});
-
 describe('sortByDepth', () => {
   it('投影の奥行きの大きい順にし、入力を変えない', () => {
     for (const th of [0, Math.PI / 2, Math.PI]) {
@@ -220,7 +200,7 @@ describe('buildings Layer', () => {
     expect(buildings.hitTest!(bx, by)).toEqual({ kind: 'building', id: 'a' });
   });
 
-  it.each([0, Math.PI / 2, Math.PI])('回転 %s でも平面の輪郭の内側・頂点が当たり、旧屋根の位置(高さ分の上)は当たらない', (th) => {
+  it.each([0, Math.PI / 2, Math.PI])('回転 %s でも平面の輪郭の内側・頂点が当たり、輪郭から離れた点は当たらない', (th) => {
     const { ctx } = canvas();
     const rotated = { ...view, th };
     const data = state();
@@ -230,9 +210,9 @@ describe('buildings Layer', () => {
     const [cx, cy] = project(rotated, 400, 600, 0, 0);
     expect(buildings.hitTest!(cx, cy)).toEqual({ kind: 'building', id: 'a' });
     for (const [x, y] of base) expect(buildings.hitTest!(x, y)).toEqual({ kind: 'building', id: 'a' });
-    const roof = project(rotated, 400, 600, 0, 0, buildingHeight(points));
-    expect(pointInPolygon(roof[0], roof[1], base.map(([x, y]): [number, number] => [x, y]))).toBe(false);
-    expect(buildings.hitTest!(roof[0], roof[1])).toBeNull();
+    const outside = project(rotated, 400, 600, 100, 100);
+    expect(pointInPolygon(outside[0], outside[1], base.map(([x, y]): [number, number] => [x, y]))).toBe(false);
+    expect(buildings.hitTest!(outside[0], outside[1])).toBeNull();
   });
 
   it('平面: z を付けず project(z=0) の頂点だけを結び、輪郭の線は 1 本(壁・屋根の別描きなし)', () => {
