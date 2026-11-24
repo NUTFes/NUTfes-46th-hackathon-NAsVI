@@ -11,14 +11,34 @@ export function resetAccessJwksCache(): void {
   jwksByDomain.clear();
 }
 
-export const requireOperator = createMiddleware<AppEnv>(async (c, next) => {
+const ACCESS_COOKIE = 'CF_Authorization';
+
+/**
+ * Access の JWT を取り出す。ヘッダー(Access が守るパスに付く)を優先する。
+ * 運営の書き込みは来場者と同じパス(POST /places など)で、Access の保護の外にあるため
+ * ヘッダーが付かない。そこでログイン Cookie の JWT も読む。署名・iss・aud・exp の検証は同じ。
+ * Cookie は他サイトからのリクエストにも付き得るので(CSRF)、Cookie 経由は
+ * Sec-Fetch-Site が same-origin のときだけ受け入れる(欠けていれば受け入れない)。
+ */
+function accessToken(headers: Headers): string | undefined {
+  const header = headers.get('Cf-Access-Jwt-Assertion');
+  if (header) return header;
+  if (headers.get('Sec-Fetch-Site') !== 'same-origin') return undefined;
+  for (const part of (headers.get('Cookie') ?? '').split(';')) {
+    const eq = part.indexOf('=');
+    if (eq > 0 && part.slice(0, eq).trim() === ACCESS_COOKIE) return part.slice(eq + 1).trim() || undefined;
+  }
+  return undefined;
+}
+
+export const requireOperator =createMiddleware<AppEnv>(async (c, next) => {
   if (c.env.ACCESS_BYPASS === 'true') {
     c.set('actor', { email: 'operator@example.com' });
     await next();
     return;
   }
 
-  const token = c.req.header('Cf-Access-Jwt-Assertion');
+  const token = accessToken(c.req.raw.headers);
   const { ACCESS_TEAM_DOMAIN: domain, ACCESS_AUD: audience } = c.env;
   if (!token || !domain || !audience) {
     return problem(c, 401, 'unauthorized', '運営としてログインしてください');
