@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { toXY } from '../../domain/geo';
 import type { Destination, Place, Position } from '../../types';
 import { project, TILT } from '../core';
-import me, { ACCURACY_MAX_PX, meGeometry } from './me';
+import { mapColors } from './buildings';
+import me, { ACCURACY_MAX_PX, isStale, meGeometry } from './me';
 import type { Layer, MapState, View } from './types';
 
 const view: View = { fx: 10, fy: -20, k: 2.5, th: 0.7, cy: 300 };
@@ -208,5 +209,41 @@ describe('me Layer', () => {
     fake.ellipse.mockImplementation(() => { throw new Error('描画失敗'); });
     expect(() => me.draw(ctx, view, state(), 0)).toThrow('描画失敗');
     expect(fake.restore).toHaveBeenCalledOnce();
+  });
+});
+
+describe('PositionMark の古い状態', () => {
+  it('古い現在地(30 秒以上)は精度円・輪・矢印を text-disabled の灰色にし、円と輪は破線にする', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      const { ctx, fake } = context(W, H, theme);
+      const fills: unknown[] = [];
+      const strokes: unknown[] = [];
+      fake.fill.mockImplementation(() => { fills.push(fake.fillStyle); });
+      fake.stroke.mockImplementation(() => { strokes.push(fake.strokeStyle); });
+      me.draw(ctx, view, state({ now: 30_000 }), 0);
+      expect(fake.setLineDash.mock.calls[0]).toEqual([[4, 4]]);
+      expect(fake.setLineDash).toHaveBeenLastCalledWith([]); // 矢印の縁は実線
+      expect(fills.at(-1)).toBe(mapColors['text-disabled'][theme]);
+      expect(fills[0]).toBe(mapColors['text-disabled'][theme]);
+      expect(strokes).toContain(mapColors['text-disabled'][theme]);
+      expect(strokes).not.toContain(mapColors.event[theme]);
+    }
+  });
+
+  it('新しい現在地(30 秒未満)・時計が戻った場合は通常色(event・白)のまま', () => {
+    for (const now of [29_999, -1, Number.NaN]) {
+      const { ctx, fake } = context();
+      const fills: unknown[] = [];
+      fake.fill.mockImplementation(() => { fills.push(fake.fillStyle); });
+      me.draw(ctx, view, state({ now }), 0);
+      expect(fake.setLineDash).toHaveBeenCalledExactlyOnceWith([]);
+      expect(fills.at(-1)).toBe('#ffffff');
+      expect(fills[0]).toBe(mapColors.event.dark);
+    }
+  });
+
+  it('isStale は 30 秒ちょうどから古いとする', () => {
+    expect(isStale({ ...position, takenAt: 1000 }, 30_999)).toBe(false);
+    expect(isStale({ ...position, takenAt: 1000 }, 31_000)).toBe(true);
   });
 });

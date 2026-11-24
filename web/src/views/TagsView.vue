@@ -2,11 +2,15 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import tokensJson from '../../../design-system/tokens.json?raw';
+import { useAppTokens } from '../app/tokens';
+import Banner from '../components/ui/Banner.vue';
+import Button from '../components/ui/Button.vue';
+import Icon from '../components/ui/Icon.vue';
 import { BUILTIN_TAGS, getStorage, type StorageRepositories } from '../storage';
 import { usePlacesStore } from '../stores/places';
 import type { MyTag } from '../types';
 
-// Visual constants: paths are fixed to design-system/tokens.json.
+// 色は I-0 の --app-*（useAppTokens）。寸法だけ design-system/tokens.json から読む。
 const tokens: unknown = JSON.parse(tokensJson);
 function token<T>(path: string): T {
   const node = path.split('.').reduce<unknown>((value, key) => (value as Record<string, unknown>)[key], tokens);
@@ -21,32 +25,12 @@ function dimension(path: string) {
 function rgba(value: Color) {
   return `rgb(${value.components.map(component => component * 255).join(' ')} / ${value.alpha ?? 1})`;
 }
-function color(path: string): string {
-  const value = token<string | Color>(path);
-  return typeof value === 'string' ? color(value.slice(1, -1)) : rgba(value);
-}
 const touchTarget = token<Dimension>('size.touch-target').value; // size.touch-target
 const shadow = token<{ color: Color; offsetX: Dimension; offsetY: Dimension; blur: Dimension; spread: Dimension }>('shadow.sheet'); // shadow.sheet
 const root = ref<HTMLElement>();
-const currentTheme = ref<'light' | 'dark'>('dark');
-let themeObserver: MutationObserver | undefined;
-function resolveColors() {
-  // map / GuideView と同じく、最寄りが light のときだけライトにする。
-  currentTheme.value = root.value?.closest('[data-theme]')?.getAttribute('data-theme') === 'light'
-    ? 'light' : 'dark';
-}
+const appTokens = useAppTokens(root);
 const theme = computed(() => ({
-  '--page': color(`color.${currentTheme.value}.bg-page`), // color.{light,dark}.bg-page
-  '--surface': color(`color.${currentTheme.value}.bg-surface`), // color.{light,dark}.bg-surface
-  '--text': color(`color.${currentTheme.value}.text-primary`), // color.{light,dark}.text-primary
-  '--secondary': color(`color.${currentTheme.value}.text-secondary`), // color.{light,dark}.text-secondary
-  '--primary': color(`color.${currentTheme.value}.action-primary`), // color.{light,dark}.action-primary
-  '--on-primary': color(`color.${currentTheme.value}.action-on-primary`), // color.{light,dark}.action-on-primary
-  '--border': color(`color.${currentTheme.value}.border-subtle`), // color.{light,dark}.border-subtle
-  '--pressed': color(`color.${currentTheme.value}.state-pressed`), // color.{light,dark}.state-pressed
-  '--danger': color(`color.${currentTheme.value}.danger`), // color.{light,dark}.danger
-  '--danger-bg': color(`color.${currentTheme.value}.danger-bg`), // color.{light,dark}.danger-bg
-  '--danger-text': color(`color.${currentTheme.value}.danger-text`), // color.{light,dark}.danger-text
+  ...appTokens.value,
   '--space-1': dimension('space.1'), // space.1
   '--space-2': dimension('space.2'), // space.2
   '--space-3': dimension('space.3'), // space.3
@@ -57,12 +41,9 @@ const theme = computed(() => ({
   '--touch': dimension('size.touch-target'), // size.touch-target
   // CheckRow.md requires 54px; there is no dedicated row-height token.
   '--row-height': `${touchTarget + token<Dimension>('radius.md').value}px`, // size.touch-target + radius.md
-  '--font': token<string[]>('font.family.base').map(name => name.includes(' ') ? JSON.stringify(name) : name).join(', '), // font.family.base
   '--body-size': dimension('font.size.md'), // font.size.md
   '--small-size': dimension('font.size.xs'), // font.size.xs
   '--title-size': dimension('font.size.2xl'), // font.size.2xl
-  '--weight': token<number>('font.weight.bold'), // font.weight.bold
-  '--disabled': token<number>('opacity.disabled'), // opacity.disabled
   '--shadow': `${[shadow.offsetX, shadow.offsetY, shadow.blur, shadow.spread].map(v => `${v.value}${v.unit}`).join(' ')} ${rgba(shadow.color)}`, // shadow.sheet
 }));
 
@@ -207,18 +188,12 @@ function endSwipe(event: TouchEvent) {
 }
 let previousFocus: HTMLElement | null = null;
 onMounted(async () => {
-  resolveColors();
-  themeObserver = new MutationObserver(resolveColors);
-  for (let ancestor = root.value; ancestor; ancestor = ancestor.parentElement ?? undefined) {
-    themeObserver.observe(ancestor, { attributes: true, attributeFilter: ['data-theme'] });
-  }
   previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   await nextTick();
   if (!disposed) sheet.value?.focus();
 });
 onBeforeUnmount(() => {
   disposed = true;
-  themeObserver?.disconnect();
   clearTimeout(compositionEndTimer);
   if (previousFocus?.isConnected) previousFocus.focus();
   // getStorage() is shared by the app: release listeners, never close its database here.
@@ -240,15 +215,10 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <aside v-if="memoryOnly" class="banner" role="alert">
-        <strong><span aria-hidden="true">⚠ </span>端末に保存できていません</strong>
-        <p>変更はメモリにだけ残っています。このまま操作できますが、画面を再読み込みすると消えます。</p>
-      </aside>
-      <aside v-if="error" class="banner" role="alert">
-        <strong>タグの操作を完了できませんでした</strong>
-        <p>{{ error }}</p>
-        <button type="button" class="secondary-button" :disabled="loading || busy" @click="reload++">もう一度読み込む</button>
-      </aside>
+      <Banner v-if="memoryOnly" class="tags-banner" title="端末に保存できていません"
+        body="変更はメモリにだけ残っています。このまま操作できますが、画面を再読み込みすると消えます。" />
+      <Banner v-if="error" class="tags-banner" title="タグの操作を完了できませんでした" :body="error"
+        :actions="[{ label: 'もう一度読み込む', variant: 'secondary', disabled: loading || busy, onPress: () => { reload++; } }]" />
 
       <section v-if="!place" class="empty-state" aria-labelledby="missing-place-title">
         <h2 id="missing-place-title">場所の情報がありません</h2>
@@ -260,21 +230,23 @@ onBeforeUnmount(() => {
         <section v-else aria-label="タグの一覧" :aria-busy="busy">
           <button v-for="tag in orderedTags" :key="tag.id" type="button" class="check-row" role="checkbox"
             :aria-checked="selected.includes(tag.id)" :aria-label="tag.title" :disabled="!canEdit" @click="toggle(tag.id)">
-            <span class="tag-icon" aria-hidden="true">{{ tag.id === 'want-to-go' ? '⚑' : tag.id === 'favorite' ? '☆' : '＃' }}</span>
+            <Icon class="tag-icon" :name="tag.id === 'want-to-go' ? 'flag' : tag.id === 'favorite' ? 'star' : 'tag'" :size="22" />
             <span class="tag-label">{{ tag.title }}<small class="secondary">{{ tag.builtin ? '最初からあるタグ' : '自分で作ったタグ' }}</small></span>
-            <span class="check-mark" aria-hidden="true">{{ selected.includes(tag.id) ? '✓' : '' }}</span>
+            <span class="check-mark" aria-hidden="true"><Icon v-if="selected.includes(tag.id)" name="check" :size="16" /></span>
           </button>
         </section>
 
         <form aria-label="新しいタグを作る" @submit.prevent="createTag">
-          <label for="new-tag-title">新しいタグの名前</label>
-          <input id="new-tag-title" v-model="title" type="text" autocomplete="off" :disabled="!canEdit"
-            :aria-invalid="!!inputError" :aria-describedby="inputError ? 'tag-help tag-input-error' : 'tag-help'"
-            @input="inputError = ''" @compositionstart="startComposition" @compositionend="endComposition"
-            @keydown.enter="guardImeEnter">
+          <label for="new-tag-title" class="visually-hidden">新しいタグの名前</label>
+          <div class="create-row">
+            <input id="new-tag-title" v-model="title" type="text" autocomplete="off" placeholder="タグの名前" :disabled="!canEdit"
+              :aria-invalid="!!inputError" :aria-describedby="inputError ? 'tag-help tag-input-error' : 'tag-help'"
+              @input="inputError = ''" @compositionstart="startComposition" @compositionend="endComposition"
+              @keydown.enter="guardImeEnter">
+            <Button type="submit" label="作る" :disabled="!canEdit" />
+          </div>
           <p v-if="inputError" id="tag-input-error" class="input-error" role="alert">{{ inputError }}</p>
           <p id="tag-help" class="secondary">タグはこの端末の中にだけ保存し、他の来場者には見えません。ブラウザーのデータ削除などで消えることがあります。作ると、この場所にそのまま付きます。</p>
-          <button type="submit" class="primary-button" :disabled="!canEdit">タグを作って付ける</button>
         </form>
       </template>
     </section>
@@ -282,37 +254,39 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.tags-page { min-height: 100dvh; display: flex; align-items: flex-end; background: var(--page); color: var(--text); font-family: var(--font); font-size: var(--body-size); }
+.tags-page { min-height: 100dvh; display: flex; align-items: flex-end; background: var(--app-bg-page); color: var(--app-text-primary); font-family: var(--app-font); font-size: var(--body-size); }
 .tags-page * { box-sizing: border-box; }
-.tags-sheet { width: 100%; max-height: 100dvh; overflow-y: auto; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--sheet-radius) var(--sheet-radius) 0 0; background: var(--surface); box-shadow: var(--shadow); }
-.sheet-handle { width: var(--touch); height: var(--space-1); margin: 0 auto var(--space-4); border-radius: var(--radius); background: var(--border); }
+.tags-sheet { width: 100%; max-height: 100dvh; overflow-y: auto; padding: var(--space-4); border: 1px solid var(--app-border-subtle); border-radius: var(--sheet-radius) var(--sheet-radius) 0 0; background: var(--app-bg-surface); box-shadow: var(--shadow); }
+.sheet-handle { width: var(--touch); height: var(--space-1); margin: 0 0 var(--space-4); border-radius: var(--radius); background: var(--app-border-subtle); }
 .sheet-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
 h1, h2, p { margin: 0; }
-h1 { font-size: var(--title-size); font-weight: var(--weight); }
+h1 { font-size: var(--title-size); font-weight: var(--app-bold); }
 h2 { font-size: inherit; }
 p { margin-top: var(--space-2); }
-.secondary { color: var(--secondary); font-size: var(--small-size); }
-button, input { font: inherit; color: inherit; }
-button { cursor: pointer; }
-button:disabled, input:disabled { opacity: var(--disabled); cursor: default; }
-button:focus-visible, input:focus-visible, .tags-sheet:focus-visible { outline: 2px solid var(--primary); outline-offset: var(--space-1); }
-button:active:not(:disabled) { background-image: linear-gradient(var(--pressed), var(--pressed)); }
-.close-button, .secondary-button { min-height: var(--touch); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.secondary { color: var(--app-text-secondary); font-size: var(--small-size); }
+.close-button, .secondary-button, .check-row, input { font: inherit; color: inherit; }
+.close-button, .secondary-button, .check-row { cursor: pointer; }
+.close-button:disabled, .secondary-button:disabled, .check-row:disabled, input:disabled { opacity: var(--app-disabled); cursor: default; }
+.close-button:focus-visible, .secondary-button:focus-visible, .check-row:focus-visible, input:focus-visible, .tags-sheet:focus-visible { outline: 2px solid var(--app-action-primary); outline-offset: var(--space-1); }
+.close-button:active:not(:disabled), .secondary-button:active:not(:disabled), .check-row:active:not(:disabled) { background-image: linear-gradient(var(--app-state-pressed), var(--app-state-pressed)); }
+.close-button, .secondary-button { min-height: var(--touch); border: 1px solid var(--app-border-subtle); border-radius: var(--radius); background: var(--app-bg-surface); }
 .close-button { min-width: var(--touch); font-size: var(--title-size); }
 .secondary-button { margin-top: var(--space-3); padding: var(--space-2) var(--space-4); }
-.check-row { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: var(--row-height); padding: var(--space-2) 0; text-align: left; border: 0; border-bottom: 1px solid var(--border); background: var(--surface); }
-.tag-icon { width: var(--space-6); text-align: center; font-size: var(--title-size); }
+.tags-banner { margin-top: var(--space-4); }
+/* CheckRow: 左に行頭アイコン、右にチェックの箱（選択中は lilac 塗り+ チェック） */
+.check-row { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: var(--row-height); padding: var(--space-2) 0; text-align: left; border: 0; border-bottom: 1px solid var(--app-border-subtle); background: var(--app-bg-surface); }
+.tag-icon { flex-shrink: 0; color: var(--app-text-secondary); }
 .tag-label { flex: 1; overflow-wrap: anywhere; }
 .tag-label small { display: block; }
-.check-mark { display: flex; align-items: center; justify-content: center; width: var(--space-6); height: var(--space-6); flex-shrink: 0; border: 1px solid var(--border); border-radius: var(--radius); }
-.check-row[aria-checked='true'] .check-mark { background: var(--primary); color: var(--on-primary); }
-form { display: grid; gap: var(--space-3); margin-top: var(--space-6); }
-label { font-weight: var(--weight); }
-input { width: 100%; min-height: var(--touch); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--page); }
-input[aria-invalid='true'] { border-color: var(--danger); }
+.check-mark { display: flex; align-items: center; justify-content: center; width: var(--space-6); height: var(--space-6); flex-shrink: 0; border: 2px solid var(--app-action-primary); border-radius: var(--radius); }
+.check-row[aria-checked='true'] .check-mark { background: var(--app-action-primary); color: var(--app-action-on-primary); }
+/* TagCreateField: 入力欄 + 右に「作る」の 1 行。エラーは下に赤い文 */
+form { display: grid; gap: var(--space-2); margin-top: var(--space-6); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.create-row { display: flex; gap: var(--space-3); align-items: center; }
+input { flex: 1; min-width: 0; min-height: var(--touch); padding: var(--space-3); border: 1px solid var(--app-border-control); border-radius: var(--radius); background: var(--app-bg-page); }
+input[aria-invalid='true'] { border-color: var(--app-danger); }
 form p { margin: 0; }
-.input-error { color: var(--danger-text); font-size: var(--small-size); }
-.primary-button { min-height: var(--touch); padding: var(--space-3) var(--space-4); border: 0; border-radius: var(--radius); background: var(--primary); color: var(--on-primary); font-weight: var(--weight); }
-.banner { margin-top: var(--space-4); padding: var(--space-3); border: 1px solid var(--danger); border-radius: var(--radius); background: var(--danger-bg); color: var(--danger-text); }
+.input-error { color: var(--app-danger-text); font-size: var(--small-size); }
 .empty-state { margin-top: var(--space-6); }
 </style>

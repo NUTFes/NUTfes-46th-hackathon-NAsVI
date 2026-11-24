@@ -8,6 +8,7 @@ import { usePosition } from '../services/position';
 import * as storageModule from '../storage';
 import { useLandmarksStore, usePlacesStore } from '../stores';
 import type { Landmark, Place } from '../types';
+import { appColors } from '../app/tokens';
 import GuideView from './GuideView.vue';
 
 const NOW = Date.parse('2026-11-24T03:00:00Z');
@@ -99,16 +100,14 @@ afterEach(async () => {
 });
 
 describe('GuideView', () => {
-  it.each(['light', 'dark', undefined, 'unknown'])('テーマ %s を resolveColors と同じ規則で解決する', async theme => {
+  it.each(['light', 'dark', undefined, 'unknown'])('テーマ %s を I-0 の --app-* で解決する（eyebrow は destination-text）', async theme => {
     const view = await renderGuide(themeHost(theme));
     const style = view.get<HTMLElement>('.guide-view').element.style;
-    const expected = theme === 'light'
-      ? ['#f6f4fa', '#ffffff', '#1e0b3a', '#5b5274', '#facc15', '#1e0b3a', '#1e0b3a', '#1e0b3a26', '#6d28d9', '#c2410c', '#b91c1c']
-      : ['#130a22', '#1c1032', '#f4f0ff', '#b4a9cf', '#ffd84a', '#1e0b3a', '#ffd84a', '#a78bfa47', '#a78bfa', '#fdba74', '#fecaca'];
-    const tokens = ['page', 'surface', 'text', 'secondary', 'destination', 'destination-on', 'destination-border', 'border', 'focus', 'stale', 'danger'];
-    tokens.forEach((token, index) => {
-      expect(style.getPropertyValue(`--guide-${token}`)).toBe(expected[index]);
-    });
+    const light = theme === 'light';
+    expect(style.getPropertyValue('--app-destination-text')).toBe(appColors(light ? 'light' : 'dark')['--app-destination-text']);
+    expect(style.getPropertyValue('--app-destination')).toBe(appColors(light ? 'light' : 'dark')['--app-destination']);
+    // ライトの eyebrow は黄でなく濃い茶（トークンで表す）
+    expect(style.getPropertyValue('--app-destination-text')).toBe(light ? '#7c2d12' : '#ffd84a');
   });
 
   it('最寄りのテーマを優先し、属性の追加・切替・削除に追従する', async () => {
@@ -116,51 +115,54 @@ describe('GuideView', () => {
     const inner = document.createElement('div');
     outer.append(inner);
     const view = await renderGuide(inner);
-    const color = () => view.get<HTMLElement>('.guide-view').element.style.getPropertyValue('--guide-destination');
-    expect(color()).toBe('#facc15');
+    const color = () => view.get<HTMLElement>('.guide-view').element.style.getPropertyValue('--app-destination-text');
+    const dark = appColors('dark')['--app-destination-text'];
+    const light = appColors('light')['--app-destination-text'];
+    expect(color()).toBe(light);
     inner.dataset.theme = 'dark';
     await flushPromises();
-    expect(color()).toBe('#ffd84a');
+    expect(color()).toBe(dark);
     inner.dataset.theme = 'light';
     await flushPromises();
-    expect(color()).toBe('#facc15');
+    expect(color()).toBe(light);
     inner.dataset.theme = 'unknown';
     await flushPromises();
-    expect(color()).toBe('#ffd84a');
+    expect(color()).toBe(dark);
     inner.removeAttribute('data-theme');
     await flushPromises();
-    expect(color()).toBe('#facc15');
+    expect(color()).toBe(light);
     outer.dataset.theme = 'dark';
     await flushPromises();
-    expect(color()).toBe('#ffd84a');
+    expect(color()).toBe(dark);
   });
 
   it('保存済みの行き先・建物・階・北基準の方角・直線距離・更新時刻・精度を表示する', async () => {
     const view = await renderGuide();
     expect(view.text()).toContain('お化け屋敷');
-    expect(view.text()).toContain('総合研究棟 2階');
-    expect(view.text()).toContain('直線距離 約 150 m');
-    expect(view.text()).toContain('方角：東（北を基準）');
+    expect(view.get('.eyebrow').text()).toBe('案内中・総合研究棟 2階');
+    expect(view.get('.distance .sr-only').text()).toBe('直線距離 約 150 m、方角 東（北を基準）');
+    expect(view.get('.distance-value').text()).toBe('150m');
+    expect(view.get('.direction').text()).toBe('東');
+    expect(view.get('[data-icon="navigation"]').attributes('style')).toContain('rotate(90deg)');
     expect(view.text()).toContain('10 秒前に更新・精度 ±8 m');
     expect(view.get('a').attributes('href')).toBe('/camera');
     expect(view.get('button').text()).toBe('案内をやめる');
   });
 
   it.each([
-    { distance: 149.6, text: '直線距離 約 150 m' },
-    { distance: 1500, text: '直線距離 約 1500 m' },
+    { distance: 149.6, text: '直線距離 約 150 m、方角 東（北を基準）' },
+    { distance: 1500, text: '直線距離 約 1500 m、方角 東（北を基準）' },
   ])('追加決定に従い距離 $distance を「約」付きの整数 m で表示する', async ({ distance, text }) => {
     usePlacesStore().upsert({ ...place, location: fromXY(distance, 0) });
     const view = await renderGuide();
-    expect(view.get('.distance').text()).toBe(text);
+    expect(view.get('.distance .sr-only').text()).toBe(text);
   });
 
   it('現在地の更新に追従し、距離・方角・時刻・精度を再計算する', async () => {
     const view = await renderGuide();
     setPosition(150, -60, 12);
     await nextTick();
-    expect(view.text()).toContain('直線距離 約 60 m');
-    expect(view.text()).toContain('方角：北（北を基準）');
+    expect(view.get('.distance .sr-only').text()).toBe('直線距離 約 60 m、方角 北（北を基準）');
     expect(view.text()).toContain('0 秒前に更新・精度 ±12 m');
   });
 
@@ -170,9 +172,8 @@ describe('GuideView', () => {
     useLandmarksStore().setAll([{ ...landmark, name: '新しい建物名' }]);
     await nextTick();
     expect(view.text()).toContain('新しい企画名');
-    expect(view.text()).toContain('新しい建物名 0階');
-    expect(view.text()).toContain('直線距離 約 141 m');
-    expect(view.text()).toContain('方角：南西（北を基準）');
+    expect(view.get('.eyebrow').text()).toBe('案内中・新しい建物名 0階');
+    expect(view.get('.distance .sr-only').text()).toBe('直線距離 約 141 m、方角 南西（北を基準）');
   });
 
   it.each([
@@ -194,6 +195,11 @@ describe('GuideView', () => {
     setPosition(140, 0);
     await nextTick();
     expect(view.text()).toContain('行き先に着きました');
+    expect(view.find('[data-icon="check"]').exists()).toBe(true);
+    expect(view.get('.eyebrow').text()).toContain('会場は 2 階です。');
+    expect(view.get('.note').text()).toBe('会場は 2 階です。建物の中の地図で、階と場所を確かめられます。');
+    expect(view.find('.distance').exists()).toBe(false);
+    expect(view.get('button').attributes('data-variant')).toBe('destination');
     expect(view.get('a').text()).toBe('建物の中の地図');
     expect(view.get('a').attributes('href')).toBe('/buildings/building-1');
     const clear = vi.spyOn(storage.destination, 'clear');
@@ -289,7 +295,7 @@ describe('GuideView', () => {
     const clear = vi.spyOn(storage.destination, 'clear');
     const view = await renderGuide();
     expect(view.text()).toContain('行き先が選ばれていません');
-    expect(view.text()).not.toContain('直線距離');
+    expect(view.find('.distance').exists()).toBe(false);
     expect(view.get('a').attributes('href')).toBe('/');
     expect(clear).not.toHaveBeenCalled();
   });
@@ -302,7 +308,7 @@ describe('GuideView', () => {
     else usePlacesStore().setAll([otherPlace]);
     await nextTick();
     expect(view.text()).not.toContain('お化け屋敷');
-    expect(view.text()).not.toContain('直線距離');
+    expect(view.find('.distance').exists()).toBe(false);
     await flushPromises();
     expect(clear).toHaveBeenCalledOnce();
     expect(await storage.destination.get()).toBeNull();
@@ -356,7 +362,7 @@ describe('GuideView', () => {
     const view = await renderGuide();
     expect(clear).toHaveBeenCalledOnce();
     expect(await storage.destination.get()).toBeNull();
-    expect(view.text()).not.toContain('直線距離');
+    expect(view.find('.distance').exists()).toBe(false);
     expect(view.vm.$router.currentRoute.value.name).toBe('map');
     expect(view.findComponent(GuideView).exists()).toBe(false);
   });
@@ -415,7 +421,7 @@ describe('GuideView', () => {
     const view = await renderGuide();
     expect(view.get('[role="alert"]').text()).toContain('行き先を読み込めませんでした');
     expect(view.get('a').attributes('href')).toBe('/');
-    expect(view.text()).not.toContain('直線距離');
+    expect(view.find('.distance').exists()).toBe(false);
   });
 
   it('アンマウント時に経過時間用タイマーを解放する', async () => {
