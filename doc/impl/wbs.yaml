@@ -639,15 +639,21 @@ tasks:
   - doc/impl/contracts.md
   - doc/tech-stack.md
   - 'PR #4・#5 の ar-guide/mock/index.html(未 merge。`gh pr diff 4` と `gh pr diff 5` で読む)'
-  goal: 建物(押し出し)・場所の印・ラベルの描画と、タップ判定を作る。
+  goal: 建物(z=0 の輪郭の平面)・場所の印・ラベルの描画と、タップ判定を作る。
   scope:
-  - 建物の高さは面積から(モックと同じ)、奥行きの順に描く
+  - 建物は壁・屋根の立体ではなく z=0 の輪郭の平面で描き、奥行き順(sortByDepth)は残す
+  - '回転 `th` は残し、`project()`・`TILT`・`cy` は変更しない'
+  - 通常の建物はダークで塗り ink-700+縁 violet-400、ライトで白(bg-surface)+縁 violet-400(暫定)とする
+  - 企画あり(event)・行き先(destination)の建物の色は残す
   - ラベルの衝突回避、行き先の強調
-  - タップ判定(labelHits)
+  - 建物の hitTest は平面の輪郭の内側と辺だけを pointInPolygon で判定し、ラベルは labelHits で判定する
   acceptance:
   - 'テスト: 判定と衝突回避の純関数部分'
+  - 建物が z=0 の平面で描かれ、回転・投影・奥行き順が維持される
+  - 通常の建物のテーマ別の塗りと縁、企画あり・行き先の建物の色が維持される
+  - 建物の hitTest が平面の輪郭の内側と辺を含み、輪郭の外側を含まない
   - '`layers/types.ts` の Layer を満たす'
-  notes: ''
+  notes: 'I-15 で建物を壁・屋根の立体から z=0 の輪郭の平面に変更済み。`buildingHeight` は現在もラベルの旗の位置に使われる。高さの扱い(旗の高さ 0 化)は別 issue #208 で扱う。ライトの縁 violet-400 は暫定。'
 - id: M-04
   title: '地図: 現在地・行き先・経路'
   wave: 2
