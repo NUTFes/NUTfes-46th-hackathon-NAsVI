@@ -8,6 +8,8 @@ import { useLandmarksStore, usePlacesStore } from '../stores';
 import type { Position } from '../types';
 import ArView from './ArView.vue';
 import arSource from './ArView.vue?raw';
+import labelSource from '../components/ui/CameraLabel.vue?raw';
+import overlaySource from '../components/ui/BuildingCameraOverlay.vue?raw';
 import CameraView from '../views/CameraView.vue';
 import { buildings, places } from './fixtures/buildings';
 
@@ -116,7 +118,7 @@ function pointer(element: Element, type: string, x: number) {
 }
 
 describe('R-02 モックの位置・向きによるコンポーネント表示', () => {
-  it('操作を起点に既存サービスと背面カメラを開始し、video と円形 canvas を持つ', async () => {
+  it('操作を起点に既存サービスと背面カメラを開始し、video と角丸四角のミニマップ canvas を持つ', async () => {
     const wrapper = mount(ArView, { props: props() });
     expect(getUserMedia).not.toHaveBeenCalled();
     expect(frames.size).toBe(0);
@@ -133,8 +135,8 @@ describe('R-02 モックの位置・向きによるコンポーネント表示',
     expect(video.getAttribute('aria-hidden')).toBe('true');
     expect(video.hasAttribute('aria-label')).toBe(false);
     expect(wrapper.get('canvas').attributes('width')).toBe('240');
-    expect(ctx.arc).toHaveBeenCalledWith(120, 120, 120, 0, Math.PI * 2);
-    expect(ctx.clip).toHaveBeenCalled();
+    expect(ctx.arc).toHaveBeenCalledWith(120, 120, 9, 0, Math.PI * 2); // 現在地の白い点
+    expect(ctx.clip).not.toHaveBeenCalled(); // 角は CSS の border-radius で丸める
     expect(ctx.lineTo).toHaveBeenCalled();
     expect(ctx.restore).toHaveBeenCalled();
   });
@@ -196,11 +198,14 @@ describe('R-02 モックの位置・向きによるコンポーネント表示',
     mocks.heading.value = null;
     tick();
     expect(wrapper.get('.ar-warning').text()).toContain('位置の誤差が大きい');
-    expect(wrapper.get('.ar-top').text()).toContain('左右にドラッグ');
+    await nextTick(); // 状態の切り替えだけは Vue が再描画する。
+    expect(wrapper.get('.nv-cam-overlay__hint').text()).toContain('左右にドラッグして向きを合わせる');
+    expect(wrapper.get('.nv-cam-overlay__status').text()).toContain('向きが分かりません');
+    expect(wrapper.get('.nv-cam-overlay').attributes('data-state')).toBe('unknown');
     mocks.position.value = null;
     mocks.status.value = 'denied';
     tick();
-    expect(wrapper.get('.ar-top').text()).toContain('位置情報を許可してください');
+    expect(wrapper.get('.nv-cam-overlay__status').text()).toContain('位置情報を許可してください');
     expect(wrapper.findAll('.ar-label').every(node => node.element.hasAttribute('hidden'))).toBe(true);
     expect(wrapper.get('.ar-guide').element.hasAttribute('hidden')).toBe(true);
     expect(wrapper.get('.ar-front').text()).toContain('現在地を確認');
@@ -527,7 +532,7 @@ describe('R-02 最寄りテーマと映像上のコントラスト', () => {
   it.each(['dark', 'light'])('%s の映像上の文字は不透明な背景で 4.5:1 以上のコントラストを保つ', async theme => {
     // Vitest は SFC の CSS を挿入しないので、本番のスタイルを DOM に載せる。
     const stylesheet = document.createElement('style');
-    stylesheet.textContent = arSource.match(/<style>([\s\S]*)<\/style>/)![1];
+    stylesheet.textContent = [arSource, labelSource, overlaySource].map(source => source.match(/<style>([\s\S]*)<\/style>/)![1]).join('\n');
     document.head.append(stylesheet);
     const host = document.createElement('div');
     document.body.append(host);
@@ -539,7 +544,7 @@ describe('R-02 最寄りテーマと映像上のコントラスト', () => {
         .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
       return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
     };
-    for (const [bg, fg] of [['surface', 'text'], ['event', 'event-on'], ['destination', 'destination-on'], ['danger-bg', 'danger-text'], ['action', 'action-on']]) {
+    for (const [bg, fg] of [['surface', 'text'], ['event', 'event-on'], ['facility', 'facility-on'], ['destination', 'destination-on'], ['danger-bg', 'danger-text'], ['action', 'action-on']]) {
       const background = style.getPropertyValue(`--ar-${bg}`);
       const foreground = style.getPropertyValue(`--ar-${fg}`);
       expect(background).toMatch(/^#[\da-f]{6}$/i);
@@ -549,9 +554,16 @@ describe('R-02 最寄りテーマと映像上のコントラスト', () => {
     // 実際に映像に重なる札・照準・案内帯にも上記の背景と文字色が当たる。
     try {
       const computed = (selector: string) => window.getComputedStyle(wrapper.get(selector).element);
-      expect(computed('.ar-cross').backgroundColor).toBe(theme === 'dark' ? '#1c1032' : '#ffffff');
-      expect(computed('.ar-label--far').opacity).not.toBe('0.45');
-      expect(computed('.ar-label--far').backgroundColor).toBe(theme === 'dark' ? '#5eead4' : '#0f766e');
+      expect(computed('.nv-cam-overlay__status').backgroundColor).toBe(theme === 'dark' ? '#1c1032' : '#ffffff');
+      // Figma: 建物の奥の札は facility 色で不透明度 0.6。
+      expect(computed('.ar-label--far').opacity).toBe('0.6');
+      // 2 枚目以降も原点基準(draw() の translate 前提)で絶対配置される。
+      for (const label of wrapper.findAll('.ar-label')) {
+        expect(window.getComputedStyle(label.element).position).toBe('absolute');
+        expect(window.getComputedStyle(label.element).left).toBe('0px');
+        expect(window.getComputedStyle(label.element).top).toBe('0px');
+      }
+      expect(computed('.ar-label--far').backgroundColor).toBe(theme === 'dark' ? '#f4f0ff' : '#1e0b3a');
     } finally {
       wrapper.unmount();
       host.remove();
@@ -632,8 +644,8 @@ describe('R-02 CameraView の既存ストア・保存・経路との接続', () 
     await wrapper.get('.ar-front').trigger('click');
     await flushPromises();
     expect(router.currentRoute.value).toMatchObject({ name: 'building', params: { id: 'north' } });
-    expect(wrapper.get('nav').text()).toContain('地図');
-    expect(wrapper.get('nav').text()).toContain('企画一覧');
+    // 画面の切り替えは下のタブ(App)に任せ、カメラ画面では出さない。
+    expect(wrapper.find('nav').exists()).toBe(false);
     mocks.position.value = null;
     mocks.status.value = 'denied';
     await nextTick();

@@ -4,6 +4,8 @@ import { toXY } from '../domain/geo';
 import { useOrientation, type OrientationStatus } from '../services/orientation';
 import { usePosition } from '../services/position';
 import type { Destination, Landmark, Place, Position } from '../types';
+import BuildingCameraOverlay from '../components/ui/BuildingCameraOverlay.vue';
+import { CAMERA_LABEL_CLASSES } from '../components/ui/CameraLabel.vue';
 import { DEFAULT_LONG_FOV_DEG, describePlaces, describeTarget, pickFront, wrap180 } from './geometry';
 
 // 決定根拠のない仮置き。PR #4 通常版由来の値で、実機での調整が必要。
@@ -59,6 +61,11 @@ const labels = ref<HTMLElement>();
 const sensor = ref<HTMLElement>();
 const warning = ref<HTMLElement>();
 const front = ref<HTMLButtonElement>();
+const frontName = ref<HTMLElement>();
+const frontDetail = ref<HTMLElement>();
+// 向きが分かるか(BuildingCameraOverlay の state)。切り替わるときだけ再描画する。
+const headingState = ref<'recognized' | 'unknown'>('recognized');
+const COMPASS = ['北', '北東', '東', '南東', '南', '南西', '西', '北西'];
 const guide = ref<HTMLElement>();
 const arrow = ref<HTMLElement>();
 const guideText = ref<HTMLElement>();
@@ -74,6 +81,10 @@ const COLORS = {
   '--ar-secondary': { dark: '#b4a9cf', light: '#5b5274' }, // color.{dark,light}.text-secondary
   '--ar-event': { dark: '#5eead4', light: '#0f766e' }, // color.{dark,light}.event
   '--ar-event-on': { dark: '#062a24', light: '#ffffff' }, // color.{dark,light}.event-on
+  '--ar-facility': { dark: '#f4f0ff', light: '#1e0b3a' }, // color.{dark,light}.facility
+  '--ar-facility-on': { dark: '#1e0b3a', light: '#ffffff' }, // color.{dark,light}.facility-on
+  '--ar-border-subtle': { dark: '#a78bfa47', light: '#1e0b3a26' }, // color.{dark,light}.border-subtle(alpha 0.28 / 0.15)
+  '--ar-destination-border': { dark: '#ffd84a', light: '#1e0b3a' }, // color.{dark,light}.destination-border
   '--ar-destination': { dark: '#ffd84a', light: '#facc15' }, // color.{dark,light}.destination
   '--ar-destination-on': { dark: '#1e0b3a', light: '#1e0b3a' }, // color.{dark,light}.destination-on
   '--ar-danger': { dark: '#f87171', light: '#dc2626' }, // color.{dark,light}.danger
@@ -122,6 +133,7 @@ const visible = () => !disposed && started.value && !document.hidden && inViewpo
 const text = (element: HTMLElement | undefined, value: string) => {
   if (element && element.textContent !== value) element.textContent = value;
 };
+const wrap360 = (deg: number) => ((deg % 360) + 360) % 360;
 const distance = (m: number) => m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
 
 function releaseCamera() {
@@ -193,10 +205,12 @@ function syncLabels() {
     if (!node) {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'ar-label';
+      button.className = `ar-label ${CAMERA_LABEL_CLASSES.base}`;
       button.dataset.placeId = place.id;
       const title = document.createElement('span');
+      title.className = CAMERA_LABEL_CLASSES.name;
       const meta = document.createElement('span');
+      meta.className = CAMERA_LABEL_CLASSES.meta;
       button.append(title, meta);
       button.addEventListener('click', () => emit('select', place.id));
       labels.value!.append(button);
@@ -233,9 +247,11 @@ function draw() {
   if (sensed !== null) manualHeading = sensed;
   const heading = sensed === null ? manualHeading : sensed - (drag?.delta ?? 0);
   const usable = pos !== null && Number.isFinite(pos.lat) && Number.isFinite(pos.lng);
-  text(sensor.value, `${usable ? `位置誤差 ±${Number.isFinite(pos.accuracy) ? Math.round(pos.accuracy) : '不明'} m` :
-    position.status.value === 'denied' ? '位置情報を許可してください' : '現在地を確認中'} ／ ${
-    sensed === null ? '向きが分かりません。左右にドラッグして向きを合わせてください' : `方位 ${Math.round(sensed)}°`}`);
+  const nextState = sensed === null ? 'unknown' : 'recognized';
+  if (headingState.value !== nextState) headingState.value = nextState;
+  text(sensor.value, usable ? `現在地 ±${Number.isFinite(pos.accuracy) ? Math.round(pos.accuracy) : '不明'} m・${
+    sensed === null ? '向きが分かりません' : `${COMPASS[Math.round(wrap360(sensed) / 45) % 8]}を向いています`}` :
+    position.status.value === 'denied' ? '位置情報を許可してください' : '現在地を確認中');
   const far = usable && Math.hypot(...toXY(pos.lat, pos.lng)) > VENUE_DISTANCE_WARNING_M;
   text(warning.value, [cameraMessage, far ? '会場から離れています。方向と距離のみ表示します。' :
     usable && pos.accuracy > POSITION_ACCURACY_WARNING_M ? '位置の誤差が大きいです。屋外の開けた場所で確認してください。' : ''].filter(Boolean).join(' '));
@@ -249,8 +265,10 @@ function draw() {
     const hit = pickFront(pos, heading, props.landmarks);
     frontId = hit?.building.id ?? null;
     const buildingEvents = events.filter(place => place.landmarkId === frontId);
-    text(front.value, hit ? `正面 · ${hit.building.name} · ${distance(hit.distance)}\n${
-      buildingEvents.length ? buildingEvents.map(place => place.name).join('、') : 'この建物には企画がありません'}` : '周囲の建物へカメラを向けてください');
+    // 見た目は Figma の丸薬(正面: 建物名)。距離と企画は読み上げ用に残す。
+    text(frontName.value, hit ? `正面: ${hit.building.name}` : '周囲の建物へカメラを向けてください');
+    text(frontDetail.value, hit ? ` ${distance(hit.distance)}。${
+      buildingEvents.length ? buildingEvents.map(place => place.name).join('、') : 'この建物には企画がありません'}` : '');
     const descriptions = describePlaces(pos, events, props.landmarks).sort((a, b) =>
       Number(b.place.id === props.destination?.placeId) - Number(a.place.id === props.destination?.placeId)
       || a.distance - b.distance);
@@ -272,6 +290,8 @@ function draw() {
       button.hidden = false;
       button.classList.toggle('ar-label--far', item.occluded && !isDestination);
       button.classList.toggle('ar-label--destination', isDestination);
+      button.classList.toggle(CAMERA_LABEL_CLASSES.far, item.occluded && !isDestination);
+      button.classList.toggle(CAMERA_LABEL_CLASSES.destination, isDestination);
       text(meta, `${distance(d)}${item.occluded ? ' · 建物の奥' : ''}`);
       const x = W / 2 + focal * Math.tan(azimuth * RAD);
       const { width: w, height: h } = labelSizes.get(button)!;
@@ -293,7 +313,10 @@ function draw() {
       text(guideText.value, `${destination.name}まで ${distance(target.distance)}`);
     }
     if (ctx) drawMinimap(ctx, pos, heading, W);
-  } else text(front.value, '現在地を確認すると正面の建物を表示します');
+  } else {
+    text(frontName.value, '現在地を確認すると正面の建物を表示します');
+    text(frontDetail.value, '');
+  }
   front.value!.disabled = frontId === null;
   frame = requestAnimationFrame(draw);
 }
@@ -309,7 +332,6 @@ function drawMinimap(ctx: CanvasRenderingContext2D, pos: Position, heading: numb
   };
   const destination = props.places.find(place => place.id === props.destination?.placeId);
   ctx.save();
-  ctx.beginPath(); ctx.arc(center, center, center, 0, Math.PI * 2); ctx.clip();
   ctx.fillStyle = color('surface'); ctx.fillRect(0, 0, MINI_SIZE, MINI_SIZE);
   const half = Math.atan(width / 2 / focal);
   ctx.fillStyle = color('action-selected');
@@ -320,9 +342,10 @@ function drawMinimap(ctx: CanvasRenderingContext2D, pos: Position, heading: numb
     ctx.beginPath();
     building.footprint.forEach((point, index) => { const [x, y] = project(point); if (index) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
     ctx.closePath();
-    ctx.fillStyle = color(destination?.landmarkId === building.id ? 'destination' :
-      props.places.some(place => place.kind === 'event' && place.landmarkId === building.id) ? 'event' : 'secondary');
-    ctx.fill();
+    // Figma: 建物は輪郭線(企画あり=mint、行き先=黄、他=violet)。
+    ctx.strokeStyle = color(destination?.landmarkId === building.id ? 'destination' :
+      props.places.some(place => place.kind === 'event' && place.landmarkId === building.id) ? 'event' : 'action');
+    ctx.lineWidth = 5; ctx.stroke();
   }
   for (const place of props.places.filter(place => place.kind === 'event' && place.landmarkId === null)) {
     const [x, y] = project(place.location);
@@ -335,7 +358,7 @@ function drawMinimap(ctx: CanvasRenderingContext2D, pos: Position, heading: numb
     ctx.beginPath(); ctx.moveTo(center, center); ctx.lineTo(x, y); ctx.stroke(); ctx.setLineDash([]);
   }
   ctx.fillStyle = color('text');
-  ctx.beginPath(); ctx.moveTo(center, center - 14); ctx.lineTo(center + 10, center + 10); ctx.lineTo(center - 10, center + 10); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.arc(center, center, 9, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 function pointerDown(event: PointerEvent) {
@@ -398,9 +421,20 @@ onBeforeUnmount(() => {
     <video ref="video" autoplay muted playsinline aria-hidden="true" />
     <!-- このコンテナの子とフレームの表示内容は Vue の描画に載せない。 -->
     <div ref="labels" class="ar-labels" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="drag = null" @lostpointercapture="drag = null" />
-    <div class="ar-cross" aria-hidden="true">＋</div>
+    <BuildingCameraOverlay :state="headingState" hint="左右にドラッグして向きを合わせる">
+      <template #status><span ref="sensor" /></template>
+      <template #front>
+        <div role="status">
+          <button ref="front" class="ar-front" type="button" disabled @click="frontId && emit('building', frontId)">
+            <span ref="frontName" /><span ref="frontDetail" class="ar-sr" />
+          </button>
+        </div>
+      </template>
+      <template #minimap>
+        <canvas ref="minimap" class="ar-minimap" :width="MINI_SIZE" :height="MINI_SIZE" role="img" aria-label="現在地を中心に向いている方向を上にした周辺のミニマップ" />
+      </template>
+    </BuildingCameraOverlay>
     <div class="ar-top">
-      <p ref="sensor" />
       <p ref="warning" class="ar-warning" hidden role="status" />
       <slot v-if="started && position.status.value === 'denied'" name="location-help" />
       <div class="ar-orientation" role="status" aria-live="polite" aria-atomic="true">
@@ -419,13 +453,11 @@ onBeforeUnmount(() => {
         </section>
       </div>
     </div>
-    <canvas ref="minimap" class="ar-minimap" :width="MINI_SIZE" :height="MINI_SIZE" role="img" aria-label="現在地を中心に向いている方向を上にした周辺のミニマップ" />
     <div class="ar-bottom">
       <div ref="guide" class="ar-guide" hidden>
         <span ref="arrow" aria-hidden="true">↑</span><span ref="guideText" />
         <button type="button" @click="emit('stop')">やめる</button>
       </div>
-      <div role="status"><button ref="front" class="ar-front" type="button" disabled @click="frontId && emit('building', frontId)" /></div>
       <slot />
     </div>
     <section v-if="!started" class="ar-start">
@@ -439,33 +471,32 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
-.ar-view { position: fixed; inset: 0; width: 100%; height: 100dvh; overflow: hidden; background: var(--ar-bg); color: var(--ar-text); font-family: var(--ar-font); font-size: var(--ar-body); line-height: var(--ar-body-leading); }
+.ar-view { position: absolute; inset: 0; width: 100%; height: 100%; /* 下のタブを覆わないよう、visitor-stage の中に収める */ overflow: hidden; background: var(--ar-bg); color: var(--ar-text); font-family: var(--ar-font); font-size: var(--ar-body); line-height: var(--ar-body-leading); }
 .ar-view [hidden] { display: none !important; }
 .ar-view video, .ar-labels { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ar-view video { object-fit: cover; }
 .ar-labels { overflow: hidden; touch-action: none; }
-.ar-cross { position: absolute; top: 50%; left: 50%; padding: var(--ar-space-1); border-radius: var(--ar-radius); background: var(--ar-surface); color: var(--ar-text); pointer-events: none; font-size: var(--ar-heading); }
-.ar-top { position: absolute; top: env(safe-area-inset-top); left: 0; right: 35%; max-height: 60%; overflow: auto; padding: var(--ar-space-3); }
+/* 札の位置は draw() の translate(原点 0,0 前提)で決めるため、必ず絶対配置にする。CameraLabel の relative より強くする。 */
+.ar-view .ar-labels .ar-label { position: absolute; left: 0; top: 0; max-width: 60%; }
+.ar-top { position: absolute; top: calc(env(safe-area-inset-top) + 46px); left: env(safe-area-inset-left); right: 35%; max-height: 50%; overflow: auto; padding: var(--ar-space-2) var(--ar-space-3); }
 .ar-top p { margin: 0 0 var(--ar-space-2); padding: var(--ar-space-2); background: var(--ar-surface); border-radius: var(--ar-radius); }
 .ar-top .ar-warning { border: 1px solid var(--ar-danger); background: var(--ar-danger-bg); color: var(--ar-danger-text); }
 .ar-orientation section { padding: var(--ar-space-2); border: 1px solid var(--ar-danger); border-radius: var(--ar-radius); background: var(--ar-danger-bg); color: var(--ar-danger-text); }
 .ar-orientation p { padding: 0; background: transparent; }
 .ar-orientation h2 { margin: 0 0 var(--ar-space-2); color: var(--ar-text); font-size: var(--ar-heading); font-weight: var(--ar-bold); }
 .ar-orientation button { background: var(--ar-action); color: var(--ar-action-on); }
-.ar-minimap { position: absolute; top: calc(var(--ar-space-3) + env(safe-area-inset-top)); right: var(--ar-space-3); width: 28%; max-width: 120px; height: auto; border-radius: 50%; }
-.ar-bottom { position: absolute; bottom: env(safe-area-inset-bottom); left: 0; right: 0; display: grid; gap: var(--ar-space-2); padding: var(--ar-space-3); }
+.ar-minimap { display: block; width: 100%; height: 100%; }
+.ar-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.ar-bottom { position: absolute; bottom: 0; left: 0; right: 0; display: grid; gap: var(--ar-space-2); padding: var(--ar-space-3); }
 .ar-view button, .ar-view a { box-sizing: border-box; min-height: var(--ar-touch); padding: var(--ar-space-2) var(--ar-space-3); border: 0; border-radius: var(--ar-radius); font: inherit; cursor: pointer; }
 .ar-view a { display: inline-flex; align-items: center; color: var(--ar-text); background: var(--ar-surface); }
-.ar-front { width: 100%; white-space: pre-line; text-align: start; color: var(--ar-text); background: var(--ar-surface); }
+.ar-view .ar-front { width: auto; min-height: 0; padding: 6px 12px; border-radius: var(--ar-space-2); white-space: nowrap; font-size: 13px; font-weight: var(--ar-bold); line-height: 1; color: var(--ar-event-on); background: var(--ar-event); pointer-events: auto; }
+.ar-view .ar-front:disabled { color: var(--ar-text); background: var(--ar-surface); box-shadow: inset 0 0 0 1px var(--ar-border-subtle); opacity: 1 !important; }
 .ar-guide { display: flex; align-items: center; gap: var(--ar-space-2); padding: var(--ar-space-2); border-radius: var(--ar-radius); background: var(--ar-destination); color: var(--ar-destination-on); }
 .ar-guide span:nth-child(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ar-guide button { background: var(--ar-destination-on); color: var(--ar-destination); }
 .ar-start { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: var(--ar-space-4); padding: var(--ar-space-4); background: var(--ar-bg); }
 .ar-start h1 { font-size: var(--ar-heading); font-weight: var(--ar-bold); }
 .ar-start button { background: var(--ar-action); color: var(--ar-action-on); }
-.ar-labels .ar-label { position: absolute; left: 0; top: 0; max-width: 60%; display: grid; text-align: start; gap: var(--ar-space-1); border: 1px solid currentColor; background: var(--ar-event); color: var(--ar-event-on); }
-.ar-label span:first-child { font-weight: var(--ar-bold); }
-.ar-label--far { border-style: dashed !important; } /* 映像上でも文字のコントラストを保つため、札全体は透過しない。 */
-.ar-labels .ar-label--destination { background: var(--ar-destination); color: var(--ar-destination-on); }
 .ar-view :focus-visible { outline: var(--ar-space-1) solid var(--ar-action); }
 </style>
