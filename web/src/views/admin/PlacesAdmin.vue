@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import { adminGet, adminSend, ApiError } from '../../admin/client';
 import { useAdminFeedback } from '../../admin/feedback';
 import { adminTokens } from '../../admin/tokens';
+import LocationPicker from '../../components/admin/LocationPicker.vue';
+import { getPickerBounds, inputToPoint, isPointInBounds, outlinePath, pointToLocation, type PickerPoint } from '../../components/admin/locationPickerGeometry';
 import Button from '../../components/ui/Button.vue';
 import Badge from '../../components/ui/Badge.vue';
 import DataTable, { type DataTableColumn } from '../../components/admin/DataTable.vue';
@@ -247,6 +249,22 @@ function confirmDelete() {
     message.value = '場所を削除しました。';
   }, true);
 }
+
+// 入力中の座標は範囲に含めず、配置操作で地図が動かないようにする。
+const pickerBounds = computed(() => {
+  const points = landmarks.value.flatMap(item => [item.location, ...(item.footprint ?? [])]);
+  points.push(...places.items.map(item => item.location));
+  return getPickerBounds(points);
+});
+const pickerPoint = computed(() => inputToPoint(String(form.lat), String(form.lng), pickerBounds.value));
+const pickerOutOfRange = computed(() => pickerPoint.value !== null && !isPointInBounds(pickerPoint.value));
+const pickerValue = computed(() => pickerOutOfRange.value ? null : pickerPoint.value);
+const pickerOutlines = computed(() => landmarks.value.map(item => outlinePath(item.footprint ?? [], pickerBounds.value)).filter(Boolean));
+function pickLocation(point: PickerPoint) {
+  const location = pointToLocation(point, pickerBounds.value);
+  form.lat = String(location.lat);
+  form.lng = String(location.lng);
+}
 </script>
 
 <template>
@@ -310,6 +328,7 @@ function confirmDelete() {
               <option v-for="(title, kind) in kinds" :key="kind" :value="kind">{{ title }}</option>
             </select>
           </FormField>
+          <LocationPicker :value="pickerValue" :out-of-range="pickerOutOfRange" :outlines="pickerOutlines" :disabled="locked" @change="pickLocation" />
           <FormField label="緯度 (必須)" control-id="place-lat">
             <input id="place-lat" v-model="form.lat" v-bind="errorAttrs('location')" type="text" inputmode="decimal" required>
           </FormField>
