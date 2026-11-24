@@ -5,10 +5,10 @@
 - 使う画面: map(I-3、issue #177)
 - 見せる概念・項目: 地図の表示倍率。場所や行き先のデータは変えない
 
-- 出典: Figma ファイル `FIAsdXNhkURiVxDV9lHVnB`、Components キャンバス `17:2` の添付スクリーンショット。同名画像の見た目だけを確認し、MCP での値・variant 名・description は未確認。
-- I-3(#177)の配置根拠: 参考資料 figma-diff.md H3・H4 と issue177.md。地図全面に重ねる配置は画面の側で行う。
+- 出典: [Figma ファイル FIAsdXNhkURiVxDV9lHVnB の Components キャンバス(ノード 17:2)](https://www.figma.com/design/FIAsdXNhkURiVxDV9lHVnB?node-id=17-2)の `MapZoomButtons` と [GitHub issue #177](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/177)。見た目・値の根拠は保存済みスクリーンショットであり、Figma MCP での再確認はしていない(未確認)。正確な設計値・variant 名・description は未確認。
+- I-3 の配置根拠: [issue #177](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/177)と [issue #173](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/173)の figma-diff 方針(H3・H4)。`doc/impl/figma-diff.md` は本ブランチ `docs/map-parts-spec` に無いため、issue を参照する。地図全面に重ねる配置は画面の側で行う。
 - トークンは [tokens.json](../tokens.json) の意味の名前で記載する(色は `color.dark.*` / `color.light.*`)。画像の変数との一致を保証するものではなく、既存仕様に沿った proposed の対応づけ。
-- テーマは OS に追従し、ライトでは同じ意味の light トークンを使う(ユーザー決定、2026-11-24)。添付画像からライトの見た目は確認できない。
+- テーマは OS に追従し、ライトでは同じ意味の light トークンを使う(暫定判断、[#197 事項 4](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/197)で確認中)。保存済みスクリーンショットからライトの見た目は確認できない。
 
 ## 構造(anatomy)
 1. 縦に連結した角丸の面
@@ -17,6 +17,8 @@
 4. 下に「−」(縮小)
 
 地図の右側の縦並びに重ねる。上と下は別のボタンにする。
+
+- [IconButton](IconButton.md) との関係: zoom-in・zoom-out の 2 個を内包し、縦の連結面と区切り線をこの部品で扱う案。IconButton の汎用定義は置き換えない。
 
 ## props
 既存の [IconButton](IconButton.md) の操作・無効表示を参考にした UI 案。MapState に無い値の採否・名前・受け渡しは末尾の要確認を解消してから確定する。
@@ -31,12 +33,12 @@
 |---|---|---|
 | 通常 | ＋・− の有効な側を明るく示す。両方有効の画像は未確認 | bg-surface、text-primary、border-subtle |
 | 押下 | 押した有効な側だけ対応する関数を実行。面に色を重ねる案 | state-pressed |
-| 無効 | 添付左は＋が薄く−が明るい。右は逆。無効とみなす案。各無効操作は実行しない | opacity.disabled、text-disabled |
+| 無効 | 保存済みスクリーンショット左は＋が薄く−が明るい。右は逆。無効とみなす案。各無効操作は実行しない | opacity.disabled、text-disabled |
 | 読み込み中・空・エラー | この部品では出さない | — |
 
 ## 使う / 使わない
 - 使う: 地図の拡大・縮小
-- 使わない: 北に戻す操作や現在地への移動は別の操作
+- 使わない: 初期の向きに戻す操作や現在地への移動は別の操作
 
 ## アクセシビリティ
 - 操作方法: タップ、キーボードの Enter・Space。ボタンとして扱い、フォーカスを視認できるようにする。
@@ -44,9 +46,13 @@
 - 押せる大きさ: 各ボタンの押下領域を幅・高さとも 44 px 以上にする(`size.touch-target`)。見た目が小さい場合は周囲で補い、隣の押下領域と重ねない。
 - 色だけに頼っていないか: アイコンの形で操作を区別する。無効時は操作を止め、無効状態を支援技術へ伝える。装飾アイコンは読み上げを重複させない。
 
+## 実装で確認済み
+- [interaction.ts](../../web/src/map/interaction.ts) の `K_MIN = 0.9`・`K_MAX = 7` を `clampScale` が適用し、`zoomAt` とピンチの倍率を 0.9〜7 に制限する。
+- `zoomAt` は現在の倍率に引数 `f` を掛ける。ホイールは `exp(-deltaY × 0.0018)`、ピンチは指間距離の比で変化する。これらは＋・−ボタン 1 回の変化量を定義するものではない。
+
 ## 未確認・要確認
-- 倍率の上限・下限・1 回の変化量・長押しの有無は未確認。MapState に倍率は無く、契約の View.k が表示倍率に関わる。無効判定と地図への接続を要確認。
-- Figma に無い差: コンパスは残す(ユーザー決定、2026-11-24)。地図の北に戻す既存の手段を維持し、この部品の＋・−とは別の操作にする。配置・外観と Figma への反映は要確認。参考資料 H4 の「足すかはチーム確認」より今回の維持決定を優先する。
+- ＋・−ボタン 1 回の変化量・長押しの有無は、確認した実装に定義が無く未確認。MapState に倍率は無く、契約の View.k が表示倍率に関わる。上限・下限での無効判定の受け渡しと地図への接続を要確認。
+- Figma に無い差: コンパスは残す(暫定判断、[#197 事項 3](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/197)で確認中)。[MapCanvas.vue](../../web/src/map/MapCanvas.vue) の aria-label は「向きを戻す」。`resetNorth` は名前にかかわらず `TH0 = -0.5` rad(初期角度)へ戻す実装であり、この操作を＋・−とは別に維持する案。配置・外観と Figma への反映を含め、#197 の確認待ち。
 
 - Figma の正確な幅・高さ・角丸・余白・アイコン寸法・線幅・文字サイズ・色の値・description 文・variant 名は未確認。画像のピクセル数を設計値として使わない。
 - 押下・フォーカス・ライトの見た目は画像で未確認。実機でコントラストと屋外の見え方を確認する。新しいトークンは追加しない。

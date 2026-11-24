@@ -5,10 +5,10 @@
 - 使う画面: map(I-3、issue #177)
 - 見せる概念・項目: 見せ方の設定(画面の言葉は「表示する印」)。新しい概念にはしない
 
-- 出典: Figma ファイル `FIAsdXNhkURiVxDV9lHVnB`、Components キャンバス `17:2` の添付スクリーンショット。同名画像の見た目だけを確認し、MCP での値・variant 名・description は未確認。
-- I-3(#177)の配置根拠: 参考資料 figma-diff.md H3・H4 と issue177.md。地図全面に重ねる配置は画面の側で行う。
+- 出典: [Figma ファイル FIAsdXNhkURiVxDV9lHVnB の Components キャンバス(ノード 17:2)](https://www.figma.com/design/FIAsdXNhkURiVxDV9lHVnB?node-id=17-2)の `MapEyeButton` と [GitHub issue #177](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/177)。見た目・値の根拠は保存済みスクリーンショットであり、Figma MCP での再確認はしていない(未確認)。正確な設計値・variant 名・description は未確認。
+- I-3 の配置根拠: [issue #177](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/177)と [issue #173](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/173)の figma-diff 方針(H3・H4)。`doc/impl/figma-diff.md` は本ブランチ `docs/map-parts-spec` に無いため、issue を参照する。地図全面に重ねる配置は画面の側で行う。
 - トークンは [tokens.json](../tokens.json) の意味の名前で記載する(色は `color.dark.*` / `color.light.*`)。画像の変数との一致を保証するものではなく、既存仕様に沿った proposed の対応づけ。
-- テーマは OS に追従し、ライトでは同じ意味の light トークンを使う(ユーザー決定、2026-11-24)。添付画像からライトの見た目は確認できない。
+- テーマは OS に追従し、ライトでは同じ意味の light トークンを使う(暫定判断、[#197 事項 4](https://github.com/NUTFes/NUTfes-46th-hackathon-NAsVI/issues/197)で確認中)。保存済みスクリーンショットからライトの見た目は確認できない。
 
 ## 構造(anatomy)
 1. 枠つきの角丸の面
@@ -16,6 +16,8 @@
 3. 下に「表示」
 
 地図の右側の縦並びに重ねる。
+
+- [IconButton](IconButton.md) との関係: 要確認。既存の layers と役割が重なるが、目アイコンと文字を持ち、直接切り替えかシートを開くかも未決のため、内包するか layers の地図用途を置き換えるかを確認する。
 
 ## props
 既存の [IconButton](IconButton.md) の操作・無効表示を参考にした UI 案。MapState に無い値の採否・名前・受け渡しは末尾の要確認を解消してから確定する。
@@ -29,7 +31,7 @@
 ## 状態
 | 状態 | 見た目・振る舞い | 使うトークン |
 |---|---|---|
-| 通常 | 目のアイコンと「表示」。添付はこの見た目 1 つだけ | bg-surface、text-primary、border-subtle |
+| 通常 | 目のアイコンと「表示」。保存済みスクリーンショットはこの見た目 1 つだけ | bg-surface、text-primary、border-subtle |
 | 押下 | 有効時に onPress を実行。面に色を重ねる案 | state-pressed |
 | 選択中・無効 | 有無・見た目・必要な props は要確認。画像から入・切を決めない | 未確認 |
 | 読み込み中・空・エラー | この部品固有の表示は未確認。層のデータ取得とは分ける | 未確認 |
