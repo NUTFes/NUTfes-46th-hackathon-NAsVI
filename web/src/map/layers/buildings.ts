@@ -57,18 +57,6 @@ export function resolveColors(ctx: CanvasRenderingContext2D) {
 
 type Point2D = readonly [number, number];
 
-/** 平面座標(m)の輪郭から高さ(m)を求める。頂点の向きには依存しない。建物の描画には使わない(平面化)。labels の旗の位置が参照する。 */
-export function buildingHeight(points: ReadonlyArray<Point2D>): number {
-  let A = 0;
-  for (let i = 0; i < points.length; i++) {
-    const [x1, y1] = points[i];
-    const [x2, y2] = points[(i + 1) % points.length];
-    A += x1 * y2 - x2 * y1;
-  }
-  // モックと同じ式・固定値(7, 0.32, 7, 30)。A は符号付き面積の 2 倍。
-  return Math.min(30, Math.max(7, 7 + Math.sqrt(Math.abs(A / 2)) * 0.32));
-}
-
 /** project の奥行きが大きいものから描く。入力の並びは変えない。 */
 export function sortByDepth<T extends { depth: number }>(items: ReadonlyArray<T>): T[] {
   return [...items].sort((a, b) => b.depth - a.depth);

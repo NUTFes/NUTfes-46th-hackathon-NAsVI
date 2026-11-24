@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { fromXY, toXY } from '../../domain/geo';
 import type { Landmark, Place } from '../../types';
 import { project, TILT } from '../core';
-import buildings, { buildingHeight, mapColors } from './buildings';
+import buildings, { mapColors } from './buildings';
 import labels, { hitLabel, placeLabels, rectsOverlap } from './labels';
 import type { LabelCandidate, LabelHit, Rect } from './labels';
 import type { Layer, MapState, View } from './types';
@@ -165,8 +165,7 @@ describe('labels Layer', () => {
     vi.mocked(ctx.measureText).mockImplementation((text) => ({
       width: text === 'bad' ? NaN : 40,
     }) as TextMetrics);
-    const hgt = buildingHeight(landmark().footprint!.map((p) => toXY(p.lat, p.lng)));
-    const [rx, ry] = project(view, 400, 600, 0, 0, hgt);
+    const [rx, ry] = project(view, 400, 600, 0, 0);
     expect(() => labels.draw(ctx, view, state({ landmarks: [landmark()], places: [
       place('bad'), place('valid', { landmarkId: 'a', location: fromXY(60, 0) }),
     ], destination: { placeId: 'bad' } }), 0)).not.toThrow();
@@ -275,7 +274,10 @@ describe('labels Layer', () => {
 
   it('ラベルを屋外の円より優先し、建物は返さない', () => {
     const ctx = canvas();
-    const outdoor = place('outdoor', { location: fromXY(0, 68) });
+    // 建物の平面の中心 (200, 300) から 35px 上(吹き出しの中)に、屋外企画の円を置く。
+    const [, y0] = project(view, 400, 600, 0, 0);
+    const [, y1] = project(view, 400, 600, 0, 1);
+    const outdoor = place('outdoor', { location: fromXY(0, (265 - y0) / (y1 - y0)) });
     labels.draw(ctx, view, state({
       landmarks: [landmark()], places: [outdoor, place('indoor', { landmarkId: 'a' })],
       destination: { placeId: 'indoor' },
@@ -342,7 +344,7 @@ describe('labels Layer', () => {
     expect(ctx.fillText).toHaveBeenCalledExactlyOnceWith('2', expect.any(Number), expect.any(Number));
   });
 
-  it('行き先は同じ建物の代表とし、絞り込み外・低倍率でも単独名と屋根の波紋を出す', () => {
+  it('行き先は同じ建物の代表とし、絞り込み外・低倍率でも単独名と建物の平面の波紋を出す', () => {
     const ctx = canvas();
     const building = landmark();
     labels.draw(ctx, { ...view, k: 1 }, state({
@@ -351,8 +353,7 @@ describe('labels Layer', () => {
         place('dest', { name: '目的地', landmarkId: 'a', labelIds: ['hidden'] }),
       ], destination: { placeId: 'dest' }, filter: { labelIds: ['show'], tagIds: [] },
     }), 800);
-    const hgt = buildingHeight(building.footprint!.map((p) => toXY(p.lat, p.lng)));
-    const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0, hgt);
+    const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0);
     expect(ctx.ellipse).toHaveBeenCalledExactlyOnceWith(x, y, 33, 33 * TILT, 0, 0, 7);
     expect(ctx.fillText).toHaveBeenCalledExactlyOnceWith('目的地', x, y - 22 - 13 + 0.5);
     expect(labels.hitTest!(x, y - 35)).toEqual({ kind: 'place', id: 'dest' });
@@ -416,8 +417,7 @@ describe('labels Layer', () => {
     it('BuildingFlag: 建物の企画を「旗+数」の丸薬 1 つにまとめ、低倍率でも出す。押下領域は 44 px 角', () => {
       const ctx = canvas();
       const building = landmark();
-      const hgt = buildingHeight(building.footprint!.map((p) => toXY(p.lat, p.lng)));
-      const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0, hgt);
+      const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0);
       labels.draw(ctx, { ...view, k: 1 }, state({
         landmarks: [building],
         places: ['a', 'b', 'c'].map((id) => place(id, { landmarkId: 'a' })),
@@ -436,8 +436,7 @@ describe('labels Layer', () => {
       const ctx = canvas();
       vi.mocked(ctx.measureText).mockImplementation(() => ({ width: textWidth * digits }) as TextMetrics);
       const building = landmark();
-      const hgt = buildingHeight(building.footprint!.map((p) => toXY(p.lat, p.lng)));
-      const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0, hgt);
+      const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0);
       const places = Array.from({ length: 10 ** (digits - 1) }, (_, i) => place(`p${i}`, { landmarkId: 'a' }));
       labels.draw(ctx, { ...view, k: 1 }, state({ landmarks: [building], places }), 0);
       const pill = 9 * 2 + 12 + 3 + textWidth * digits;
@@ -464,32 +463,27 @@ describe('labels Layer', () => {
     it('広げた丸薬の押下領域は、描いた丸薬の外では近いほうの地面の印に譲る', () => {
       const ctx = canvas();
       const building = landmark();
-      const hgt = buildingHeight(building.footprint!.map((p) => toXY(p.lat, p.lng)));
-      const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0, hgt);
-      // 丸薬(中心 (x, y))の右 20px 先に、地面の印(施設)を置く。丸薬の描いた幅は 40 なので x+20 が縁。
-      const facility = place('wc', { kind: 'wc', location: fromXY(0, 0) });
+      const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0);
+      // 丸薬(中心 (x, y))の右 20px 先に、地面の印(施設)を置く。丸薬の描いた幅は 43 なので x+21.9 は矩形の外。
+      const facility = place('wc', { kind: 'wc', location: fromXY(20, 0) });
       labels.draw(ctx, { ...view, k: 1 }, state({ landmarks: [building], places: [
         place('a', { landmarkId: 'a' }), facility,
       ] }), 0);
-      // 施設の印は地面 (200, 300)。丸薬は屋根の位置にある。
-      expect(labels.hitTest!(200, 300)).toEqual({ kind: 'place', id: 'wc' });
+      // 描いた丸薬の外では、近い施設の印を選べる。
+      expect(labels.hitTest!(x + 21.9, y)).toEqual({ kind: 'place', id: 'wc' });
       expect(labels.hitTest!(x, y)).toEqual({ kind: 'place', id: 'a' });
     });
 
     it('描いた丸薬の矩形の内側は、地面の印のほうが近くても丸薬を優先する', () => {
       const ctx = canvas();
       const building = landmark();
-      const hgt = buildingHeight(building.footprint!.map((p) => toXY(p.lat, p.lng)));
-      const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0, hgt);
+      const [x, y] = project({ ...view, k: 1 }, 400, 600, 0, 0);
       // 丸薬(幅 43・高さ 26)の中心から右へ 12px に地面の印を置く。
       // タップ点 (x + 10, y) は丸薬の中心から 10px、地面の印の中心から 2px(地面の印のほうが近い)。
       const v = { ...view, k: 1 };
-      const [, y0] = project(v, 400, 600, 0, 0);
-      const [, y1] = project(v, 400, 600, 0, 1);
-      const wy = (y - y0) / (y1 - y0); // 地面の y が丸薬の中心の y と同じになる世界座標
-      const wc = place('wc', { kind: 'wc', location: fromXY(12, wy) });
+      const wc = place('wc', { kind: 'wc', location: fromXY(12, 0) });
       labels.draw(ctx, v, state({ landmarks: [building], places: [place('a', { landmarkId: 'a' }), wc] }), 0);
-      const [gx, gy] = project(v, 400, 600, 12, wy);
+      const [gx, gy] = project(v, 400, 600, 12, 0);
       expect(gx).toBeCloseTo(x + 12, 5);
       expect(gy).toBeCloseTo(y, 5);
       // タップ点は丸薬の描いた矩形(半幅 21.5)の内側。地面の印のほうが近くても丸薬を返す。
