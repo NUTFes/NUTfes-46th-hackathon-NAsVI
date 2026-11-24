@@ -156,7 +156,7 @@ describe('stamps Layer', () => {
     expect(layer.hitTest).toBeUndefined();
   });
 
-  it('混雑を場所ごとに集計し、Figma の 14px の丸(数字なし)を場所の location に一度だけ描く', () => {
+  it('混雑を場所ごとに集計し、Figma の 14px の丸と、DS の数字を場所の location に一度だけ描く', () => {
     const { ctx, calls } = context();
     const venue = place();
     const input = state([stamp('congestion-1'), stamp('congestion-5')], [venue]);
@@ -173,7 +173,10 @@ describe('stamps Layer', () => {
       .toEqual([{ color: STAMP_TOKENS.congestion[3].color, opacity: 1 }]);
     expect(calls.stroke.mock.results.map(({ value }) => value))
       .toEqual([{ color: STAMP_TOKENS.congestionBorder.dark, opacity: 1 }]);
-    expect(calls.fillText).not.toHaveBeenCalled();
+    const [ax, ay] = [X, Y];
+    expect(calls.fillText).toHaveBeenCalledExactlyOnceWith('3', ax, ay + 0.5);
+    expect(calls.fillText.mock.results[0].value)
+      .toEqual({ color: STAMP_TOKENS.congestion[3].textColor, opacity: 1 });
     expect(calls.save).toHaveBeenCalledTimes(1);
     expect(calls.restore).toHaveBeenCalledTimes(1);
   });
@@ -208,6 +211,9 @@ describe('stamps Layer', () => {
         .toEqual({ color: STAMP_TOKENS.congestion[level].color, opacity: 1 });
       expect(calls.stroke.mock.results[0].value)
         .toEqual({ color: STAMP_TOKENS.congestionBorder[theme], opacity: 1 });
+      expect(calls.fillText.mock.calls[0][0]).toBe(String(level));
+      expect(calls.fillText.mock.results[0].value)
+        .toEqual({ color: STAMP_TOKENS.congestion[level].textColor, opacity: 1 });
     }
   });
 
@@ -310,6 +316,7 @@ describe('stamps Layer', () => {
     expect(aggregate).toHaveBeenCalledTimes(2);
     expect(active.calls.arc).toHaveBeenCalledTimes(1);
     expect(expired.calls.fill).not.toHaveBeenCalled();
+    expect(active.calls.fillText.mock.calls[0][0]).toBe('4');
     expect(expired.calls.fillText).not.toHaveBeenCalled();
     expect(expired.calls.stroke).not.toHaveBeenCalled();
   });

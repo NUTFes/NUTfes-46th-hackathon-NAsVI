@@ -189,6 +189,12 @@ function drawCluster(ctx: CanvasRenderingContext2D, c: Cluster, zoomed: boolean,
       ctx.arc(X, Y, CONGESTION_DOT / 2 - 0.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      // DS(StampMark.md「混雑は濃淡と数字」)に従い、段階の数字を丸の中に出す。14px の丸に収まる 10px の太字。
+      ctx.font = `700 10px ${PILL_FONT}`;
+      ctx.fillStyle = style.textColor;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(rep.level), X, Y + 0.5);
       if (more > 0) drawMore(ctx, `+${more}`, X + CONGESTION_DOT / 2 + 2, Y, th);
       return;
     }
