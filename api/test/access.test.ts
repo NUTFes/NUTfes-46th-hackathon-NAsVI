@@ -201,3 +201,47 @@ it('クールダウン後に未知の kid を受けたら JWKS を再取得し�
   expect((await actorRequest(await sign({}, otherKeys.privateKey, 'rotated-key'))).status).toBe(200);
   expect(globalThis.fetch).toHaveBeenCalledTimes(2);
 });
+
+function cookieRequest(token: string, headers: Record<string, string> = {}): Promise<Response> {
+  return Promise.resolve(actorApp.fetch(new Request('http://local/', {
+    headers: { Cookie: `other=1; CF_Authorization=${token}; x=y`, ...headers },
+  }), bindings()));
+}
+
+it('Cookie の JWT は、同一オリジンのリクエストなら検証して受け入れる', async () => {
+  const response = await cookieRequest(await sign({ email: 'cookie@example.test' }), { 'Sec-Fetch-Site': 'same-origin' });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ email: 'cookie@example.test' });
+});
+
+it.each([undefined, 'cross-site', 'same-site', 'none'])('Cookie の JWT は Sec-Fetch-Site=%s では 401', async site => {
+  const headers: Record<string, string> = site === undefined ? {} : { 'Sec-Fetch-Site': site };
+  await expectUnauthorized(await cookieRequest(await sign(), headers));
+  expect(globalThis.fetch).not.toHaveBeenCalled();
+});
+
+it('Cookie の JWT も、署名・aud・期限は同じように検証する', async () => {
+  const same = { 'Sec-Fetch-Site': 'same-origin' };
+  await expectUnauthorized(await cookieRequest(await sign({ aud: ['other-audience'] }), same));
+  await expectUnauthorized(await cookieRequest(await sign({}, otherKeys.privateKey), same));
+  await expectUnauthorized(await cookieRequest(await sign({ exp: Math.floor(Date.now() / 1000) - 60 }), same));
+  await expectUnauthorized(await cookieRequest('', same));
+});
+
+it('ヘッダーと Cookie の両方があるときは、ヘッダーを使う', async () => {
+  const response = await actorApp.fetch(new Request('http://local/', {
+    headers: {
+      'Cf-Access-Jwt-Assertion': await sign({ email: 'header@example.test' }),
+      Cookie: `CF_Authorization=${await sign({ email: 'cookie@example.test' })}`,
+      'Sec-Fetch-Site': 'same-origin',
+    },
+  }), bindings());
+  expect(await response.json()).toEqual({ email: 'header@example.test' });
+});
+
+it('ヘッダーが不正なときは、正当な Cookie があってもフォールバックせず 401', async () => {
+  await expectUnauthorized(await cookieRequest(await sign(), {
+    'Cf-Access-Jwt-Assertion': 'invalid',
+    'Sec-Fetch-Site': 'same-origin',
+  }));
+});
