@@ -1,3 +1,4 @@
+import tokens from '../../../../design-system/tokens.json';
 import { appColors } from '../../app/tokens';
 import { applyFilter } from '../../domain/filter';
 import { toXY } from '../../domain/geo';
@@ -32,10 +33,23 @@ export const mapColors = {
   'text-disabled': pick('text-disabled'),
 };
 
+// MapBackdrop(Figma 45:727)の建物の面と縁。ダークは ink-700 の塗り+violet-400 の縁。
+// ライトは白(bg-surface)の塗り+violet-400 の縁(ライトの縁色は Figma 画像から読み切れず仮)。
+// 専用の意味トークンがないため、パレットから直接引く。
+const palette = tokens.color.palette;
+export const planColors = {
+  fill: { dark: palette.ink['700'].$value.hex, light: lightColors['--app-bg-surface'].slice(0, 7) },
+  // 暫定: ライトの violet-400 は白に対し約 2.7:1。Figma から確定値が取れるまでの仮置き。
+  edge: { dark: palette.violet['400'].$value.hex, light: palette.violet['400'].$value.hex },
+};
+
+/** DOM の最寄りテーマ。未指定・不明・closest のない偽 canvas はダーク。 */
+export function themeOf(ctx: CanvasRenderingContext2D): 'dark' | 'light' {
+  return ctx.canvas.closest?.('[data-theme]')?.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+}
+
 export function resolveColors(ctx: CanvasRenderingContext2D) {
-  // DOM の最寄りテーマを使い、未指定・不明・closest のない偽 canvas はダークにする。
-  const theme = ctx.canvas.closest?.('[data-theme]')?.getAttribute('data-theme') === 'light'
-    ? 'light' : 'dark';
+  const theme = themeOf(ctx);
   return Object.fromEntries(
     Object.entries(mapColors).map(([name, value]) => [name, value[theme]]),
   ) as Record<keyof typeof mapColors, string>;
@@ -43,7 +57,7 @@ export function resolveColors(ctx: CanvasRenderingContext2D) {
 
 type Point2D = readonly [number, number];
 
-/** 平面座標(m)の輪郭から高さ(m)を求める。頂点の向きには依存しない。 */
+/** 平面座標(m)の輪郭から高さ(m)を求める。頂点の向きには依存しない。建物の描画には使わない(平面化)。labels の旗の位置が参照する。 */
 export function buildingHeight(points: ReadonlyArray<Point2D>): number {
   let A = 0;
   for (let i = 0; i < points.length; i++) {
@@ -259,6 +273,8 @@ const buildings: Layer = {
     buildingHits = [];
     const { width, height } = canvasSize(ctx);
     const colors = resolveColors(ctx);
+    const theme = themeOf(ctx);
+    const plan = { fill: planColors.fill[theme], edge: planColors.edge[theme] };
     // MapState には tagLinks がないため、labelIds のみ適用し tagIds は空として扱う。
     const shown = applyFilter(state.places, { labelIds: state.filter.labelIds, tagIds: [] });
     const destination = state.places.find((p) => p.id === state.destination?.placeId);
@@ -279,45 +295,29 @@ const buildings: Layer = {
           // 建物の位置に 1 つ出し、押下領域もそちらが持つ(ここで EventMark を重ねると二重になる)。
           continue;
         }
-        const hgt = buildingHeight(points);
-        const base = points.map(([x, y]) => project(view, width, height, x, y));
-        const top: Point2D[] = points.map(([x, y]) => {
-          const [px, py] = project(view, width, height, x, y, hgt);
+        // M23: 建物は地面(z=0)の平面図。壁・屋根・高さは描かない(回転 th は project で残る)。
+        const base: Point2D[] = points.map(([x, y]) => {
+          const [px, py] = project(view, width, height, x, y);
           return [px, py];
         });
-        const walls: Point2D[][] = [];
-        const fillColor = isDest ? colors.destination : isP ? colors.event : colors['bg-surface'];
-        ctx.strokeStyle = isDest ? colors['destination-border'] : isP ? colors.event : colors['border-subtle'];
-        ctx.fillStyle = fillColor;
-        for (let i = 0; i < base.length; i++) {
-          const j = (i + 1) % base.length;
-          walls.push([[base[i][0], base[i][1]], [base[j][0], base[j][1]], top[j], top[i]]);
-          ctx.beginPath();
-          ctx.moveTo(base[i][0], base[i][1]);
-          ctx.lineTo(base[j][0], base[j][1]);
-          ctx.lineTo(top[j][0], top[j][1]);
-          ctx.lineTo(top[i][0], top[i][1]);
-          ctx.closePath();
-          ctx.globalAlpha = isDest ? 0.45 : isP ? 0.4 : 0.36;
-          ctx.fill();
-          ctx.globalAlpha = isDest ? 1 : isP ? 0.85 : 0.55;
-          ctx.stroke();
-        }
+        const highlighted = isDest || isP;
+        ctx.fillStyle = isDest ? colors.destination : isP ? colors.event : plan.fill;
+        ctx.strokeStyle = isDest ? colors['destination-border'] : isP ? colors.event : plan.edge;
         ctx.beginPath();
-        top.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+        base.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
         ctx.closePath();
-        ctx.globalAlpha = isDest || isP ? 1 : 0.9;
+        ctx.globalAlpha = 1;
         ctx.fill();
-        ctx.globalAlpha = isDest ? 1 : isP ? 0.85 : 0.55;
+        ctx.globalAlpha = highlighted ? 1 : 0.9;
         ctx.stroke();
-        buildingHits.push({ id: landmark.id, polygons: [top, ...walls], markers: [] });
+        buildingHits.push({ id: landmark.id, polygons: [base], markers: [] });
       }
     } finally {
       ctx.restore();
     }
   },
   hitTest(x, y) {
-    // 描画順の逆(手前から)。屋根に加え、ベースと屋根を結ぶ壁の四角形も判定する。
+    // 描画順の逆(手前から)。平面の輪郭の内側と辺を判定する。
     for (let i = buildingHits.length - 1; i >= 0; i--) {
       const hit = buildingHits[i];
       if (hit.polygons.some((polygon) => pointInPolygon(x, y, polygon))
