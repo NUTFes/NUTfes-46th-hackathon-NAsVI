@@ -53,8 +53,11 @@ const actionLabel = computed(() => status.value === 'asking' ? '確認中…'
     <!-- 領域を常駐させ、asking → denied 等でも変更後の内容を通知する。 -->
     <div role="status" aria-live="polite" aria-atomic="true">
       <!-- 「地図で指定する」は wireframe.md の OQ-2 が未決のため実装しない。 -->
+      <h1 v-if="status !== 'granted'" class="sr-only">{{ headings[status] }}</h1>
+      <!-- 外側の role=status が通知を担う。Banner 既定の role=alert は上書きし、二重読み上げを避ける。 -->
       <Banner
         v-if="status !== 'granted'"
+        role="group"
         class="no-location__banner"
         :title="headings[status]"
         :body="body"
@@ -76,4 +79,5 @@ const actionLabel = computed(() => status.value === 'asking' ? '確認中…'
 /* 本文は段落ごとに改行して並べる（Banner の body は 1 つの文字列） */
 .no-location__banner :deep(.nv-banner__body) { white-space: pre-line; overflow-wrap: anywhere; }
 .no-location__banner :deep(.nv-banner__actions) { margin-top: var(--app-space-2); }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 </style>

@@ -45,6 +45,14 @@ afterEach(() => {
 });
 
 describe('NoLocationView', () => {
+  it('見出しは sr-only の h1 で、Banner は role=alert にならず live 領域は 1 つだけ', () => {
+    const wrapper = mount(NoLocationView);
+    expect(wrapper.get('h1').text()).toBe('現在地の利用を選べます');
+    expect(wrapper.get('h1').classes()).toContain('sr-only');
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.findAll('[role="status"]')).toHaveLength(1);
+  });
+
   it('Banner の見た目: idle は info、失敗は alert のアイコンで、ボタンは Banner の中に出る', async () => {
     const wrapper = mount(NoLocationView);
     expect(wrapper.get('.nv-banner').attributes('data-tone')).toBe('warning');
