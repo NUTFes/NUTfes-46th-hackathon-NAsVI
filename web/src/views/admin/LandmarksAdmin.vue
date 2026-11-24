@@ -7,8 +7,11 @@ import { adminTokens } from '../../admin/tokens';
 import DataTable, { type DataTableColumn } from '../../components/admin/DataTable.vue';
 import DeleteConfirm from '../../components/admin/DeleteConfirm.vue';
 import FormField from '../../components/admin/FormField.vue';
-import Button from '../../components/ui/Button.vue';
+import BuildingShapePreview from '../../components/admin/BuildingShapePreview.vue';
+import LocationPicker from '../../components/admin/LocationPicker.vue';
 import { toXY } from '../../domain/geo';
+import { getPickerBounds, inputToPoint, isPointInBounds, outlinePath, pointToLocation, type PickerPoint } from '../../components/admin/locationPickerGeometry';
+import Button from '../../components/ui/Button.vue';
 import { useLandmarksStore } from '../../stores/landmarks';
 import type { Landmark, Place } from '../../types';
 
@@ -293,6 +296,24 @@ function remove() {
 
 onMounted(load);
 onBeforeUnmount(() => controller?.abort());
+
+// 入力中の座標は範囲に含めず、配置操作で地図が動かないようにする。
+const pickerBounds = computed(() => {
+  const points = store.items.flatMap(item => [item.location, ...(item.footprint ?? [])]);
+  points.push(...places.value.map(item => item.location));
+  return getPickerBounds(points);
+});
+const pickerPoint = computed(() => inputToPoint(String(draft.lat), String(draft.lng), pickerBounds.value));
+const pickerOutOfRange = computed(() => pickerPoint.value !== null && !isPointInBounds(pickerPoint.value));
+const pickerValue = computed(() => pickerOutOfRange.value ? null : pickerPoint.value);
+const pickerOutlines = computed(() => store.items.map(item => outlinePath(item.footprint ?? [], pickerBounds.value)).filter(Boolean));
+function pickLocation(point: PickerPoint) {
+  const location = pointToLocation(point, pickerBounds.value);
+  draft.lat = String(location.lat);
+  draft.lng = String(location.lng);
+  clearFieldError('lat');
+  clearFieldError('lng');
+}
 </script>
 
 <template>
@@ -344,6 +365,7 @@ onBeforeUnmount(() => controller?.abort());
             <input id="landmark-name" v-model="draft.name" name="name" required
               :aria-invalid="fieldErrors.name ? 'true' : undefined" :aria-describedby="fieldErrors.name ? 'landmark-name-error' : undefined" @input="clearFieldError('name')" />
           </FormField>
+          <LocationPicker :value="pickerValue" :out-of-range="pickerOutOfRange" :outlines="pickerOutlines" :disabled="locked || !loaded" @change="pickLocation" />
           <FormField label="緯度" control-id="landmark-lat" :error="fieldErrors.lat" error-id="landmark-lat-error" alert>
             <input id="landmark-lat" v-model="draft.lat" name="lat" type="number" step="any" min="-90" max="90" required
               :aria-invalid="fieldErrors.lat || fieldErrors.location ? 'true' : undefined"
@@ -362,15 +384,11 @@ onBeforeUnmount(() => controller?.abort());
         <h3 id="landmark-shape-title">建物の形（確認用）</h3>
         <p>建物の形は OpenStreetMap から取得します。輪郭は編集できません。</p>
         <template v-if="selected">
-          <svg v-if="shape" class="shape-preview" :viewBox="shape.viewBox" role="img" :aria-label="`${selected.name}の建物の形（北が上）`">
-            <path :d="shape.d" />
-          </svg>
-          <p v-else class="missing">形なし（カメラの正面に出ない）。輪郭なしでも一覧・見取り図・建物の企画に使えます。必要なときに形を読み込み直せます。</p>
+          <BuildingShapePreview :shape="shape" :label="`${selected.name}の建物の形（北が上）`" :disabled="locked" @reload="reloadFootprint" />
+          <p v-if="!shape">輪郭なしでも一覧・見取り図・建物の企画に使えます。必要なときに形を読み込み直せます。</p>
           <p>保存済みの位置で形を取得します。位置を変えたら先に更新してください。</p>
-          <Button variant="secondary" label="形を読み込み直す" :disabled="locked" @press="reloadFootprint" />
         </template>
         <p v-else>建物の登録後に形を確認できます。</p>
-        <p class="attribution">© OpenStreetMap contributors（ODbL）</p>
       </section>
       <Button v-if="selected" ref="deleteButton" variant="danger" label="建物を削除" :disabled="locked" @press="askDelete" />
       <dialog v-if="confirmingDelete && selected" ref="deleteDialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-effects" tabindex="-1" class="delete-dialog" @keydown="handleDeleteKeydown" @cancel.prevent="cancelDelete">
@@ -399,9 +417,6 @@ a { color: var(--admin-action); }
 a:focus-visible, h3[tabindex]:focus { outline: solid var(--admin-action); outline-offset: var(--admin-space-xs); }
 .field-error { color: var(--admin-danger-text); font-weight: var(--admin-bold); }
 .missing { color: var(--admin-muted); }
-.shape-preview { box-sizing: border-box; width: 100%; aspect-ratio: 2; padding: var(--admin-space-lg); border: thin solid var(--admin-border); border-radius: var(--admin-radius); background: var(--admin-surface); }
-.shape-preview path { fill: var(--admin-selected); stroke: var(--admin-action); vector-effect: non-scaling-stroke; }
-.attribution { color: var(--admin-muted); }
 .delete-dialog { box-sizing: border-box; width: min(100%, 32rem); padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
 .delete-dialog[open] { display: block; }
 .delete-dialog::backdrop { background: var(--admin-selected); }
