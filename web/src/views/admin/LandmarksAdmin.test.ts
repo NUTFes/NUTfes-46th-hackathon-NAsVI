@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
@@ -25,6 +25,14 @@ const floor = {
   floor: 1, plan: { viewBox: '0 0 10 10', d: 'M0 0 H10 V10 Z' },
   bounds: { north: 37.426, south: 37.425, east: 138.779, west: 138.778 },
 };
+
+beforeAll(async () => {
+  // 全件並列実行時も、管理画面の初回変換を最初の操作テストの5秒に含めない。
+  await Promise.all([
+    import('./AdminLayout.vue'),
+    import('./LandmarksAdmin.vue'),
+  ]);
+}, 30_000);
 
 beforeEach(() => {
   fetchMock.mockReset();
