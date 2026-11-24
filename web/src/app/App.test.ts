@@ -260,6 +260,16 @@ describe('来場者のテーマとタブ', () => {
     expect(color()).toBe('#130a22');
   });
 
+  it('ライトのとき、地図の層が読む closest(\'[data-theme]\') が light を返す', async () => {
+    const change = media();
+    app = await appHarness('/');
+    const map = app.wrapper.get<HTMLElement>('.map-view').element;
+    expect(map.closest('[data-theme]')?.getAttribute('data-theme')).toBe('dark');
+    change(true);
+    await flushPromises();
+    expect(map.closest('[data-theme]')?.getAttribute('data-theme')).toBe('light');
+  });
+
   it('admin には属性を書かず、来場者との往復でも現在の OS 設定を使う', async () => {
     const change = media();
     app = await appHarness('/admin');
