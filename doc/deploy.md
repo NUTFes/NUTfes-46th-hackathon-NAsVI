@@ -172,10 +172,23 @@ env -i PATH="$PATH" COREPACK_ENABLE_NETWORK=0 WRANGLER_SEND_METRICS=false CI=tru
 
 1. GitHub Settings の Environments で `preview` / `production` を用意し、上記の Deployment branches と Required reviewers を設定する。
 2. Cloudflare で環境ごとに別の最小権限トークンを用意し、それぞれの Environment secret `CLOUDFLARE_API_TOKEN` に登録する。Repository secret への保存は不可。既存 secret の値は取得・表示せず、新しいトークンで移行する。
-3. 非秘密の比較台帳として Repository variables に、接頭辞 `PREVIEW_` / `PRODUCTION_` を付けた `PAGES_PROJECT`・`SITE_HOST`・`D1_DATABASE_ID` の計6個を登録する。対応する Environment variables と一致させる。環境間では3項目すべて別の値が必須。Environment に比較台帳の同名変数を作らない。
-4. 両 Environment の secret と変数を確認後、旧 Repository secret `CLOUDFLARE_API_TOKEN` を削除し、旧共用トークンを失効させる。Repository secret が残ると Environment secret の欠落時にフォールバックするため、削除は必須。preview の手動検証後、本番は Required reviewers の承認を経て実行する。
+3. 両 Environment の secret と変数を確認後、旧 Repository secret `CLOUDFLARE_API_TOKEN` を削除し、旧共用トークンを失効させる。Repository secret が残ると Environment secret の欠落時にフォールバックするため、削除は必須。preview の手動検証後、本番は Required reviewers の承認を経て実行する。
 
-workflow は台帳の空値・環境間重複・選択先 Environment との不一致で停止し、値は表示しない。Pages は両環境とも `--branch main` で配信するため、同じプロジェクトを指定すると本番を上書きし得る。トークンとアカウント ID は Wrangler の3ステップだけに渡し、install・型検査・テスト・ビルドには渡さない。
+トークンとアカウント ID は Wrangler の3ステップだけに渡し、install・型検査・テスト・ビルドには渡さない。
+
+### 環境間の取り違えへの備え
+
+各 Environment（`preview`・`production`）に、別々の `PAGES_PROJECT`・`SITE_HOST`・`D1_DATABASE_ID`・`ACCESS_AUD` などを登録する。Environment の変数は Environment ごとに分かれる。production のジョブは Required reviewers の承認を必須にする。
+
+Pages は `--branch main` 固定なので、preview の `PAGES_PROJECT` に本番の値を誤って入れると、本番 Pages を上書きする。重複検査を外したため、この誤設定は workflow では検出されない。
+
+実行前チェックリストとして、Environment の変数を登録・変更するときに、人が次を確認する。
+
+- [ ] `PAGES_PROJECT` が preview と production で異なる。
+- [ ] `SITE_HOST` が preview と production で異なる。
+- [ ] `D1_DATABASE_ID` が preview と production で異なる。
+- [ ] `ACCESS_AUD` など、環境ごとに分離する他の設定値も preview と production で異なる。
+- [ ] production の Required reviewers が設定され、本番ジョブの実行に承認が必須になっている。
 
 本番 D1 の適用直前に UTC の復旧時刻を `date -u` でログに記録する。障害時は [D1 のロールバック](#d1-のロールバック人が実施d1-time-travel-前提) を参照する。この時刻の記録はバックアップ作成や復元可能期間の保証ではない。
 
