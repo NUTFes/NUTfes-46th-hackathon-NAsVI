@@ -436,9 +436,33 @@ decisions:
       API 設計の台帳 API-12 で確定済み(2026-11-22 sabo10p、認証の方法は 2026-11-23 に利用者が Cloudflare Access に変更)。
       概念設計の側の記録(OQ-1)が open のまま残っていたので、ここで揃えた。新しい判断ではない。
       画面設計(screens.yaml)に企画・出店向けの画面がなく、運営の画面は op_places と op_landmarks の 2 つだけ。
-      運営の画面と管理系の API を Cloudflare Access で守り、Access を通った人を「場所を管理できる実行者」とみなす。
+      Access を通った人を「場所を管理できる実行者」とみなす。保護範囲と API の JWT 検証は D-034 で具体化した。
       ロール表も所有表も、Place の持ち主の状態も要らない。
       捨てた案 B・C は、出展者が自分の企画を編集する画面を作ることになったときに見直す(前提が崩れる条件)。
       そのときは、Place に持ち主の状態を足し、where の「場所を管理できる」を、管理者か、持ち主の出展者、に変える(api/roadmap.md の展望 1・2)。
     status: resolved
     derived_from: OQ-1、API-12、api/roadmap.md、screens.yaml(op_places・op_landmarks・O1)
+
+
+  - id: D-034
+    problem: Cloudflare Access の保護範囲と、運営の更新系 API の認可をどうするか(issue #165)
+    options:
+      - 案 B。運営専用パス /api/admin/... に分離し、Access で守る
+      - 案 C。運営用の別ホストを設け、Access で守る
+      - 案 D。Access は画面 /admin/* に掛け、API は requireOperator がヘッダーまたは Cookie の JWT を検証する
+    adopted: >-
+      案 D。Cf-Access-Jwt-Assertion ヘッダーを優先し、不正な JWT のときは Cookie にフォールバックしない。
+      ヘッダーがない場合だけ Cookie の CF_Authorization を読み、CSRF 対策として Sec-Fetch-Site: same-origin のときだけ受け入れる(欠落時も拒否)。
+      署名・iss・aud・exp はヘッダーと同じ処理で検証する。web と API は同一オリジンで配信する。
+    reason: >-
+      2026-11-24 の issue #165 の決定。PR #212(api/src/middleware/access.ts)の実装に基づく。
+      運営の更新系 API(POST/PATCH/PUT/DELETE)は来場者の読み取りと同じパスにあり、Access の保護をパスで分けられない。
+      B は OpenAPI と全実装の破壊的変更になり、C は別オリジンで CORS・Cookie の扱いが増える。
+      B・C を推すレビューもあったが、変更が最小で試験環境で動いた D をまず採る。
+      具体構成(Worker の assets / Pages Functions / route)は試験環境 nasvi-preview の配信に合わせる。
+      wrangler.jsonc と doc/deploy.md への反映は別 PR とする。
+      未確認: Access 設定後に管理画面から実際に書き込めるか、Access Cookie の SameSite 属性(公式ドキュメントで未確認)。
+      前提(崩れたら見直す条件): web と API が別オリジンになると Sec-Fetch-Site が same-origin にならず、Cookie 経由の運営の書き込みは全て 401 になる。
+      運営端末は最近のブラウザを前提とし、Sec-Fetch-Site を送らない古いブラウザへの対応が必要になった場合や、実書き込みで Cookie が届かない場合も見直す。
+    status: resolved
+    derived_from: OQ-20、D-033、issue #165(2026-11-24)、PR #212(api/src/middleware/access.ts)
